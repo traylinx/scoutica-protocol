@@ -3,7 +3,10 @@
 <p align="center">
   <img src="assets/logo.png" alt="Scoutica Protocol Logo" width="250" />
 </p>
-> **LinkedIn charges employers $10,000/year for YOUR data. You get $0. We flip this: you own your skill card, employers pay YOU to view it, and AI agents do the matching — transparently, verifiably, without bias.**
+> **LinkedIn charges employers $10,000/year for YOUR data. You get $0. We're building the alternative: you own your skill card, AI agents do the matching — transparently, verifiably, without bias.**
+
+> [!NOTE]
+> **Current status:** The protocol, CLI, schemas, and AI-powered card generation are **live and ready to use today**. The monetization layer (micropayments, blockchain identity, $SKILL token) is on the **roadmap** and under active development.
 
 ---
 
@@ -60,17 +63,27 @@ scoutica-protocol/
 
 ## How the Network Works
 
+**Today (V1 — Live):**
+
 ```text
-1. Candidate clones this repo → fills in their own SKILL.md + profile data
-2. Pushes their skill card to their GitHub repo
-3. Registers on the network: npx skills register <their-repo-url>
-4. Employer's AI agent finds them: npx skills find "Senior AI Engineer"
-5. Agent scores fit using Zone 1 (free) data
-6. Employer pays $0.05 to unlock Zone 2 (full profile) → goes to candidate
-7. Match confirmed → candidate approves Zone 3 handoff (contact info)
+1. Candidate installs the CLI or uses any AI assistant
+2. Generates their Skill Card (profile + evidence + rules)
+3. Pushes their card to their own GitHub repo
+4. Employer's AI agent discovers and scores the card locally
+5. Match confirmed → candidate shares contact info directly
 ```
 
-**Cost to hire:** ~$4 total · **LinkedIn Recruiter:** ~$10,000/year · **Agency:** ~$15,000–$30,000/hire
+**Future Vision (V2+ — Roadmap):**
+
+```text
+1. Candidate registers on the decentralized network
+2. Employer's agent finds them: npx skills find "Senior AI Engineer"
+3. Agent scores fit using Zone 1 (free) data
+4. Employer pays ~$0.05 to unlock Zone 2 (full profile) → goes to candidate
+5. Match confirmed → candidate approves Zone 3 handoff (contact info)
+```
+
+**Target cost to hire:** ~$4 total · **LinkedIn Recruiter:** ~$10,000/year · **Agency:** ~$15,000–$30,000/hire
 
 ---
 
@@ -213,15 +226,15 @@ python tools/validate_card.py ./my-card/
 
 ## Key Decisions
 
-| Decision | Choice |
-|----------|--------|
-| **Format** | Pure Markdown + JSON + YAML — no runtime needed |
-| **Distribution** | skills.sh + GitHub (Phase 1) → Federated registries (Phase 2) |
-| **Matching** | Agent-side (decentralized, each agent scores locally) |
-| **Identity** | Soulbound Tokens on Base L2 (primary), Polygon (fallback) |
-| **Payment** | Stripe credits (V1) → On-chain micro-fees (V2) → $SKILL token (V3) |
-| **Compliance** | EU AI Act High-Risk compliant by design |
-| **Anti-bias** | No demographic fields in schema |
+| Decision | Choice | Status |
+|----------|--------|--------|
+| **Format** | Pure Markdown + JSON + YAML — no runtime needed | ✅ Live |
+| **Distribution** | GitHub (Phase 1) → Federated registries (Phase 2) | ✅ Phase 1 Live |
+| **Matching** | Agent-side (decentralized, each agent scores locally) | ✅ Live |
+| **Identity** | Soulbound Tokens on Base L2 (primary), Polygon (fallback) | 🔜 Roadmap |
+| **Payment** | Stripe credits (V1) → On-chain micro-fees (V2) → $SKILL token (V3) | 🔜 Roadmap |
+| **Compliance** | EU AI Act High-Risk compliant by design | ✅ Live |
+| **Anti-bias** | No demographic fields in schema | ✅ Live |
 
 ---
 
