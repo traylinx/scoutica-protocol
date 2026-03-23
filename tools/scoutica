@@ -1,0 +1,1710 @@
+#!/usr/bin/env bash
+# ============================================================================
+# Scoutica CLI — Your Skills. Your Rules. Your Data.
+#
+# Commands:
+#   scoutica init          Interactive wizard to create your Skill Card
+#   scoutica init --ai     Generate card using AI (paste GENERATE_MY_CARD.md)
+#   scoutica validate      Validate your card against protocol schemas
+#   scoutica publish       Push your card to GitHub
+#   scoutica update        Re-run wizard to update existing card
+#   scoutica info          Show card summary
+#   scoutica help          Show this help
+# ============================================================================
+
+set -euo pipefail
+
+VERSION="0.1.0"
+SCOUTICA_HOME="${SCOUTICA_HOME:-$HOME/.scoutica}"
+SCHEMAS_DIR="$SCOUTICA_HOME/schemas"
+TEMPLATES_DIR="$SCOUTICA_HOME/templates"
+
+# Colors
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+CYAN='\033[0;36m'
+MAGENTA='\033[0;35m'
+BOLD='\033[1m'
+DIM='\033[2m'
+NC='\033[0m'
+
+# ─── Helpers ──────────────────────────────────────────────────────────────────
+
+header() {
+    echo ""
+    echo -e "${CYAN}╔═══════════════════════════════════════════════════════╗${NC}"
+    echo -e "${CYAN}║${BOLD}   ⚡ Scoutica — $1${NC}"
+    echo -e "${CYAN}╚═══════════════════════════════════════════════════════╝${NC}"
+    echo ""
+}
+
+ask() {
+    local prompt="$1"
+    local default="${2:-}"
+    local result=""
+    
+    if [ -n "$default" ]; then
+        echo -ne "  ${BOLD}$prompt${NC} ${DIM}[$default]${NC}: " >&2
+        read -r result
+        echo "${result:-$default}"
+    else
+        echo -ne "  ${BOLD}$prompt${NC}: " >&2
+        read -r result
+        echo "$result"
+    fi
+}
+
+ask_list() {
+    local prompt="$1"
+    local hint="${2:-comma-separated}"
+    echo -ne "  ${BOLD}$prompt${NC} ${DIM}($hint)${NC}: " >&2
+    read -r result
+    echo "$result"
+}
+
+ask_choice() {
+    local prompt="$1"
+    shift
+    local options=("$@")
+    
+    echo -e "  ${BOLD}$prompt${NC}" >&2
+    for i in "${!options[@]}"; do
+        echo -e "    ${CYAN}$((i+1)))${NC} ${options[$i]}" >&2
+    done
+    while true; do
+        echo -ne "  ${BOLD}Choose${NC} ${DIM}[1-${#options[@]}]${NC}: " >&2
+        read -r choice
+        if [[ "$choice" =~ ^[0-9]+$ ]] && [ "$choice" -ge 1 ] && [ "$choice" -le "${#options[@]}" ]; then
+            echo "${options[$((choice-1))]}"
+            return
+        fi
+        echo -e "  ${YELLOW}Invalid choice. Try again.${NC}" >&2
+    done
+}
+
+confirm() {
+    local prompt="$1"
+    echo -ne "  ${BOLD}$prompt${NC} ${DIM}[y/N]${NC}: "
+    read -r answer
+    [[ "$answer" =~ ^[Yy] ]]
+}
+
+success() {
+    echo -e "  ${GREEN}✅ $1${NC}"
+}
+
+warn() {
+    echo -e "  ${YELLOW}⚠️  $1${NC}"
+}
+
+error() {
+    echo -e "  ${RED}❌ $1${NC}"
+}
+
+# Convert comma-separated string to JSON array (safely escaped)
+to_json_array() {
+    local input="$1"
+    python3 -c "
+import json, sys
+items = [s.strip() for s in sys.argv[1].split(',') if s.strip()]
+print(json.dumps(items))
+" "$input"
+}
+
+# Convert comma-separated string to YAML list
+to_yaml_list() {
+    local input="$1"
+    local indent="${2:-    }"
+    
+    IFS=',' read -ra items <<< "$input"
+    for item in "${items[@]}"; do
+        item=$(echo "$item" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+        if [ -n "$item" ]; then
+            echo "${indent}- \"$item\""
+        fi
+    done
+}
+
+# ─── INIT Command ─────────────────────────────────────────────────────────────
+
+cmd_init() {
+    local target_dir="${1:-.}"
+    local use_ai=false
+    
+    # Parse flags
+    for arg in "$@"; do
+        case "$arg" in
+            --ai) use_ai=true ;;
+            *) target_dir="$arg" ;;
+        esac
+    done
+    
+    if $use_ai; then
+        cmd_init_ai "$target_dir"
+        return
+    fi
+    
+    header "Create Your Skill Card"
+    
+    echo -e "  ${DIM}Answer the questions below to generate your Scoutica Skill Card.${NC}"
+    echo -e "  ${DIM}Press Enter to skip optional fields or accept defaults.${NC}"
+    echo ""
+    
+    # ── Section 1: Identity ──
+    echo -e "  ${MAGENTA}━━━ 👤 Identity ━━━${NC}"
+    echo ""
+    local name=$(ask "Your professional name")
+    local title=$(ask "Professional title" "Software Engineer")
+    
+    local seniority=$(ask_choice "Seniority level" \
+        "entry" "junior" "mid" "senior" "lead" "manager" "director" "executive")
+    
+    local years=$(ask "Years of experience" "5")
+    
+    local availability=$(ask_choice "Availability" \
+        "immediately" "in_2_weeks" "in_4_weeks" "in_8_weeks" "not_looking")
+    
+    echo ""
+    
+    # ── Section 2: Skills ──
+    echo -e "  ${MAGENTA}━━━ 🛠️  Skills & Expertise ━━━${NC}"
+    echo ""
+    local domains=$(ask_list "Primary domains" "e.g. Backend Engineering, DevOps")
+    local skills=$(ask_list "Key skills" "e.g. Python, Leadership, SQL")
+    local tools=$(ask_list "Tools & platforms" "e.g. Docker, AWS, Figma")
+    local certs=$(ask_list "Certifications" "optional, e.g. AWS SA, PMP")
+    local specializations=$(ask_list "Specializations" "optional, e.g. Event-Driven Arch")
+    
+    echo ""
+    
+    # ── Section 3: Languages ──
+    echo -e "  ${MAGENTA}━━━ 🌍 Languages ━━━${NC}"
+    echo ""
+    local languages_json="["
+    local lang_first=true
+    while true; do
+        local lang=$(ask "Language" "")
+        if [ -z "$lang" ]; then break; fi
+        local level=$(ask_choice "Level for $lang" "native" "fluent" "professional" "basic")
+        if ! $lang_first; then languages_json+=", "; fi
+        languages_json+="{\"language\": \"$lang\", \"level\": \"$level\"}"
+        lang_first=false
+        if ! confirm "Add another language?"; then break; fi
+    done
+    languages_json+="]"
+    
+    echo ""
+    
+    # ── Section 4: Summary ──
+    echo -e "  ${MAGENTA}━━━ 📝 Summary ━━━${NC}"
+    echo ""
+    local education=$(ask "Education" "")
+    local summary=$(ask "Professional summary (2-3 sentences)" "")
+    
+    echo ""
+    
+    # ── Section 5: Rules of Engagement ──
+    echo -e "  ${MAGENTA}━━━ 📋 Rules of Engagement ━━━${NC}"
+    echo ""
+    echo -e "  ${DIM}These rules tell AI agents what opportunities to accept or reject.${NC}"
+    echo ""
+    
+    # Engagement types
+    local engagement_types=""
+    local eng_items=("permanent" "contract" "fractional" "advisory" "internship")
+    echo -e "  ${BOLD}Which engagement types do you accept?${NC}"
+    for etype in "${eng_items[@]}"; do
+        if confirm "  Accept $etype?"; then
+            if [ -n "$engagement_types" ]; then engagement_types+=","; fi
+            engagement_types+="$etype"
+        fi
+    done
+    
+    echo ""
+    
+    # Compensation
+    local comp_permanent="" comp_contract="" comp_advisory=""
+    echo -e "  ${BOLD}Minimum compensation (EUR, or 'negotiable'):${NC}"
+    if [[ "$engagement_types" == *"permanent"* ]]; then
+        comp_permanent=$(ask "  Annual salary minimum" "negotiable")
+    fi
+    if [[ "$engagement_types" == *"contract"* ]]; then
+        comp_contract=$(ask "  Daily rate minimum" "negotiable")
+    fi
+    if [[ "$engagement_types" == *"advisory"* ]]; then
+        comp_advisory=$(ask "  Hourly rate minimum" "negotiable")
+    fi
+    
+    echo ""
+    
+    # Remote policy
+    local remote_policy=$(ask_choice "Remote policy" \
+        "remote_only" "hybrid" "flexible" "on_site")
+    
+    local hybrid_locations=""
+    if [ "$remote_policy" = "hybrid" ]; then
+        hybrid_locations=$(ask_list "Hybrid locations" "e.g. Berlin, New York")
+    fi
+    
+    echo ""
+    
+    # Filters
+    local blocked=$(ask_list "Blocked industries" "optional, e.g. gambling, weapons")
+    local preferred_stack=$(ask_list "Preferred tech/skill keywords" "for matching, e.g. Python, React")
+    local stack_min=$(ask "Min keyword matches before soft-reject" "3")
+    
+    echo ""
+    
+    # ── Section 6: Evidence ──
+    echo -e "  ${MAGENTA}━━━ 🔗 Public Evidence ━━━${NC}"
+    echo ""
+    echo -e "  ${DIM}Add links to public work that proves your skills.${NC}"
+    echo ""
+    
+    local evidence_items="[]"
+    local ev_entries=()
+    while true; do
+        if ! confirm "Add an evidence item?"; then break; fi
+        
+        local ev_type=$(ask_choice "Type" \
+            "github_repo" "website" "portfolio" "certificate" "article" \
+            "review" "case_study" "publication" "video" "other")
+        local ev_title=$(ask "Title")
+        local ev_url=$(ask "URL")
+        local ev_desc=$(ask "What does this prove?")
+        local ev_skills=$(ask_list "Skills demonstrated" "comma-separated")
+        
+        # Store as tab-delimited entry (safe — no JSON escaping needed here)
+        ev_entries+=("${ev_type}	${ev_title}	${ev_url}	${ev_desc}	${ev_skills}")
+        echo ""
+    done
+    
+    echo ""
+    
+    # ── Generate Files ──
+    header "Generating Your Skill Card"
+    
+    mkdir -p "$target_dir/rules"
+    
+    # ── Symlink protection ──
+    for f in profile.json rules.yaml evidence.json SKILL.md; do
+        if [ -L "$target_dir/$f" ]; then
+            error "Refusing to overwrite symlink: $target_dir/$f"
+            exit 1
+        fi
+    done
+    
+    # ── Generate all files safely via Python ──
+    # Build evidence entries as newline-separated, tab-delimited lines
+    local ev_lines=""
+    for entry in "${ev_entries[@]}"; do
+        ev_lines+="${entry}"$'\n'
+    done
+    
+    python3 << 'GENERATE_SCRIPT' - \
+        "$target_dir" \
+        "$name" "$title" "$seniority" "$years" "$availability" \
+        "$domains" "$skills" "$tools" "$certs" "$specializations" \
+        "$languages_json" "$education" "$summary" \
+        "$engagement_types" "$comp_permanent" "$comp_contract" "$comp_advisory" \
+        "$remote_policy" "$hybrid_locations" \
+        "$blocked" "$preferred_stack" "$stack_min" \
+        "$ev_lines"
+import json, sys, os, re
+
+args = sys.argv[1:]
+target_dir = args[0]
+name, title, seniority, years_str, availability = args[1:6]
+domains_csv, skills_csv, tools_csv, certs_csv, specs_csv = args[6:11]
+languages_json_str, education, summary = args[11:14]
+engagement_csv, comp_perm, comp_contract, comp_advisory = args[14:18]
+remote_policy, hybrid_csv = args[18:20]
+blocked_csv, preferred_csv, stack_min_str = args[20:23]
+ev_lines_raw = args[23] if len(args) > 23 else ""
+
+def csv_to_list(s):
+    return [x.strip() for x in s.split(',') if x.strip()] if s else []
+
+def safe_int(s, default=0):
+    try: return int(s)
+    except: return default
+
+# ── profile.json ──
+try:
+    langs = json.loads(languages_json_str) if languages_json_str.strip() else []
+except:
+    langs = []
+
+profile = {
+    "schema_version": "0.1.0",
+    "name": name,
+    "title": title,
+    "seniority": seniority,
+    "years_experience": safe_int(years_str, 5),
+    "availability": availability,
+    "primary_domains": csv_to_list(domains_csv),
+    "skills": csv_to_list(skills_csv),
+    "tools_and_platforms": csv_to_list(tools_csv),
+    "certifications_and_licenses": csv_to_list(certs_csv),
+    "specializations": csv_to_list(specs_csv),
+    "spoken_languages": langs,
+    "education": education,
+    "summary": summary
+}
+
+with open(os.path.join(target_dir, "profile.json"), "w") as f:
+    json.dump(profile, f, indent=2, ensure_ascii=False)
+    f.write("\n")
+print("  ✅ Created profile.json")
+
+# ── rules.yaml ──
+# Build rules as a dict, write with yaml or manual safe format
+rules = {"schema_version": "0.1.0"}
+engagement = {"allowed_types": csv_to_list(engagement_csv)}
+comp = {}
+for key, val in [("permanent", comp_perm), ("contract", comp_contract), ("advisory", comp_advisory)]:
+    if val:
+        try: comp[key] = int(val)
+        except: comp[key] = val
+if comp:
+    engagement["compensation"] = {"minimum_base_eur": comp}
+rules["engagement"] = engagement
+rules["remote"] = {
+    "policy": remote_policy,
+    "hybrid_locations": csv_to_list(hybrid_csv)
+}
+rules["filters"] = {
+    "blocked_industries": csv_to_list(blocked_csv),
+    "stack_keywords": {"preferred": csv_to_list(preferred_csv)},
+    "soft_reject": {"weak_stack_overlap_below": safe_int(stack_min_str, 3)}
+}
+rules["privacy"] = {
+    "zone_1_public": ["title", "seniority", "primary_domains", "availability"],
+    "zone_2_paid": ["full_profile", "evidence", "experience_details"],
+    "zone_3_private": ["email", "phone", "exact_salary"]
+}
+
+try:
+    import yaml
+    with open(os.path.join(target_dir, "rules.yaml"), "w") as f:
+        yaml.dump(rules, f, default_flow_style=False, allow_unicode=True, sort_keys=False)
+    print("  ✅ Created rules.yaml")
+except ImportError:
+    with open(os.path.join(target_dir, "rules.yaml"), "w") as f:
+        json.dump(rules, f, indent=2, ensure_ascii=False)
+        f.write("\n")
+    print("  ✅ Created rules.yaml (as JSON — install pyyaml for proper YAML)")
+
+# ── evidence.json ──
+evidence_items = []
+if ev_lines_raw.strip():
+    for line in ev_lines_raw.strip().split('\n'):
+        parts = line.split('\t')
+        if len(parts) >= 5:
+            evidence_items.append({
+                "type": parts[0],
+                "title": parts[1],
+                "url": parts[2],
+                "description": parts[3],
+                "skills_demonstrated": csv_to_list(parts[4])
+            })
+
+evidence = {"schema_version": "0.1.0", "items": evidence_items}
+with open(os.path.join(target_dir, "evidence.json"), "w") as f:
+    json.dump(evidence, f, indent=2, ensure_ascii=False)
+    f.write("\n")
+print("  ✅ Created evidence.json")
+
+# ── SKILL.md ──
+tags = ", ".join(csv_to_list(skills_csv)).lower()
+skill_md = f"""---
+name: scoutica
+description: {name} — AI-readable professional profile with automated opportunity filtering
+metadata:
+  tags: {tags}
+  author: {name}
+  version: 0.1.0
+---
+
+# Scoutica
+
+This skill provides an AI-readable professional profile for **{name}** — {title}.
+
+It allows any AI agent to:
+- Understand this candidate's capabilities and experience
+- Evaluate fit against a role or opportunity
+- Check whether an opportunity meets the candidate's policies
+- Access public evidence of work
+- Request an interview handoff if the opportunity passes all checks
+
+## Data Files
+
+- [profile.json](./profile.json) — Structured capabilities, tools, certifications, and experience
+- [rules.yaml](./rules.yaml) — Rules of Engagement: salary floors, remote policy, auto-reject rules
+- [evidence.json](./evidence.json) — Public evidence registry with verification links
+
+## Evaluation Rules
+
+- [evaluate-fit.md](./rules/evaluate-fit.md) — How to score capability match
+- [negotiate-terms.md](./rules/negotiate-terms.md) — How to check policy compliance
+- [verify-evidence.md](./rules/verify-evidence.md) — How to verify public work
+- [request-interview.md](./rules/request-interview.md) — When to initiate human handoff
+
+## Quick Start
+
+### "Is this a fit?"
+1. Read `profile.json` → understand capabilities
+2. Read `rules.yaml` → understand policies
+3. Score match → check terms → return ACCEPT / SOFT_REJECT / REJECT
+
+## Important Rules
+1. Never fabricate capabilities. Only report what is in `profile.json`.
+2. Respect the Rules of Engagement. If `rules.yaml` says REJECT, do not override.
+3. Progressive disclosure. Return the summary first. Only share full details if asked.
+4. Candidate sovereignty. This profile serves the candidate, not the employer.
+5. No PII leakage. Do not share email or phone unless ACCEPT status is reached.
+"""
+
+with open(os.path.join(target_dir, "SKILL.md"), "w") as f:
+    f.write(skill_md)
+print("  ✅ Created SKILL.md")
+GENERATE_SCRIPT
+    
+    # --- Copy rule templates ---
+    if [ -d "$TEMPLATES_DIR/rules" ]; then
+        cp "$TEMPLATES_DIR/rules/"*.md "$target_dir/rules/" 2>/dev/null || true
+        success "Copied evaluation rule templates"
+    else
+        warn "Rule templates not found — run 'scoutica init' from an installed CLI"
+    fi
+    
+    # --- Copy card .gitignore ---
+    if [ ! -f "$target_dir/.gitignore" ]; then
+        local gi_src=""
+        if [ -f "$TEMPLATES_DIR/card.gitignore" ]; then
+            gi_src="$TEMPLATES_DIR/card.gitignore"
+        elif [ -f "$script_dir/../protocol/templates/card.gitignore" ]; then
+            gi_src="$script_dir/../protocol/templates/card.gitignore"
+        fi
+        if [ -n "$gi_src" ]; then
+            cp "$gi_src" "$target_dir/.gitignore"
+            success "Created .gitignore (protects secrets from accidental commits)"
+        fi
+    fi
+    
+    echo ""
+    echo -e "${GREEN}╔═══════════════════════════════════════════════════════╗${NC}"
+    echo -e "${GREEN}║                                                       ║${NC}"
+    echo -e "${GREEN}║   🎉 Your Scoutica Skill Card is ready!              ║${NC}"
+    echo -e "${GREEN}║                                                       ║${NC}"
+    echo -e "${GREEN}╚═══════════════════════════════════════════════════════╝${NC}"
+    echo ""
+    echo -e "  ${BOLD}Files created in:${NC} $target_dir/"
+    echo ""
+    echo -e "  ${CYAN}scoutica validate${NC}   Check your card for errors"
+    echo -e "  ${CYAN}scoutica publish${NC}    Push to GitHub"
+    echo -e "  ${CYAN}scoutica info${NC}       View your card summary"
+    echo ""
+}
+
+# ─── INIT --AI Command ───────────────────────────────────────────────────────
+
+cmd_init_ai() {
+    local target_dir="${1:-.}"
+    
+    header "AI-Powered Card Creation"
+    
+    echo -e "  The easiest way to create your card with AI:"
+    echo ""
+    echo -e "  ${BOLD}1.${NC} Copy the contents of this file:"
+    echo -e "     ${CYAN}$SCOUTICA_HOME/GENERATE_MY_CARD.md${NC}"
+    echo ""
+    echo -e "  ${BOLD}2.${NC} Paste it into any AI assistant:"
+    echo -e "     ${DIM}ChatGPT, Claude, Gemini, Copilot — any will work${NC}"
+    echo ""
+    echo -e "  ${BOLD}3.${NC} Follow the conversation — the AI will interview you"
+    echo -e "     and generate all 4 files"
+    echo ""
+    echo -e "  ${BOLD}4.${NC} Save the generated files to: ${CYAN}$target_dir/${NC}"
+    echo ""
+    
+    if [ -f "$SCOUTICA_HOME/GENERATE_MY_CARD.md" ]; then
+        if confirm "Open GENERATE_MY_CARD.md now?"; then
+            # Try to open in default editor or copy to clipboard
+            if command -v pbcopy &>/dev/null; then
+                cat "$SCOUTICA_HOME/GENERATE_MY_CARD.md" | pbcopy
+                success "Copied to clipboard! Paste into your AI assistant."
+            elif command -v xclip &>/dev/null; then
+                cat "$SCOUTICA_HOME/GENERATE_MY_CARD.md" | xclip -selection clipboard
+                success "Copied to clipboard! Paste into your AI assistant."
+            elif command -v code &>/dev/null; then
+                code "$SCOUTICA_HOME/GENERATE_MY_CARD.md"
+                success "Opened in VS Code"
+            else
+                cat "$SCOUTICA_HOME/GENERATE_MY_CARD.md"
+            fi
+        fi
+    else
+        error "GENERATE_MY_CARD.md not found. Re-run the installer."
+    fi
+}
+
+# ─── VALIDATE Command ────────────────────────────────────────────────────────
+
+cmd_validate() {
+    local card_dir="${1:-.}"
+    
+    header "Validate Skill Card"
+    
+    # Check if Python is available
+    local python_cmd=""
+    if command -v python3 &>/dev/null; then
+        python_cmd="python3"
+    elif command -v python &>/dev/null; then
+        python_cmd="python"
+    else
+        error "Python is required for schema validation"
+        echo -e "  ${DIM}Install Python 3 and run: pip install jsonschema pyyaml${NC}"
+        exit 1
+    fi
+    
+    # Check for validation script in multiple locations
+    local validator=""
+    local script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+    
+    if [ -f "$SCOUTICA_HOME/bin/validate_card.py" ]; then
+        validator="$SCOUTICA_HOME/bin/validate_card.py"
+    elif [ -f "$script_dir/validate_card.py" ]; then
+        validator="$script_dir/validate_card.py"
+    elif [ -f "$SCOUTICA_HOME/tools/validate_card.py" ]; then
+        validator="$SCOUTICA_HOME/tools/validate_card.py"
+    fi
+    
+    if [ -z "$validator" ]; then
+        error "Validation script not found. Re-run the installer."
+        exit 1
+    fi
+    
+    # Check for dependencies
+    if ! $python_cmd -c "import jsonschema, yaml" 2>/dev/null; then
+        warn "Missing Python dependencies. Installing..."
+        $python_cmd -m pip install jsonschema pyyaml --quiet 2>/dev/null || {
+            error "Failed to install dependencies"
+            echo -e "  ${DIM}Run manually: pip install jsonschema pyyaml${NC}"
+            exit 1
+        }
+    fi
+    
+    # Run validation
+    $python_cmd "$validator" "$card_dir"
+}
+
+# ─── PUBLISH Command ─────────────────────────────────────────────────────────
+
+cmd_publish() {
+    local card_dir="${1:-.}"
+    
+    header "Publish to GitHub"
+    
+    # Check if git is available
+    if ! command -v git &>/dev/null; then
+        error "Git is required for publishing"
+        exit 1
+    fi
+    
+    # Check if already a git repo
+    if [ -d "$card_dir/.git" ]; then
+        echo -e "  ${DIM}Git repo detected. Adding and pushing...${NC}"
+        (
+            cd "$card_dir"
+            # Only stage known card files — never stage secrets or .env
+            local card_files=(profile.json rules.yaml evidence.json SKILL.md scoutica.json)
+            for cf in "${card_files[@]}"; do
+                [ -f "$cf" ] && git add "$cf"
+            done
+            [ -d "rules" ] && git add rules/
+            local msg="Update Scoutica Skill Card — $(date +%Y-%m-%d)"
+            git commit -m "$msg" 2>/dev/null || {
+                warn "No changes to commit"
+                return 0
+            }
+            
+            # Try to push
+            if git remote -v | grep -q "origin"; then
+                git push origin "$(git branch --show-current)" 2>/dev/null && \
+                    success "Pushed to GitHub!" || \
+                    error "Push failed. Check your remote configuration."
+            else
+                warn "No remote 'origin' configured."
+                echo -e "  ${DIM}Run: git remote add origin https://github.com/YOU/YOUR-CARD.git${NC}"
+            fi
+        )
+    else
+        echo -e "  ${BOLD}No git repo found. Let's set one up.${NC}"
+        echo ""
+        local repo_name=$(ask "GitHub repo name" "my-scoutica-card")
+        local gh_user=$(ask "GitHub username")
+        
+        (
+            cd "$card_dir"
+            git init
+            # Only stage known card files
+            local card_files=(profile.json rules.yaml evidence.json SKILL.md scoutica.json)
+            for cf in "${card_files[@]}"; do
+                [ -f "$cf" ] && git add "$cf"
+            done
+            [ -d "rules" ] && git add rules/
+            git commit -m "Initial Scoutica Skill Card"
+            git branch -M main
+            git remote add origin "https://github.com/$gh_user/$repo_name.git"
+            
+            echo ""
+            echo -e "  ${BOLD}Next steps:${NC}"
+            echo -e "  1. Create the repo on GitHub: ${CYAN}https://github.com/new${NC}"
+            echo -e "     Name it: ${BOLD}$repo_name${NC}"
+            echo -e "  2. Then run: ${CYAN}git push -u origin main${NC}"
+        )
+    fi
+}
+
+# ─── INFO Command ─────────────────────────────────────────────────────────────
+
+cmd_info() {
+    local card_dir="${1:-.}"
+    
+    header "Skill Card Summary"
+    
+    if [ ! -f "$card_dir/profile.json" ]; then
+        error "No profile.json found in $card_dir"
+        echo -e "  ${DIM}Run 'scoutica init' first to create your card.${NC}"
+        exit 1
+    fi
+    
+    # Parse profile.json with basic tools
+    local name=$(grep -o '"name": *"[^"]*"' "$card_dir/profile.json" | head -1 | sed 's/"name": *"\(.*\)"/\1/')
+    local title=$(grep -o '"title": *"[^"]*"' "$card_dir/profile.json" | head -1 | sed 's/"title": *"\(.*\)"/\1/')
+    local seniority=$(grep -o '"seniority": *"[^"]*"' "$card_dir/profile.json" | head -1 | sed 's/"seniority": *"\(.*\)"/\1/')
+    local availability=$(grep -o '"availability": *"[^"]*"' "$card_dir/profile.json" | head -1 | sed 's/"availability": *"\(.*\)"/\1/')
+    
+    echo -e "  ${BOLD}$name${NC}"
+    echo -e "  $title ${DIM}($seniority)${NC}"
+    echo -e "  Availability: $availability"
+    echo ""
+    
+    # Count skills
+    local skill_count=$(grep -c '"[^"]*"' "$card_dir/profile.json" 2>/dev/null || echo "?")
+    echo -e "  ${DIM}Profile:${NC} profile.json"
+    
+    # Check rules
+    if [ -f "$card_dir/rules.yaml" ]; then
+        local remote=$(grep "policy:" "$card_dir/rules.yaml" | head -1 | sed 's/.*: *"\?\([^"]*\)"\?/\1/')
+        echo -e "  ${DIM}Remote:${NC} $remote"
+    fi
+    
+    # Count evidence
+    if [ -f "$card_dir/evidence.json" ]; then
+        local ev_count=$(grep -c '"type":' "$card_dir/evidence.json" 2>/dev/null || echo "0")
+        echo -e "  ${DIM}Evidence:${NC} $ev_count items"
+    fi
+    
+    # Check rules dir
+    if [ -d "$card_dir/rules" ]; then
+        local rule_count=$(ls "$card_dir/rules/"*.md 2>/dev/null | wc -l | tr -d ' ')
+        echo -e "  ${DIM}Rules:${NC} $rule_count rule files"
+    fi
+    
+    echo ""
+}
+
+# ─── DOCTOR Command ───────────────────────────────────────────────────────────
+
+cmd_doctor() {
+    header "Scoutica Doctor — System Check"
+    echo ""
+    local warnings=0
+    local errors=0
+
+    # 1. CLI installation
+    local cli_path="$SCOUTICA_HOME/bin/scoutica"
+    if [ -x "$cli_path" ]; then
+        success "CLI installed at $cli_path"
+    else
+        error "CLI not fully executable at $cli_path"
+        errors=$((errors+1))
+    fi
+
+    # 2. PATH check
+    if command -v scoutica >/dev/null 2>&1; then
+        success "scoutica found in PATH"
+    else
+        error "scoutica not found in PATH"
+        errors=$((errors+1))
+    fi
+
+    # 3. Templates
+    if [ -d "$SCOUTICA_HOME/templates/rules" ]; then
+        local rule_count=$(ls "$SCOUTICA_HOME/templates/rules/"*.md 2>/dev/null | wc -l | tr -d ' ')
+        success "Templates present ($rule_count rule files + card.gitignore)"
+    else
+        error "Templates directory missing"
+        errors=$((errors+1))
+    fi
+
+    # 4. Schemas
+    if [ -d "$SCOUTICA_HOME/schemas" ]; then
+        local schema_count=$(ls "$SCOUTICA_HOME/schemas/"*.json 2>/dev/null | wc -l | tr -d ' ')
+        success "Schemas present ($schema_count JSON schemas)"
+    else
+        error "Schemas directory missing"
+        errors=$((errors+1))
+    fi
+
+    # 5. Python 3
+    if command -v python3 >/dev/null 2>&1; then
+        local py_ver=$(python3 --version 2>&1)
+        success "$py_ver"
+    else
+        error "Python 3 not found (Required for JSON generation)"
+        errors=$((errors+1))
+    fi
+
+    # 6. Git
+    if command -v git >/dev/null 2>&1; then
+        local git_ver=$(git --version | head -n1 2>&1)
+        success "$git_ver"
+    else
+        error "Git not found (Required for publishing)"
+        errors=$((errors+1))
+    fi
+
+    # 7. PDF Totext
+    if command -v pdftotext >/dev/null 2>&1; then
+        success "pdftotext found (for PDF extraction)"
+    else
+        echo -e "  ⚠️  pdftotext not found (optional — install poppler-utils for better PDF support)"
+        warnings=$((warnings+1))
+    fi
+
+    echo ""
+    echo -e "${BOLD}AI Providers:${NC}"
+    for cli in gemini claude codex vibe opencode ollama ail; do
+        if command -v "$cli" >/dev/null 2>&1; then
+            success "$cli (installed)"
+        else
+            echo -e "  ❌  $cli (not found)"
+        fi
+    done
+
+    echo ""
+    echo -e "  ${DIM}Result: $warnings warnings, $errors errors.${NC}"
+    if [ $errors -eq 0 ]; then
+        success "Scoutica Protocol is ready!"
+    else
+        error "Please fix the errors above."
+        exit 1
+    fi
+}
+
+# ─── HELP Command ─────────────────────────────────────────────────────────────
+
+cmd_help() {
+    echo ""
+    echo -e "${BOLD}Scoutica CLI${NC} ${DIM}v$VERSION${NC}"
+    echo -e "${DIM}Your skills. Your rules. Your data.${NC}"
+    echo ""
+    echo -e "${BOLD}Usage:${NC}"
+    echo -e "  scoutica ${CYAN}<command>${NC} [options] [directory]"
+    echo ""
+    echo -e "${BOLD}Commands:${NC}"
+    echo -e "  ${CYAN}init${NC}              Create your Skill Card (interactive wizard)"
+    echo -e "  ${CYAN}init --ai${NC}         Create card using AI assistant"
+    echo -e "  ${CYAN}scan${NC}              Auto-generate card from your documents (AI-powered)"
+    echo -e "  ${CYAN}resolve${NC}           Fetch and display a card from a URL"
+    echo -e "  ${CYAN}validate${NC}          Validate card against protocol schemas"
+    echo -e "  ${CYAN}publish${NC}           Push card to GitHub"
+    echo -e "  ${CYAN}info${NC}              Show card summary"
+    echo -e "  ${CYAN}update${NC}            Update the Scoutica CLI to the latest version"
+    echo -e "  ${CYAN}doctor${NC}            Diagnostics and system check for the CLI"
+    echo -e "  ${CYAN}help${NC}              Show this help"
+    echo -e "  ${CYAN}version${NC}           Show version"
+    echo ""
+    echo -e "${BOLD}Examples:${NC}"
+    echo -e "  ${DIM}# Create your card in the current directory${NC}"
+    echo -e "  scoutica init"
+    echo ""
+    echo -e "  ${DIM}# Create card in a specific folder${NC}"
+    echo -e "  scoutica init ./my-card"
+    echo ""
+    echo -e "  ${DIM}# Validate and publish${NC}"
+    echo -e "  scoutica validate && scoutica publish"
+    echo ""
+    echo -e "  ${DIM}# Auto-generate card from your CV folder${NC}"
+    echo -e "  scoutica scan ~/CV/"
+    echo ""
+    echo -e "${BOLD}Learn more:${NC} ${CYAN}https://github.com/traylinx/scoutica-protocol${NC}"
+    echo ""
+}
+
+# ─── SCAN Command ─────────────────────────────────────────────────────────────
+
+cmd_scan() {
+    local source_dir=""
+    local output_dir="."
+    local provider=""
+    
+    # Parse flags
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --output|-o) output_dir="$2"; shift 2 ;;
+            --with|-w) provider="$2"; shift 2 ;;
+            --clipboard|-c) provider="clipboard"; shift ;;
+            --help|-h) 
+                echo -e "  ${BOLD}Usage:${NC} scoutica scan <docs-folder> [options]" >&2
+                echo "" >&2
+                echo -e "  ${DIM}Reads your documents and generates a Skill Card using a local AI CLI.${NC}" >&2
+                echo -e "  ${DIM}Your data never leaves your machine.${NC}" >&2
+                echo "" >&2
+                echo -e "  ${BOLD}Options:${NC}" >&2
+                echo -e "    --output, -o <dir>    Output directory for card files (default: .)" >&2
+                echo -e "    --with, -w <cli>      AI CLI to use: gemini, claude, ollama (auto-detected)" >&2
+                echo -e "    --clipboard, -c       Just copy the prompt to clipboard (no AI call)" >&2
+                echo "" >&2
+                echo -e "  ${BOLD}Supported AI CLIs (auto-detected):${NC}" >&2
+                echo -e "    ${CYAN}gemini${NC}     Google Gemini CLI    ${DIM}(github.com/google-gemini/gemini-cli)${NC}" >&2
+                echo -e "    ${CYAN}claude${NC}     Claude Code CLI      ${DIM}(github.com/anthropics/claude-code)${NC}" >&2
+                echo -e "    ${CYAN}codex${NC}      OpenAI Codex CLI     ${DIM}(github.com/openai/codex)${NC}" >&2
+                echo -e "    ${CYAN}vibe${NC}       Mistral Vibe CLI     ${DIM}(github.com/mistralai/mistral-vibe)${NC}" >&2
+                echo -e "    ${CYAN}opencode${NC}   OpenCode CLI         ${DIM}(github.com/opencode-ai/opencode)${NC}" >&2
+                echo -e "    ${CYAN}ollama${NC}     Ollama (local LLM)   ${DIM}(ollama.com)${NC}" >&2
+                echo -e "    ${CYAN}ail${NC}        switchAILocal        ${DIM}(github.com/traylinx/switchAILocal)${NC}" >&2
+                echo "" >&2
+                echo -e "  ${BOLD}Examples:${NC}" >&2
+                echo -e "    scoutica scan ~/CV/                      ${DIM}# auto-detect CLI${NC}" >&2
+                echo -e "    scoutica scan ~/CV/ --with gemini         ${DIM}# use Gemini CLI${NC}" >&2
+                echo -e "    scoutica scan ~/CV/ --with codex          ${DIM}# use OpenAI Codex${NC}" >&2
+                echo -e "    scoutica scan ~/CV/ --with ail            ${DIM}# use switchAILocal${NC}" >&2
+                echo -e "    scoutica scan ~/CV/ --clipboard           ${DIM}# copy prompt to clipboard${NC}" >&2
+                return 0
+                ;;
+            *) 
+                if [ -z "$source_dir" ]; then
+                    source_dir="$1"
+                fi
+                shift
+                ;;
+        esac
+    done
+    
+    if [ -z "$source_dir" ]; then
+        error "Usage: scoutica scan <docs-folder> [--output <dir>] [--with gemini|claude|ollama]"
+        echo -e "  ${DIM}Example: scoutica scan ~/CV/ --output ./my-card/${NC}" >&2
+        exit 1
+    fi
+    
+    if [ ! -d "$source_dir" ]; then
+        error "Directory not found: $source_dir"
+        exit 1
+    fi
+    
+    header "AI-Powered Card Generation"
+    
+    # ── Check for existing card files ──
+    local existing_files=()
+    for f in profile.json rules.yaml evidence.json SKILL.md; do
+        [ -f "$output_dir/$f" ] && existing_files+=("$f")
+    done
+    
+    if [ ${#existing_files[@]} -gt 0 ]; then
+        warn "Existing card files found in $output_dir:"
+        for f in "${existing_files[@]}"; do
+            echo -e "    ${YELLOW}•${NC} $f" >&2
+        done
+        echo "" >&2
+        
+        # Auto-backup
+        local backup_dir="$output_dir/.backup/$(date +%Y%m%d_%H%M%S)"
+        mkdir -p "$backup_dir"
+        for f in "${existing_files[@]}"; do
+            cp "$output_dir/$f" "$backup_dir/$f"
+        done
+        [ -d "$output_dir/rules" ] && cp -r "$output_dir/rules" "$backup_dir/rules" 2>/dev/null
+        
+        success "Backed up existing files to .backup/"
+        echo -e "  ${DIM}Scan will overwrite with AI-generated versions.${NC}" >&2
+        echo "" >&2
+    fi
+    
+    # ── Step 1: Read all documents ──
+    echo -e "  ${BLUE}→${NC} Scanning ${BOLD}$source_dir${NC}..."
+    echo ""
+    
+    local all_text=""
+    local file_count=0
+    
+    for file in "$source_dir"/*; do
+        [ -f "$file" ] || continue
+        local basename=$(basename "$file")
+        
+        # Skip generated card files (in case source == output dir)
+        case "$basename" in
+            profile.json|rules.yaml|evidence.json|SKILL.md|scoutica_prompt.txt) continue ;;
+        esac
+        
+        local ext="${basename##*.}"
+        ext=$(echo "$ext" | tr '[:upper:]' '[:lower:]')
+        
+        case "$ext" in
+            md|txt|json|yaml|yml|csv|html|htm)
+                local content=$(cat "$file")
+                local word_count=$(echo "$content" | wc -w | tr -d ' ')
+                echo -e "    ${GREEN}📄${NC} $basename ${DIM}($word_count words)${NC}"
+                all_text+="
+--- FILE: $basename ---
+$content
+"
+                file_count=$((file_count + 1))
+                ;;
+            pdf)
+                local content=""
+                if command -v pdftotext &>/dev/null; then
+                    content=$(pdftotext "$file" - 2>/dev/null)
+                elif command -v python3 &>/dev/null; then
+                    content=$(python3 -c "
+import subprocess, sys
+filepath = sys.argv[1]
+try:
+    import PyPDF2
+    reader = PyPDF2.PdfReader(filepath)
+    for page in reader.pages:
+        print(page.extract_text() or '')
+except ImportError:
+    try:
+        result = subprocess.run(['textutil', '-convert', 'txt', '-stdout', filepath], 
+                              capture_output=True, text=True)
+        print(result.stdout)
+    except: pass
+" "$file" 2>/dev/null)
+                elif command -v textutil &>/dev/null; then
+                    content=$(textutil -convert txt -stdout "$file" 2>/dev/null)
+                fi
+                
+                if [ -n "$content" ]; then
+                    local word_count=$(echo "$content" | wc -w | tr -d ' ')
+                    echo -e "    ${GREEN}📄${NC} $basename ${DIM}($word_count words, extracted from PDF)${NC}"
+                    all_text+="
+--- FILE: $basename ---
+$content
+"
+                    file_count=$((file_count + 1))
+                else
+                    echo -e "    ${YELLOW}⚠️${NC}  $basename ${DIM}(could not extract text — install pdftotext or PyPDF2)${NC}"
+                fi
+                ;;
+            docx)
+                local content=""
+                if command -v textutil &>/dev/null; then
+                    content=$(textutil -convert txt -stdout "$file" 2>/dev/null)
+                elif command -v python3 &>/dev/null; then
+                    content=$(python3 -c "
+import sys
+try:
+    import docx
+    doc = docx.Document(sys.argv[1])
+    for p in doc.paragraphs: print(p.text)
+except: pass
+" "$file" 2>/dev/null)
+                fi
+                
+                if [ -n "$content" ]; then
+                    local word_count=$(echo "$content" | wc -w | tr -d ' ')
+                    echo -e "    ${GREEN}📄${NC} $basename ${DIM}($word_count words, extracted from DOCX)${NC}"
+                    all_text+="
+--- FILE: $basename ---
+$content
+"
+                    file_count=$((file_count + 1))
+                else
+                    echo -e "    ${YELLOW}⚠️${NC}  $basename ${DIM}(could not extract — install python-docx)${NC}"
+                fi
+                ;;
+            jpg|jpeg|png|gif|svg|ico|mp4|zip|tar|gz|py|css|js)
+                # Skip binary/code files silently
+                ;;
+            *)
+                echo -e "    ${DIM}⏭️  $basename (skipped — unsupported format)${NC}"
+                ;;
+        esac
+    done
+    
+    echo ""
+    
+    if [ "$file_count" -eq 0 ]; then
+        error "No readable documents found in $source_dir"
+        echo -e "  ${DIM}Supported formats: .md .txt .pdf .docx .json .yaml .csv .html${NC}" >&2
+        exit 1
+    fi
+    
+    echo -e "  ${GREEN}✅${NC} Found ${BOLD}$file_count${NC} documents"
+    echo ""
+    
+    # ── Step 2: Load system prompt ──
+    local scan_prompt=""
+    local script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+    
+    if [ -f "$SCOUTICA_HOME/bin/SCAN_PROMPT.md" ]; then
+        scan_prompt=$(cat "$SCOUTICA_HOME/bin/SCAN_PROMPT.md")
+    elif [ -f "$script_dir/SCAN_PROMPT.md" ]; then
+        scan_prompt=$(cat "$script_dir/SCAN_PROMPT.md")
+    else
+        scan_prompt="You are a Scoutica Protocol card generator. Analyze the candidate's documents and return ONLY a single JSON object with keys: profile, rules, evidence, skill_md. Follow the Scoutica schema exactly. Never invent skills not in the documents. Use 'negotiable' for unknown compensation. Return raw JSON only — no markdown fences."
+    fi
+    
+    # ── Step 3: Build the full prompt ──
+    local full_prompt="$scan_prompt
+
+## Candidate Documents
+
+$all_text"
+    
+    # ── Step 4: Detect or use specified AI CLI ──
+    if [ -z "$provider" ]; then
+        # Auto-detect in priority order
+        if command -v gemini &>/dev/null; then
+            provider="gemini"
+        elif command -v claude &>/dev/null; then
+            provider="claude"
+        elif command -v codex &>/dev/null; then
+            provider="codex"
+        elif command -v vibe &>/dev/null; then
+            provider="vibe"
+        elif command -v opencode &>/dev/null; then
+            provider="opencode"
+        elif command -v ollama &>/dev/null; then
+            provider="ollama"
+        elif curl -sf http://localhost:18080/health &>/dev/null; then
+            provider="ail"
+        else
+            provider="clipboard"
+        fi
+    fi
+    
+    # ── Handle clipboard mode ──
+    if [ "$provider" = "clipboard" ]; then
+        if command -v pbcopy &>/dev/null; then
+            echo "$full_prompt" | pbcopy
+            success "Prompt copied to clipboard! ($file_count documents included)"
+        elif command -v xclip &>/dev/null; then
+            echo "$full_prompt" | xclip -selection clipboard
+            success "Prompt copied to clipboard!"
+        else
+            local prompt_file="$output_dir/scoutica_prompt.txt"
+            mkdir -p "$output_dir"
+            echo "$full_prompt" > "$prompt_file"
+            success "Prompt saved to $prompt_file"
+        fi
+        echo ""
+        echo -e "  ${DIM}Paste into any AI assistant and save the output files to $output_dir/${NC}"
+        echo -e "  ${DIM}Or install a local AI CLI: gemini, claude, or ollama${NC}"
+        return 0
+    fi
+    
+    # ── Validate chosen provider is installed ──
+    local valid_providers=(gemini claude codex vibe opencode ollama ail clipboard)
+    local is_valid=false
+    for vp in "${valid_providers[@]}"; do
+        [ "$provider" = "$vp" ] && is_valid=true
+    done
+    if ! $is_valid; then
+        error "Unknown provider: $provider (supported: ${valid_providers[*]})"
+        exit 1
+    fi
+    
+    if [ "$provider" != "ail" ] && [ "$provider" != "clipboard" ] && ! command -v "$provider" &>/dev/null; then
+        error "$provider is not installed"
+        echo -e "  ${DIM}Install it or use: scoutica scan $source_dir --clipboard${NC}" >&2
+        exit 1
+    fi
+    
+    echo -e "  ${BLUE}→${NC} Generating card via ${BOLD}$provider${NC} (local CLI — your data stays on your machine)..."
+    echo ""
+    
+    # ── Step 5: Call local AI CLI ──
+    local response=""
+    local tmp_prompt=$(mktemp /tmp/scoutica_prompt.XXXXXX)
+    # Ensure temp file is always cleaned up
+    trap 'rm -f "$tmp_prompt" 2>/dev/null' EXIT INT TERM
+    echo "$full_prompt" > "$tmp_prompt"
+    
+    case "$provider" in
+        gemini)
+            response=$(cat "$tmp_prompt" | gemini -p "Read my documents and generate my Scoutica Skill Card. Return ONLY raw JSON with keys: profile, rules, evidence, skill_md. No markdown fences, no explanation." 2>/dev/null)
+            ;;
+        claude)
+            response=$(claude -p "$(cat "$tmp_prompt")
+
+Read my documents and generate my Scoutica Skill Card. Return ONLY raw JSON with keys: profile, rules, evidence, skill_md. No markdown fences, no explanation." --no-input 2>/dev/null)
+            ;;
+        ollama)
+            local ollama_model="llama3.2"
+            # Check if the model is available
+            if ! ollama list 2>/dev/null | grep -q "$ollama_model"; then
+                warn "Pulling $ollama_model model (one-time download)..."
+                ollama pull "$ollama_model" 2>/dev/null || {
+                    error "Failed to pull model. Ensure Ollama is running."
+                    rm -f "$tmp_prompt"
+                    exit 1
+                }
+            fi
+            response=$(ollama run "$ollama_model" "$(cat "$tmp_prompt")
+
+Read my documents and generate my Scoutica Skill Card. Return ONLY raw JSON with keys: profile, rules, evidence, skill_md. No markdown fences, no explanation." 2>/dev/null)
+            ;;
+        ail)
+            # switchAILocal — OpenAI-compatible local server at localhost:18080
+            if ! curl -sf http://localhost:18080/health &>/dev/null; then
+                error "switchAILocal is not running. Start it with: ail start"
+                rm -f "$tmp_prompt"
+                exit 1
+            fi
+            
+            local ail_prompt
+            ail_prompt=$(cat "$tmp_prompt")
+            
+            # Use python to construct the entire JSON payload to a temp file
+            local payload_file=$(mktemp /tmp/scoutica_payload.XXXXXX)
+            python3 -c "
+import sys, json
+prompt = sys.stdin.read()
+payload = {
+    'messages': [{'role': 'user', 'content': prompt}],
+    'temperature': 0.1
+}
+with open('$payload_file', 'w') as f:
+    json.dump(payload, f)
+" < "$tmp_prompt"
+            
+            local ail_response
+            ail_response=$(curl -sS http://localhost:18080/v1/chat/completions \
+                -H "Content-Type: application/json" \
+                -d @"$payload_file" 2>/dev/null)
+            
+            rm -f "$payload_file"
+            
+            response=$(echo "$ail_response" | python3 -c "
+import sys, json
+try:
+    data = json.load(sys.stdin)
+    if 'choices' in data:
+        print(data['choices'][0]['message']['content'])
+    elif 'error' in data:
+        print('ERROR: ' + str(data['error']), file=sys.stderr)
+        sys.exit(1)
+except Exception as e:
+    print(f'ERROR: {e}', file=sys.stderr)
+    sys.exit(1)
+" 2>&1)
+            ;;
+        codex)
+            response=$(codex exec "$(cat "$tmp_prompt")
+
+Read my documents and generate my Scoutica Skill Card. Return ONLY raw JSON with keys: profile, rules, evidence, skill_md. No markdown fences, no explanation." 2>/dev/null)
+            ;;
+        vibe)
+            response=$(vibe -p "$(cat "$tmp_prompt")
+
+Read my documents and generate my Scoutica Skill Card. Return ONLY raw JSON with keys: profile, rules, evidence, skill_md. No markdown fences, no explanation." --output text 2>/dev/null)
+            ;;
+        opencode)
+            response=$(opencode run "$(cat "$tmp_prompt")
+
+Read my documents and generate my Scoutica Skill Card. Return ONLY raw JSON with keys: profile, rules, evidence, skill_md. No markdown fences, no explanation." 2>/dev/null)
+            ;;
+        *)
+            error "Unknown provider: $provider (supported: gemini, claude, codex, vibe, opencode, ollama, ail)"
+            rm -f "$tmp_prompt"
+            exit 1
+            ;;
+    esac
+    
+    rm -f "$tmp_prompt"
+    
+    if [ -z "$response" ]; then
+        error "Empty response from $provider. Is it running and configured?"
+        exit 1
+    fi
+    
+    echo -e "  ${GREEN}✅${NC} Response received from $provider"
+    echo ""
+    
+    # ── Step 6: Parse response and write files ──
+    echo -e "  ${BLUE}→${NC} Writing card files to ${BOLD}$output_dir${NC}..."
+    
+    mkdir -p "$output_dir/rules"
+    
+    # Save raw response for debugging
+    echo "$response" > "$output_dir/.scan_response_raw.txt"
+    
+    # Use Python to extract JSON, parse it, and write files
+    python3 << 'PARSE_SCRIPT' - "$output_dir" "$response"
+import json, sys, os, re
+
+output_dir = sys.argv[1]
+raw = sys.argv[2]
+
+# Strip markdown fences if present
+raw = raw.strip()
+# Find JSON in response (may be wrapped in markdown)
+json_match = re.search(r'\{[\s\S]*\}', raw)
+if json_match:
+    raw = json_match.group(0)
+
+try:
+    data = json.loads(raw)
+except json.JSONDecodeError as e:
+    print(f"  ❌ Could not parse JSON from AI response: {e}", file=sys.stderr)
+    print(f"  Raw response saved to {output_dir}/.scan_response_raw.txt", file=sys.stderr)
+    sys.exit(1)
+
+# Write profile.json
+if "profile" in data:
+    with open(os.path.join(output_dir, "profile.json"), "w") as f:
+        json.dump(data["profile"], f, indent=2, ensure_ascii=False)
+    print("  ✅ Created profile.json")
+
+# Write rules.yaml
+if "rules" in data:
+    try:
+        import yaml
+        with open(os.path.join(output_dir, "rules.yaml"), "w") as f:
+            yaml.dump(data["rules"], f, default_flow_style=False, allow_unicode=True, sort_keys=False)
+        print("  ✅ Created rules.yaml")
+    except ImportError:
+        with open(os.path.join(output_dir, "rules.yaml"), "w") as f:
+            json.dump(data["rules"], f, indent=2, ensure_ascii=False)
+        print("  ✅ Created rules.yaml (as JSON — install pyyaml for proper YAML)")
+
+# Write evidence.json
+if "evidence" in data:
+    with open(os.path.join(output_dir, "evidence.json"), "w") as f:
+        json.dump(data["evidence"], f, indent=2, ensure_ascii=False)
+    print("  ✅ Created evidence.json")
+
+# Write SKILL.md
+sm = data.get("skill_md", {})
+profile = data.get("profile", {})
+name = sm.get("name", profile.get("name", "Unknown"))
+title = sm.get("title", profile.get("title", "Professional"))
+tags = sm.get("tags", "")
+
+skill_content = f"""---
+name: scoutica
+description: {name} — AI-readable professional profile with automated opportunity filtering
+metadata:
+  tags: {tags}
+  author: {name}
+  version: 0.1.0
+---
+
+# Scoutica
+
+This skill provides an AI-readable professional profile for **{name}** — {title}.
+
+It allows any AI agent to:
+- Understand this candidate's capabilities and experience
+- Evaluate fit against a role or opportunity
+- Check whether an opportunity meets the candidate's policies
+- Access public evidence of work
+- Request an interview handoff if the opportunity passes all checks
+
+## Data Files
+
+- [profile.json](./profile.json) — Structured capabilities, tools, certifications, and experience
+- [rules.yaml](./rules.yaml) — Rules of Engagement: salary floors, remote policy, auto-reject rules
+- [evidence.json](./evidence.json) — Public evidence registry with verification links
+
+## Evaluation Rules
+
+- [evaluate-fit.md](./rules/evaluate-fit.md) — How to score capability match
+- [negotiate-terms.md](./rules/negotiate-terms.md) — How to check policy compliance
+- [verify-evidence.md](./rules/verify-evidence.md) — How to verify public work
+- [request-interview.md](./rules/request-interview.md) — When to initiate human handoff
+
+## Important Rules
+1. Never fabricate capabilities. Only report what is in `profile.json`.
+2. Respect the Rules of Engagement. If `rules.yaml` says REJECT, do not override.
+3. Candidate sovereignty. This profile serves the candidate, not the employer.
+"""
+with open(os.path.join(output_dir, "SKILL.md"), "w") as f:
+    f.write(skill_content)
+print("  ✅ Created SKILL.md")
+PARSE_SCRIPT
+
+    if [ $? -ne 0 ]; then
+        error "Failed to parse AI response. Raw response saved to $output_dir/.scan_response_raw.txt"
+        exit 1
+    fi
+    
+    # Clean up raw response (contains PII)
+    rm -f "$output_dir/.scan_response_raw.txt"
+    
+    # Copy rule templates
+    if [ -d "$TEMPLATES_DIR/rules" ]; then
+        cp "$TEMPLATES_DIR/rules/"*.md "$output_dir/rules/" 2>/dev/null || true
+        success "Copied evaluation rule templates"
+    fi
+    
+    # Copy card .gitignore if not present
+    if [ ! -f "$output_dir/.gitignore" ]; then
+        local gi_src=""
+        if [ -f "$TEMPLATES_DIR/card.gitignore" ]; then
+            gi_src="$TEMPLATES_DIR/card.gitignore"
+        elif [ -f "$script_dir/../protocol/templates/card.gitignore" ]; then
+            gi_src="$script_dir/../protocol/templates/card.gitignore"
+        fi
+        if [ -n "$gi_src" ]; then
+            cp "$gi_src" "$output_dir/.gitignore"
+            success "Created .gitignore (protects secrets from accidental commits)"
+        fi
+    fi
+    
+    echo ""
+    echo -e "${GREEN}╔═══════════════════════════════════════════════════════╗${NC}"
+    echo -e "${GREEN}║                                                       ║${NC}"
+    echo -e "${GREEN}║   🎉 Your Scoutica Skill Card is ready!              ║${NC}"
+    echo -e "${GREEN}║                                                       ║${NC}"
+    echo -e "${GREEN}╚═══════════════════════════════════════════════════════╝${NC}"
+    echo ""
+    echo -e "  ${BOLD}Review your card:${NC}"
+    echo ""
+    echo -e "  ${CYAN}scoutica info $output_dir${NC}       View card summary"
+    echo -e "  ${CYAN}scoutica validate $output_dir${NC}   Check for errors"
+    echo -e "  ${CYAN}scoutica publish $output_dir${NC}    Push to GitHub"
+    echo ""
+}
+
+# ─── RESOLVE Command ──────────────────────────────────────────────────────────
+
+cmd_resolve() {
+    local url="${1:-}"
+    local save_dir="${2:-}"
+    
+    if [ -z "$url" ] || [ "$url" = "--help" ] || [ "$url" = "-h" ]; then
+        echo -e "  ${BOLD}Usage:${NC} scoutica resolve <card-url> [save-to-dir]" >&2
+        echo "" >&2
+        echo -e "  ${DIM}Fetch and display a Scoutica Skill Card from any URL.${NC}" >&2
+        echo "" >&2
+        echo -e "  ${BOLD}Supported URL formats:${NC}" >&2
+        echo -e "    ${CYAN}https://github.com/user/repo${NC}" >&2
+        echo -e "    ${CYAN}https://raw.githubusercontent.com/user/repo/main/${NC}" >&2
+        echo -e "    ${CYAN}https://example.com/path/to/card/${NC}" >&2
+        echo "" >&2
+        echo -e "  ${BOLD}Examples:${NC}" >&2
+        echo -e "    scoutica resolve https://github.com/user/my-card" >&2
+        echo -e "    scoutica resolve https://github.com/user/my-card ./local-copy/" >&2
+        return 0
+    fi
+    
+    # ── Security: Validate URL ──
+    if ! echo "$url" | grep -qE '^https://'; then
+        error "Only HTTPS URLs are supported (got: $url)"
+        echo -e "  ${DIM}Example: scoutica resolve https://github.com/user/my-card${NC}" >&2
+        exit 1
+    fi
+    
+    # Block localhost / private IPs
+    if echo "$url" | grep -qiE '(localhost|127\.|10\.|192\.168\.|172\.(1[6-9]|2[0-9]|3[01])\.)'; then
+        error "Cannot resolve from localhost or private networks"
+        exit 1
+    fi
+    
+    # ── Normalize URL to raw base ──
+    local base_url=""
+    
+    if echo "$url" | grep -q "raw.githubusercontent.com"; then
+        # Already a raw URL — strip trailing file if present
+        base_url=$(echo "$url" | sed 's|/profile\.json$||; s|/rules\.yaml$||; s|/evidence\.json$||; s|/SKILL\.md$||; s|/$||')
+    elif echo "$url" | grep -q "github.com"; then
+        # Convert github.com URL → raw.githubusercontent.com
+        local gh_path
+        gh_path=$(echo "$url" | sed 's|https://github.com/||; s|\.git$||; s|/$||')
+        local gh_user=$(echo "$gh_path" | cut -d'/' -f1)
+        local gh_repo=$(echo "$gh_path" | cut -d'/' -f2)
+        local gh_branch="main"
+        # Check if URL has a branch/path beyond user/repo
+        local extra=$(echo "$gh_path" | cut -d'/' -f3- 2>/dev/null)
+        if echo "$extra" | grep -q "^tree/"; then
+            gh_branch=$(echo "$extra" | sed 's|^tree/||; s|/.*||')
+        fi
+        base_url="https://raw.githubusercontent.com/$gh_user/$gh_repo/$gh_branch"
+    else
+        # Assume direct URL
+        base_url=$(echo "$url" | sed 's|/$||')
+    fi
+    
+    header "Resolving Skill Card"
+    echo -e "  ${BLUE}→${NC} Fetching from ${DIM}$base_url${NC}"
+    echo ""
+    
+    # ── Try scoutica.json first ──
+    local discovery
+    discovery=$(curl -sf "$base_url/scoutica.json" 2>/dev/null)
+    if [ -n "$discovery" ]; then
+        echo -e "  ${GREEN}✅${NC} Found scoutica.json (discovery file)"
+        local card_url
+        card_url=$(echo "$discovery" | python3 -c "import sys,json; print(json.load(sys.stdin).get('card_url',''))" 2>/dev/null)
+        if [ -n "$card_url" ] && [ "$card_url" != "$base_url" ]; then
+            base_url=$(echo "$card_url" | sed 's|/$||')
+            echo -e "  ${DIM}→ Card URL: $base_url${NC}"
+        fi
+    fi
+    
+    # ── Fetch card files ──
+    local profile="" rules="" evidence="" skill_md=""
+    local found=0
+    
+    profile=$(curl -sf "$base_url/profile.json" 2>/dev/null)
+    if [ -n "$profile" ]; then
+        echo -e "  ${GREEN}📄${NC} profile.json"
+        found=$((found + 1))
+    else
+        echo -e "  ${RED}✗${NC} profile.json ${DIM}(not found)${NC}"
+    fi
+    
+    rules=$(curl -sf "$base_url/rules.yaml" 2>/dev/null)
+    if [ -n "$rules" ]; then
+        echo -e "  ${GREEN}📄${NC} rules.yaml"
+        found=$((found + 1))
+    else
+        echo -e "  ${RED}✗${NC} rules.yaml ${DIM}(not found)${NC}"
+    fi
+    
+    evidence=$(curl -sf "$base_url/evidence.json" 2>/dev/null)
+    if [ -n "$evidence" ]; then
+        echo -e "  ${GREEN}📄${NC} evidence.json"
+        found=$((found + 1))
+    else
+        echo -e "  ${RED}✗${NC} evidence.json ${DIM}(not found)${NC}"
+    fi
+    
+    skill_md=$(curl -sf "$base_url/SKILL.md" 2>/dev/null)
+    if [ -n "$skill_md" ]; then
+        echo -e "  ${GREEN}📄${NC} SKILL.md"
+        found=$((found + 1))
+    else
+        echo -e "  ${RED}✗${NC} SKILL.md ${DIM}(not found)${NC}"
+    fi
+    
+    echo ""
+    
+    if [ "$found" -eq 0 ]; then
+        error "No Scoutica card files found at $base_url"
+        echo -e "  ${DIM}Make sure the URL points to a repo with profile.json at the root.${NC}" >&2
+        exit 1
+    fi
+    
+    echo -e "  ${GREEN}✅${NC} Found ${BOLD}$found/4${NC} card files"
+    echo ""
+    
+    # ── Display card summary ──
+    if [ -n "$profile" ]; then
+        echo -e "${CYAN}╔═══════════════════════════════════════════════════════╗${NC}"
+        
+        local name title seniority years domains
+        name=$(echo "$profile" | python3 -c "import sys,json; print(json.load(sys.stdin).get('name','Unknown'))" 2>/dev/null)
+        title=$(echo "$profile" | python3 -c "import sys,json; print(json.load(sys.stdin).get('title',''))" 2>/dev/null)
+        seniority=$(echo "$profile" | python3 -c "import sys,json; print(json.load(sys.stdin).get('seniority',''))" 2>/dev/null)
+        years=$(echo "$profile" | python3 -c "import sys,json; print(json.load(sys.stdin).get('years_experience',''))" 2>/dev/null)
+        domains=$(echo "$profile" | python3 -c "import sys,json; print(', '.join(json.load(sys.stdin).get('domains',[])))" 2>/dev/null)
+        
+        echo -e "${CYAN}║${NC}  ${BOLD}$name${NC}"
+        [ -n "$title" ] && echo -e "${CYAN}║${NC}  $title"
+        [ -n "$seniority" ] && echo -e "${CYAN}║${NC}  ${DIM}Seniority:${NC} $seniority  ${DIM}|  Experience:${NC} ${years} years"
+        [ -n "$domains" ] && echo -e "${CYAN}║${NC}  ${DIM}Domains:${NC} $domains"
+        echo -e "${CYAN}╚═══════════════════════════════════════════════════════╝${NC}"
+        echo ""
+        
+        # Skills summary
+        local skills_summary
+        skills_summary=$(echo "$profile" | python3 -c "
+import sys, json
+p = json.load(sys.stdin)
+s = p.get('skills', {})
+parts = []
+if s.get('languages'): parts.append(f\"Languages: {', '.join(s['languages'])}\")
+if s.get('frameworks'): parts.append(f\"Frameworks: {', '.join(s['frameworks'])}\")
+if s.get('tools_and_platforms'): parts.append(f\"Tools: {', '.join(s['tools_and_platforms'])}\")
+for l in parts: print(f'  {l}')
+" 2>/dev/null)
+        
+        if [ -n "$skills_summary" ]; then
+            echo -e "  ${BOLD}Skills:${NC}"
+            echo "$skills_summary"
+            echo ""
+        fi
+    fi
+    
+    # ── Show rules summary ──
+    if [ -n "$rules" ]; then
+        local rules_summary
+        rules_summary=$(echo "$rules" | python3 -c "
+import sys, yaml
+try:
+    r = yaml.safe_load(sys.stdin)
+    if r.get('compensation',{}).get('minimum_base_eur'):
+        print(f\"  Minimum salary: {r['compensation']['minimum_base_eur']} EUR\")
+    if r.get('remote',{}).get('policy'):
+        print(f\"  Remote policy: {r['remote']['policy']}\")
+    if r.get('engagement',{}).get('allowed_types'):
+        print(f\"  Engagement: {', '.join(r['engagement']['allowed_types'])}\")
+    blocked = r.get('auto_reject',{}).get('blocked_industries',[])
+    if blocked:
+        print(f\"  Blocked industries: {', '.join(blocked)}\")
+except: pass
+" 2>/dev/null)
+        
+        if [ -n "$rules_summary" ]; then
+            echo -e "  ${BOLD}Rules of Engagement:${NC}"
+            echo "$rules_summary"
+            echo ""
+        fi
+    fi
+    
+    # ── Show evidence count ──
+    if [ -n "$evidence" ]; then
+        local ev_count
+        ev_count=$(echo "$evidence" | python3 -c "import sys,json; print(len(json.load(sys.stdin).get('items',[])))" 2>/dev/null)
+        echo -e "  ${BOLD}Evidence:${NC} $ev_count public items"
+        echo ""
+    fi
+    
+    # ── Save to local directory if requested ──
+    if [ -n "$save_dir" ]; then
+        mkdir -p "$save_dir"
+        [ -n "$profile" ] && echo "$profile" > "$save_dir/profile.json"
+        [ -n "$rules" ] && echo "$rules" > "$save_dir/rules.yaml"
+        [ -n "$evidence" ] && echo "$evidence" > "$save_dir/evidence.json"
+        [ -n "$skill_md" ] && echo "$skill_md" > "$save_dir/SKILL.md"
+        [ -n "$discovery" ] && echo "$discovery" > "$save_dir/scoutica.json"
+        echo ""
+        success "Card saved to $save_dir/"
+    fi
+}
+
+# ─── UPDATE Command ───────────────────────────────────────────────────────────
+
+cmd_update() {
+    header "Updating Scoutica CLI"
+    echo -e "  ${DIM}Checking for updates...${NC}"
+    echo ""
+    
+    local remote_version
+    remote_version=$(curl -fsSL "https://raw.githubusercontent.com/traylinx/scoutica-protocol/main/tools/scoutica" 2>/dev/null | grep '^VERSION=' | head -1 | cut -d'"' -f2 || true)
+    
+    echo -e "  Current: ${CYAN}v$VERSION${NC}"
+    echo -e "  Latest:  ${CYAN}v${remote_version:-unknown}${NC}"
+    
+    if [ -n "$remote_version" ] && [ "$VERSION" = "$remote_version" ]; then
+        echo ""
+        success "Already up to date!"
+        return 0
+    fi
+    
+    echo ""
+    echo -e "  ${DIM}Running installer to fetch the latest version...${NC}"
+    echo ""
+    
+    # Run the install script directly from the main branch
+    curl -fsSL "https://raw.githubusercontent.com/traylinx/scoutica-protocol/main/install.sh" | bash
+    
+    local exit_code=$?
+    if [ $exit_code -eq 0 ]; then
+        echo ""
+        success "Update complete! Run 'scoutica version' to check."
+    else
+        echo ""
+        error "Update failed."
+        exit 1
+    fi
+}
+
+# ─── Generate scoutica.json ──────────────────────────────────────────────────
+
+generate_scoutica_json() {
+    local card_dir="$1"
+    local profile_file="$card_dir/profile.json"
+    
+    [ ! -f "$profile_file" ] && return 1
+    
+    python3 << GENJSON
+import json, sys, os
+from datetime import date
+
+card_dir = "$card_dir"
+with open(os.path.join(card_dir, "profile.json")) as f:
+    profile = json.load(f)
+
+# Detect GitHub remote URL if in a git repo
+card_url = ""
+try:
+    import subprocess
+    result = subprocess.run(["git", "-C", card_dir, "remote", "get-url", "origin"],
+                          capture_output=True, text=True)
+    if result.returncode == 0:
+        remote = result.stdout.strip()
+        # Convert git URL to raw
+        remote = remote.replace(".git", "")
+        if "github.com" in remote:
+            parts = remote.replace("https://github.com/", "").split("/")
+            if len(parts) >= 2:
+                card_url = f"https://raw.githubusercontent.com/{parts[0]}/{parts[1]}/main"
+except: pass
+
+discovery = {
+    "scoutica": "0.1.0",
+    "card_url": card_url,
+    "name": profile.get("name", ""),
+    "title": profile.get("title", ""),
+    "seniority": profile.get("seniority", ""),
+    "domains": profile.get("domains", []),
+    "availability": profile.get("availability", ""),
+    "entity_type": profile.get("entity_type", "human"),
+    "updated": date.today().isoformat()
+}
+
+with open(os.path.join(card_dir, "scoutica.json"), "w") as f:
+    json.dump(discovery, f, indent=2, ensure_ascii=False)
+    f.write("\n")
+
+print(f"  ✅ Generated scoutica.json")
+GENJSON
+}
+
+# ─── Main Router ──────────────────────────────────────────────────────────────
+
+main() {
+    local command="${1:-help}"
+    shift 2>/dev/null || true
+    
+    case "$command" in
+        init)       cmd_init "$@" ;;
+        scan)       cmd_scan "$@" ;;
+        resolve)    cmd_resolve "$@" ;;
+        validate)   cmd_validate "$@" ;;
+        publish)    cmd_publish "$@" ;;
+        info)       cmd_info "$@" ;;
+        update)     cmd_update "$@" ;;
+        doctor)     cmd_doctor "$@" ;;
+        help|--help|-h)  cmd_help ;;
+        version|--version|-v) echo "scoutica v$VERSION" ;;
+        *)
+            error "Unknown command: $command"
+            cmd_help
+            exit 1
+            ;;
+    esac
+}
+
+main "$@"
+

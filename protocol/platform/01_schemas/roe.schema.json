@@ -1,0 +1,154 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://scoutica.com/schemas/roe.schema.json",
+  "title": "Scoutica Rules of Engagement",
+  "description": "Schema for a candidate's Rules of Engagement (RoE). Defines the policies that AI agents MUST respect when evaluating opportunities.",
+  "type": "object",
+  "required": ["schema_version", "engagement", "remote", "filters", "privacy"],
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "description": "Version of the Scoutica schema this RoE conforms to.",
+      "pattern": "^\\d+\\.\\d+\\.\\d+$"
+    },
+    "engagement": {
+      "type": "object",
+      "description": "Engagement preferences and compensation floors.",
+      "required": ["allowed_types"],
+      "properties": {
+        "allowed_types": {
+          "type": "array",
+          "description": "Types of engagement the candidate will consider.",
+          "items": {
+            "type": "string",
+            "enum": ["permanent", "contract", "fractional", "advisory", "internship"]
+          },
+          "minItems": 1,
+          "uniqueItems": true
+        },
+        "compensation": {
+          "type": "object",
+          "description": "Minimum compensation thresholds by engagement type.",
+          "properties": {
+            "minimum_base_eur": {
+              "type": "object",
+              "description": "Minimum acceptable compensation in EUR per engagement type.",
+              "properties": {
+                "permanent": {
+                  "description": "Annual salary minimum.",
+                  "oneOf": [
+                    { "type": "integer", "minimum": 0 },
+                    { "type": "string", "enum": ["negotiable"] }
+                  ]
+                },
+                "contract": {
+                  "description": "Daily rate minimum.",
+                  "oneOf": [
+                    { "type": "integer", "minimum": 0 },
+                    { "type": "string", "enum": ["negotiable"] }
+                  ]
+                },
+                "fractional": {
+                  "description": "Monthly retainer minimum.",
+                  "oneOf": [
+                    { "type": "integer", "minimum": 0 },
+                    { "type": "string", "enum": ["negotiable"] }
+                  ]
+                },
+                "advisory": {
+                  "description": "Hourly rate minimum.",
+                  "oneOf": [
+                    { "type": "integer", "minimum": 0 },
+                    { "type": "string", "enum": ["negotiable"] }
+                  ]
+                }
+              },
+              "additionalProperties": false
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    "remote": {
+      "type": "object",
+      "description": "Remote work preferences.",
+      "required": ["policy"],
+      "properties": {
+        "policy": {
+          "type": "string",
+          "description": "Remote work policy.",
+          "enum": ["remote_only", "hybrid", "flexible", "on_site"]
+        },
+        "hybrid_locations": {
+          "type": "array",
+          "description": "Acceptable locations for hybrid roles. Only relevant if policy is 'hybrid'.",
+          "items": { "type": "string" }
+        }
+      },
+      "additionalProperties": false
+    },
+    "filters": {
+      "type": "object",
+      "description": "Automatic filtering rules for incoming opportunities.",
+      "properties": {
+        "blocked_industries": {
+          "type": "array",
+          "description": "Industries the candidate refuses to work in.",
+          "items": { "type": "string" },
+          "uniqueItems": true
+        },
+        "stack_keywords": {
+          "type": "object",
+          "description": "Preferred technology/skill keywords for matching.",
+          "properties": {
+            "preferred": {
+              "type": "array",
+              "items": { "type": "string" },
+              "uniqueItems": true
+            }
+          },
+          "additionalProperties": false
+        },
+        "soft_reject": {
+          "type": "object",
+          "description": "Conditions that trigger a SOFT_REJECT (flagged for manual review).",
+          "properties": {
+            "weak_stack_overlap_below": {
+              "type": "integer",
+              "description": "Minimum number of stack keyword matches required. Below this → SOFT_REJECT.",
+              "minimum": 0
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    "privacy": {
+      "type": "object",
+      "description": "Data disclosure rules organized by privacy zone.",
+      "required": ["zone_1_public", "zone_2_paid", "zone_3_private"],
+      "properties": {
+        "zone_1_public": {
+          "type": "array",
+          "description": "Fields visible to everyone (free).",
+          "items": { "type": "string" }
+        },
+        "zone_2_paid": {
+          "type": "array",
+          "description": "Fields visible after micro-fee payment.",
+          "items": { "type": "string" }
+        },
+        "zone_3_private": {
+          "type": "array",
+          "description": "Fields shared only after explicit candidate approval.",
+          "items": { "type": "string" }
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

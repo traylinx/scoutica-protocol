@@ -1,0 +1,233 @@
+"""
+Agent Client for inter-agent communication via Traylinx Router.
+Enables capability-based routing without hardcoded URLs.
+"""
+
+import structlog
+import httpx
+from typing import Dict, Any, Optional
+from traylinx_auth_client import get_request_headers
+
+from app.config import get_settings
+
+logger = structlog.get_logger()
+
+
+class AgentClient:
+    """
+    Client for calling other agents via Traylinx Router.
+    Uses capability-based routing - no need to know agent URLs.
+    """
+    
+    def __init__(self):
+        """Initialize agent client with Router URL from settings."""
+        settings = get_settings()
+        self.router_url = settings.ROUTER_URL
+        self.sentinel_url = settings.SENTINEL_URL
+    
+    async def route_request(
+        self,
+        capability: str,
+        payload: Dict[str, Any],
+        timeout: int = 30,
+        correlation_id: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """
+        Route a request to an agent by capability.
+        
+        The Router discovers which agent provides the capability and forwards the request.
+        
+        Args:
+            capability: Capability name (e.g., "source_candidates", "match_candidates")
+            payload: Request payload for the target agent
+            timeout: Request timeout in seconds
+            correlation_id: Optional correlation ID for tracking
+        
+        Returns:
+            Response from the target agent
+        
+        Raises:
+            httpx.HTTPError: If routing or target agent fails
+        """
+        headers = get_request_headers()  # Automatic A2A authentication
+        
+        if correlation_id:
+            headers["X-Correlation-ID"] = correlation_id
+        
+        try:
+            async with httpx.AsyncClient(timeout=timeout) as client:
+                response = await client.post(
+                    f"{self.router_url}/a2a/route",
+                    json={
+                        "capability": capability,
+                        "payload": payload
+                    },
+                    headers=headers
+                )
+                response.raise_for_status()
+                
+                logger.info(
+                    "agent_request_routed",
+                    capability=capability,
+                    status_code=response.status_code,
+                    correlation_id=correlation_id
+                )
+                
+                return response.json()
+        
+        except httpx.HTTPStatusError as e:
+            logger.error(
+                "agent_request_failed",
+                capability=capability,
+                status_code=e.response.status_code,
+                error=str(e),
+                correlation_id=correlation_id
+            )
+            raise
+        
+        except httpx.RequestError as e:
+            logger.error(
+                "agent_request_error",
+                capability=capability,
+                error=str(e),
+                correlation_id=correlation_id
+            )
+            raise
+    
+    async def call_agent_api(
+        self,
+        agent_base_url: str,
+        endpoint: str,
+        method: str = "GET",
+        json_data: Optional[Dict[str, Any]] = None,
+        timeout: int = 30
+    ) -> Dict[str, Any]:
+        """
+        Direct API call to another agent (when you know the URL).
+        
+        Use this for REST API endpoints exposed by agents (e.g., GET /api/sourcing/candidates/{id}).
+        For A2A commands, use route_request() instead.
+        
+        Args:
+            agent_base_url: Base URL of target agent
+            endpoint: API endpoint path (e.g., "/api/sourcing/candidates/123")
+            method: HTTP method (GET, POST, PUT, DELETE)
+            json_data: Optional JSON payload for POST/PUT requests
+            timeout: Request timeout in seconds
+        
+        Returns:
+            Response from the agent's API
+        
+        Raises:
+            httpx.HTTPError: If the request fails
+        """
+        headers = get_request_headers()  # Automatic A2A authentication
+        url = f"{agent_base_url}{endpoint}"
+        
+        try:
+            async with httpx.AsyncClient(timeout=timeout) as client:
+                response = await client.request(
+                    method=method,
+                    url=url,
+                    json=json_data,
+                    headers=headers
+                )
+                response.raise_for_status()
+                
+                logger.info(
+                    "agent_api_called",
+                    url=url,
+                    method=method,
+                    status_code=response.status_code
+                )
+                
+                return response.json()
+        
+        except httpx.HTTPStatusError as e:
+            logger.error(
+                "agent_api_failed",
+                url=url,
+                method=method,
+                status_code=e.response.status_code,
+                error=str(e)
+            )
+            raise
+        
+        except httpx.RequestError as e:
+            logger.error(
+                "agent_api_error",
+                url=url,
+                method=method,
+                error=str(e)
+            )
+            raise
+    
+    async def decrypt_llm_token(
+        self,
+        encrypted_token: str,
+        user_id: str,
+        organization_id: str
+    ) -> str:
+        """
+        Decrypt LLM authentication token via Traylinx Sentinel.
+        
+        Use this before calling LLM APIs to decrypt user-specific tokens.
+        NEVER store the decrypted token - use it immediately and discard.
+        
+        Args:
+            encrypted_token: Encrypted Traylinx auth token from user_context
+            user_id: User ID for billing attribution
+            organization_id: Organization ID for billing attribution
+        
+        Returns:
+            Decrypted token (use immediately, never store)
+        
+        Raises:
+            httpx.HTTPError: If decryption fails
+        """
+        headers = get_request_headers()
+        
+        try:
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                response = await client.post(
+                    f"{self.sentinel_url}/decrypt",
+                    json={
+                        "encrypted_token": encrypted_token,
+                        "user_id": user_id,
+                        "organization_id": organization_id
+                    },
+                    headers=headers
+                )
+                response.raise_for_status()
+                
+                result = response.json()
+                decrypted_token = result.get("decrypted_token")
+                
+                logger.info(
+                    "llm_token_decrypted",
+                    user_id=user_id,
+                    organization_id=organization_id
+                )
+                
+                return decrypted_token
+        
+        except Exception as e:
+            logger.error(
+                "llm_token_decryption_failed",
+                user_id=user_id,
+                error=str(e)
+            )
+            raise
+
+
+# Singleton instance
+_agent_client: Optional[AgentClient] = None
+
+
+def get_agent_client() -> AgentClient:
+    """Get singleton AgentClient instance."""
+    global _agent_client
+    if _agent_client is None:
+        _agent_client = AgentClient()
+    return _agent_client
+

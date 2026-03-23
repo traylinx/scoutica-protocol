@@ -1,0 +1,99 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://scoutica.com/schemas/candidate_profile.schema.json",
+  "title": "Scoutica Candidate Profile",
+  "description": "Schema for a candidate's machine-readable professional profile. This is the core data structure of a Scoutica Skill Card.",
+  "type": "object",
+  "required": ["schema_version", "title", "seniority", "skills", "primary_domains"],
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "description": "Version of the Scoutica schema this profile conforms to.",
+      "pattern": "^\\d+\\.\\d+\\.\\d+$",
+      "examples": ["0.1.0"]
+    },
+    "name": {
+      "type": "string",
+      "description": "The candidate's professional display name.",
+      "minLength": 1
+    },
+    "title": {
+      "type": "string",
+      "description": "Professional title (e.g., 'Senior Software Engineer', 'Executive Chef', 'CDL Truck Driver').",
+      "minLength": 1
+    },
+    "seniority": {
+      "type": "string",
+      "description": "The candidate's seniority level.",
+      "enum": ["entry", "junior", "mid", "senior", "lead", "manager", "director", "executive"]
+    },
+    "years_experience": {
+      "type": "integer",
+      "description": "Total years of professional experience.",
+      "minimum": 0
+    },
+    "availability": {
+      "type": "string",
+      "description": "Current availability for new opportunities.",
+      "enum": ["immediately", "in_2_weeks", "in_4_weeks", "in_8_weeks", "not_looking"]
+    },
+    "primary_domains": {
+      "type": "array",
+      "description": "The candidate's primary professional domains (e.g., 'Backend Engineering', 'French Cuisine').",
+      "items": { "type": "string", "minLength": 1 },
+      "minItems": 1,
+      "uniqueItems": true
+    },
+    "skills": {
+      "type": "array",
+      "description": "The candidate's professional skills. Can be anything: coding, cooking, driving, management.",
+      "items": { "type": "string", "minLength": 1 },
+      "minItems": 1,
+      "uniqueItems": true
+    },
+    "tools_and_platforms": {
+      "type": "array",
+      "description": "Tools, equipment, software, or platforms used in professional work.",
+      "items": { "type": "string" },
+      "uniqueItems": true
+    },
+    "certifications_and_licenses": {
+      "type": "array",
+      "description": "Professional certifications or licenses (e.g., CDL-A, AWS Certified, ServSafe).",
+      "items": { "type": "string" },
+      "uniqueItems": true
+    },
+    "specializations": {
+      "type": "array",
+      "description": "Niche areas of deep expertise.",
+      "items": { "type": "string" },
+      "uniqueItems": true
+    },
+    "spoken_languages": {
+      "type": "array",
+      "description": "Languages the candidate speaks professionally.",
+      "items": {
+        "type": "object",
+        "required": ["language", "level"],
+        "properties": {
+          "language": { "type": "string", "minLength": 1 },
+          "level": {
+            "type": "string",
+            "enum": ["native", "fluent", "professional", "basic"]
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "education": {
+      "type": "string",
+      "description": "Highest relevant education or training."
+    },
+    "summary": {
+      "type": "string",
+      "description": "A 2-3 sentence professional summary.",
+      "maxLength": 1000
+    }
+  },
+  "additionalProperties": false
+}

@@ -1,0 +1,13 @@
+# Scoutica — never commit these files
+.scan_response_raw.txt
+.backup/
+scoutica_prompt.txt
+
+# Secrets and environment
+*.env
+.env*
+secrets/
+
+# OS files
+.DS_Store
+Thumbs.db

@@ -1,0 +1,212 @@
+"""
+Registry Client for Traylinx Registry integration.
+Handles agent registration, heartbeat, and deregistration.
+"""
+
+import struct log
+import httpx
+import asyncio
+from typing import Dict, Any, List, Optional
+from traylinx_auth_client import get_request_headers
+
+from app.config import get_settings
+
+logger = structlog.get_logger()
+
+
+class RegistryClient:
+    """
+    Client for interacting with Traylinx Agent Registry.
+    Manages agent lifecycle: registration, heartbeat, deregistration.
+    """
+    
+    def __init__(self):
+        """Initialize registry client with Registry URL from settings."""
+        settings = get_settings()
+        self.registry_url = settings.REGISTRY_URL
+        self.agent_key = settings.AGENT_KEY
+        self.heartbeat_interval = 30  # seconds
+    
+    async def register_agent(
+        self,
+        agent_key: str,
+        agent_name: str,
+        agent_type: str,
+        base_url: str,
+        capabilities: List[Dict[str, Any]],
+        tags: List[str]
+    ) -> Dict[str, Any]:
+        """
+        Register agent with Traylinx Registry.
+        
+        Args:
+            agent_key: Unique agent identifier (e.g., "scoutica-conversation-agent")
+            agent_name: Human-readable name
+            agent_type: Type ("specialized" or "orchestrator")
+            base_url: Agent's base URL
+            capabilities: List of capability definitions
+            tags: List of tags for categorization
+        
+        Returns:
+            Registration response from Registry
+        
+        Raises:
+            httpx.HTTPError: If registration fails
+        """
+        headers = get_request_headers()  # Automatic A2A authentication
+        
+        registration_payload = {
+            "agent_key": agent_key,
+            "agent_name": agent_name,
+            "agent_type": agent_type,
+            "base_url": base_url,
+            "capabilities": capabilities,
+            "tags": tags
+        }
+        
+        try:
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                response = await client.post(
+                    f"{self.registry_url}/a2a/register",
+                    json=registration_payload,
+                    headers=headers
+                )
+                response.raise_for_status()
+                
+                result = response.json()
+                
+                logger.info(
+                    "agent_registered",
+                    agent_key=agent_key,
+                    agent_name=agent_name,
+                    capabilities_count=len(capabilities)
+                )
+                
+                return result
+        
+        except httpx.HTTPStatusError as e:
+            logger.error(
+                "registration_failed",
+                agent_key=agent_key,
+                status_code=e.response.status_code,
+                error=str(e)
+            )
+            raise
+        
+        except httpx.RequestError as e:
+            logger.error(
+                "registration_error",
+                agent_key=agent_key,
+                error=str(e)
+            )
+            raise
+    
+    async def send_heartbeat(self) -> Dict[str, Any]:
+        """
+        Send heartbeat to Registry to keep agent alive.
+        
+        Returns:
+            Heartbeat response
+        
+        Raises:
+            httpx.HTTPError: If heartbeat fails
+        """
+        headers = get_request_headers()
+        
+        try:
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                response = await client.post(
+                    f"{self.registry_url}/a2a/heartbeat",
+                    json={"agent_key": self.agent_key},
+                    headers=headers
+                )
+                response.raise_for_status()
+                
+                logger.debug("heartbeat_sent", agent_key=self.agent_key)
+                
+                return response.json()
+        
+        except Exception as e:
+            logger.error(
+                "heartbeat_failed",
+                agent_key=self.agent_key,
+                error=str(e)
+            )
+            # Don't raise - heartbeat failures shouldn't crash the agent
+            return {"status": "failed", "error": str(e)}
+    
+    async def heartbeat_loop(self):
+        """
+        Background task that sends periodic heartbeats.
+        
+        This should be run as an asyncio task and cancelled on shutdown.
+        """
+        logger.info(
+            "heartbeat_loop_started",
+            agent_key=self.agent_key,
+            interval_seconds=self.heartbeat_interval
+        )
+        
+        while True:
+            try:
+                await asyncio.sleep(self.heartbeat_interval)
+                await self.send_heartbeat()
+            
+            except asyncio.CancelledError:
+                logger.info("heartbeat_loop_cancelled")
+                raise
+            
+            except Exception as e:
+                logger.error(
+                    "heartbeat_loop_error",
+                    error=str(e)
+                )
+                # Continue loop even if heartbeat fails
+                continue
+    
+    async def deregister_agent(self) -> Dict[str, Any]:
+        """
+        Deregister agent from Registry (cleanup on shutdown).
+        
+        Returns:
+            Deregistration response
+        
+        Raises:
+            httpx.HTTPError: If deregistration fails
+        """
+        headers = get_request_headers()
+        
+        try:
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                response = await client.post(
+                    f"{self.registry_url}/a2a/deregister",
+                    json={"agent_key": self.agent_key},
+                    headers=headers
+                )
+                response.raise_for_status()
+                
+                logger.info("agent_deregistered", agent_key=self.agent_key)
+                
+                return response.json()
+        
+        except Exception as e:
+            logger.error(
+                "deregistration_failed",
+                agent_key=self.agent_key,
+                error=str(e)
+            )
+            # Don't raise - deregistration failures on shutdown are non-critical
+            return {"status": "failed", "error": str(e)}
+
+
+# Singleton instance
+_registry_client: Optional[RegistryClient] = None
+
+
+def get_registry_client() -> RegistryClient:
+    """Get singleton RegistryClient instance."""
+    global _registry_client
+    if _registry_client is None:
+        _registry_client = RegistryClient()
+    return _registry_client
+

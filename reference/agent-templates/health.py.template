@@ -1,0 +1,117 @@
+"""
+Health check endpoints for Scoutica <Agent> Agent.
+Provides liveness (/health) and readiness (/ready) probes.
+"""
+
+import structlog
+from fastapi import APIRouter, status
+from fastapi.responses import JSONResponse
+import httpx
+from datetime import datetime
+
+from app.config import get_settings
+from app.db.connection import engine
+
+logger = structlog.get_logger()
+router = APIRouter()
+
+
+@router.get("/health", status_code=status.HTTP_200_OK)
+async def health_check():
+    """
+    Liveness probe - checks if the service process is running.
+    Kubernetes uses this to determine if the pod should be restarted.
+    
+    Returns:
+        Basic health status (always 200 if process is alive)
+    """
+    return {
+        "status": "healthy",
+        "agent": "<Agent> Agent",
+        "timestamp": datetime.utcnow().isoformat()
+    }
+
+
+@router.get("/ready", status_code=status.HTTP_200_OK)
+async def readiness_check():
+    """
+    Readiness probe - checks if the service can accept traffic.
+    Kubernetes uses this to determine if the pod should receive requests.
+    
+    Checks:
+    - Database connectivity
+    - Traylinx services connectivity
+    
+    Returns:
+        200 if ready, 503 if not ready
+    """
+    settings = get_settings()
+    checks = {}
+    all_healthy = True
+    
+    # Check 1: Database connectivity
+    try:
+        async with engine.connect() as conn:
+            await conn.execute("SELECT 1")
+        checks["database"] = "healthy"
+        logger.debug("database_check_passed")
+    except Exception as e:
+        checks["database"] = f"error: {str(e)}"
+        all_healthy = False
+        logger.error("database_check_failed", error=str(e))
+    
+    # Check 2: Traylinx Sentinel connectivity
+    try:
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            response = await client.get(f"{settings.SENTINEL_URL}/health")
+            checks["sentinel"] = "healthy" if response.status_code == 200 else "unhealthy"
+            if response.status_code != 200:
+                all_healthy = False
+    except Exception as e:
+        checks["sentinel"] = f"error: {str(e)}"
+        all_healthy = False
+        logger.error("sentinel_check_failed", error=str(e))
+    
+    # Check 3: Traylinx Registry connectivity
+    try:
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            response = await client.get(f"{settings.REGISTRY_URL}/health")
+            checks["registry"] = "healthy" if response.status_code == 200 else "unhealthy"
+            if response.status_code != 200:
+                all_healthy = False
+    except Exception as e:
+        checks["registry"] = f"error: {str(e)}"
+        all_healthy = False
+        logger.error("registry_check_failed", error=str(e))
+    
+    # Check 4: Traylinx Router connectivity
+    try:
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            response = await client.get(f"{settings.ROUTER_URL}/health")
+            checks["router"] = "healthy" if response.status_code == 200 else "unhealthy"
+            if response.status_code != 200:
+                all_healthy = False
+    except Exception as e:
+        checks["router"] = f"error: {str(e)}"
+        all_healthy = False
+        logger.error("router_check_failed", error=str(e))
+    
+    # Add agent-specific checks here if needed
+    # Example for Conversation Agent:
+    # try:
+    #     # Check WhatsApp API connectivity
+    #     async with httpx.AsyncClient(timeout=5.0) as client:
+    #         response = await client.get(f"{settings.WHATSAPP_API_URL}/health")
+    #         checks["whatsapp"] = "healthy" if response.status_code == 200 else "unhealthy"
+    # except Exception as e:
+    #     checks["whatsapp"] = f"error: {str(e)}"
+    #     all_healthy = False
+    
+    # Overall status
+    checks["ready"] = all_healthy
+    checks["timestamp"] = datetime.utcnow().isoformat()
+    
+    status_code = status.HTTP_200_OK if all_healthy else status.HTTP_503_SERVICE_UNAVAILABLE
+    
+    return JSONResponse(content=checks, status_code=status_code)
+

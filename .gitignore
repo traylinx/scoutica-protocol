@@ -1,0 +1,46 @@
+# OS
+.DS_Store
+Thumbs.db
+
+# Editors
+.idea/
+.vscode/
+.cursor/
+*.swp
+*.swo
+
+# Dependencies
+node_modules/
+.venv/
+__pycache__/
+*.pyc
+
+# Build
+dist/
+build/
+*.egg-info/
+
+# Private user data — NEVER commit
+profile/
+*.env
+.env*
+secrets/
+
+# Internal process files
+drafts/
+scratch/
+*.log
+*.tmp
+
+# Archives and raw research dumps
+archive/
+_archive/
+crawled_data/
+
+# Local workspace for internal agent context (NEVER commit)
+.specs/
+
+# Scoutica scan artifacts (may contain PII)
+.scan_response_raw.txt
+.backup/
+scoutica_prompt.txt

@@ -1,0 +1,85 @@
+version: '3.8'
+
+services:
+  # PostgreSQL database for <Agent> Agent
+  # NO REDIS - PostgreSQL only!
+  postgres:
+    image: postgres:15-alpine
+    container_name: <agent>-postgres
+    environment:
+      POSTGRES_USER: <agent>_user
+      POSTGRES_PASSWORD: <agent>_password
+      POSTGRES_DB: <agent>_agent_dev
+    ports:
+      - "5432:5432"  # Adjust port if running multiple agents locally
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U <agent>_user"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - scoutica_network
+
+  # <Agent> Agent service (optional - for containerized development)
+  <agent>_agent:
+    build: .
+    container_name: <agent>-agent
+    ports:
+      - "<port>:<port>"  # e.g., 8010:8010
+    environment:
+      # Agent Identity
+      AGENT_KEY: scoutica-<agent>-agent
+      AGENT_SECRET: ${AGENT_SECRET}
+      AGENT_PORT: <port>
+      
+      # Traylinx Infrastructure
+      SENTINEL_URL: ${SENTINEL_URL:-http://traylinx-sentinel:8002}
+      REGISTRY_URL: ${REGISTRY_URL:-http://traylinx-registry:8000}
+      ROUTER_URL: ${ROUTER_URL:-http://traylinx-router:8080}
+      SUBSCRIPTION_SERVICE_URL: ${SUBSCRIPTION_SERVICE_URL:-http://traylinx-subscription:8001}
+      
+      # Database
+      DATABASE_URL: postgresql+asyncpg://<agent>_user:<agent>_password@postgres:5432/<agent>_agent_dev
+      DB_POOL_SIZE: 20
+      
+      # Logging
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      ENVIRONMENT: development
+      
+      # Add agent-specific env vars here
+      # For LLM agents:
+      # TRAYLINX_LLM_URL: ${TRAYLINX_LLM_URL}
+      # For Conversation Agent:
+      # WHATSAPP_API_URL: ${WHATSAPP_API_URL}
+      # WHATSAPP_ACCESS_TOKEN: ${WHATSAPP_ACCESS_TOKEN}
+      # For Sourcing Agent:
+      # CORESIGNAL_API_KEY: ${CORESIGNAL_API_KEY}
+      # META_ADS_ACCESS_TOKEN: ${META_ADS_ACCESS_TOKEN}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - ./app:/app/app  # Hot reload for development
+    command: uvicorn app.main:app --host 0.0.0.0 --port <port> --reload
+    networks:
+      - scoutica_network
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+    driver: local
+
+networks:
+  scoutica_network:
+    external: true  # Assumes you have a shared network for all Scoutica services
+    # If not, remove 'external: true' and it will create a local network
+
+# Usage:
+# 1. Copy env.example.template to .env and fill in values
+# 2. Run: docker-compose up -d
+# 3. Check logs: docker-compose logs -f
+# 4. Stop: docker-compose down
+# 5. Stop and remove volumes: docker-compose down -v
+

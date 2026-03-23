@@ -1,0 +1,196 @@
+"""
+Event Publisher for publishing events via Traylinx Router.
+Enables event-driven architecture with automatic subscriber delivery.
+"""
+
+import structlog
+import httpx
+from typing import Dict, Any, Optional
+from traylinx_auth_client import get_request_headers
+
+from app.config import get_settings
+
+logger = structlog.get_logger()
+
+
+class EventPublisher:
+    """
+    Publisher for broadcasting events to subscribers via Traylinx Router.
+    Router automatically delivers to all agents subscribed to the event type.
+    """
+    
+    def __init__(self):
+        """Initialize event publisher with Router URL from settings."""
+        settings = get_settings()
+        self.router_url = settings.ROUTER_URL
+        self.agent_key = settings.AGENT_KEY
+    
+    async def publish(
+        self,
+        event_type: str,
+        payload: Dict[str, Any],
+        job_id: Optional[str] = None,
+        correlation_id: Optional[str] = None,
+        timeout: int = 30
+    ) -> Dict[str, Any]:
+        """
+        Publish an event to all subscribers.
+        
+        The Router queries the Subscription Service to find all agents interested
+        in this event_type (optionally filtered by job_id) and delivers the event.
+        
+        Args:
+            event_type: Event type (e.g., "intake.completed", "sourcing.completed")
+            payload: Event payload data
+            job_id: Optional job ID for job-scoped subscriptions
+            correlation_id: Optional correlation ID for tracking
+            timeout: Request timeout in seconds
+        
+        Returns:
+            Publication result with delivery statistics
+        
+        Raises:
+            httpx.HTTPError: If publication fails
+        """
+        headers = get_request_headers()  # Automatic A2A authentication
+        
+        if correlation_id:
+            headers["X-Correlation-ID"] = correlation_id
+        
+        request_body = {
+            "event_type": event_type,
+            "payload": payload,
+            "publisher_agent_key": self.agent_key
+        }
+        
+        if job_id:
+            request_body["job_id"] = job_id
+        
+        try:
+            async with httpx.AsyncClient(timeout=timeout) as client:
+                response = await client.post(
+                    f"{self.router_url}/a2a/event",
+                    json=request_body,
+                    headers=headers
+                )
+                response.raise_for_status()
+                
+                result = response.json()
+                
+                logger.info(
+                    "event_published",
+                    event_type=event_type,
+                    job_id=job_id,
+                    delivered=result.get("delivered", 0),
+                    total_subscribers=result.get("total_subscribers", 0),
+                    correlation_id=correlation_id
+                )
+                
+                return result
+        
+        except httpx.HTTPStatusError as e:
+            logger.error(
+                "event_publication_failed",
+                event_type=event_type,
+                job_id=job_id,
+                status_code=e.response.status_code,
+                error=str(e),
+                correlation_id=correlation_id
+            )
+            raise
+        
+        except httpx.RequestError as e:
+            logger.error(
+                "event_publication_error",
+                event_type=event_type,
+                job_id=job_id,
+                error=str(e),
+                correlation_id=correlation_id
+            )
+            raise
+    
+    async def publish_success_event(
+        self,
+        operation: str,
+        result: Dict[str, Any],
+        job_id: Optional[str] = None,
+        correlation_id: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """
+        Convenience method to publish a success event.
+        
+        Event type will be "{operation}.completed".
+        
+        Args:
+            operation: Operation name (e.g., "sourcing", "matching")
+            result: Operation result data
+            job_id: Optional job ID
+            correlation_id: Optional correlation ID
+        
+        Returns:
+            Publication result
+        """
+        event_type = f"{operation}.completed"
+        payload = {
+            "status": "success",
+            "result": result
+        }
+        
+        return await self.publish(
+            event_type=event_type,
+            payload=payload,
+            job_id=job_id,
+            correlation_id=correlation_id
+        )
+    
+    async def publish_failure_event(
+        self,
+        operation: str,
+        error: str,
+        error_details: Optional[Dict[str, Any]] = None,
+        job_id: Optional[str] = None,
+        correlation_id: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """
+        Convenience method to publish a failure event.
+        
+        Event type will be "{operation}.failed".
+        
+        Args:
+            operation: Operation name (e.g., "sourcing", "matching")
+            error: Error message
+            error_details: Optional additional error details
+            job_id: Optional job ID
+            correlation_id: Optional correlation ID
+        
+        Returns:
+            Publication result
+        """
+        event_type = f"{operation}.failed"
+        payload = {
+            "status": "failed",
+            "error": error
+        }
+        
+        if error_details:
+            payload["error_details"] = error_details
+        
+        return await self.publish(
+            event_type=event_type,
+            payload=payload,
+            job_id=job_id,
+            correlation_id=correlation_id
+        )
+
+
+# Singleton instance
+_event_publisher: Optional[EventPublisher] = None
+
+
+def get_event_publisher() -> EventPublisher:
+    """Get singleton EventPublisher instance."""
+    global _event_publisher
+    if _event_publisher is None:
+        _event_publisher = EventPublisher()
+    return _event_publisher
+

@@ -1,0 +1,53 @@
+schema_version: "0.1.0"
+
+engagement:
+  allowed_types:
+    - permanent
+    - contract
+    - advisory
+  compensation:
+    minimum_base_eur:
+      permanent: 80000
+      contract: 600
+      advisory: 150
+
+remote:
+  policy: "remote_only"
+  hybrid_locations:
+    - "California"
+    - "New York"
+
+filters:
+  blocked_industries:
+    - "gambling"
+    - "weapons"
+    - "tobacco"
+  stack_keywords:
+    preferred:
+      - "Python"
+      - "TypeScript"
+      - "Kubernetes"
+      - "AWS"
+      - "FastAPI"
+      - "React"
+      - "PostgreSQL"
+      - "Docker"
+      - "Terraform"
+      - "Go"
+  soft_reject:
+    weak_stack_overlap_below: 3
+
+privacy:
+  zone_1_public:
+    - title
+    - seniority
+    - primary_domains
+    - availability
+  zone_2_paid:
+    - full_profile
+    - evidence
+    - experience_details
+  zone_3_private:
+    - email
+    - phone
+    - exact_salary

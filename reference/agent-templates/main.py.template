@@ -1,0 +1,151 @@
+"""
+Main FastAPI application for Scoutica <Agent> Agent.
+Includes Traylinx Registry registration and heartbeat management.
+"""
+
+from contextlib import asynccontextmanager
+import asyncio
+import structlog
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+
+from app.config import get_settings
+from app.routers import health, a2a_<agent>
+from app.services.registry_client import RegistryClient
+# Uncomment if agent subscribes to events:
+# from app.services.subscription_manager import SubscriptionManager
+
+# Configure structured logging
+structlog.configure(
+    processors=[
+        structlog.contextvars.merge_contextvars,
+        structlog.processors.add_log_level,
+        structlog.processors.TimeStamper(fmt="iso"),
+        structlog.processors.JSONRenderer()
+    ],
+    wrapper_class=structlog.make_filtering_bound_logger(get_settings().LOG_LEVEL),
+    context_class=dict,
+    logger_factory=structlog.PrintLoggerFactory(),
+    cache_logger_on_first_use=False
+)
+
+logger = structlog.get_logger()
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """
+    Application lifespan manager.
+    Handles Traylinx Registry registration/deregistration and background tasks.
+    """
+    settings = get_settings()
+    logger.info(
+        "starting_agent",
+        agent_key=settings.AGENT_KEY,
+        port=settings.AGENT_PORT,
+        environment=settings.ENVIRONMENT
+    )
+    
+    # Initialize Registry client
+    registry_client = RegistryClient()
+    
+    try:
+        # 1. Register with Traylinx Registry
+        await registry_client.register_agent(
+            agent_key=settings.AGENT_KEY,
+            agent_name="Scoutica <Agent> Agent",
+            agent_type="specialized",  # or "orchestrator" for orchestrator
+            base_url=f"http://{settings.AGENT_KEY}:{settings.AGENT_PORT}",
+            capabilities=[
+                {
+                    "name": "<capability_name>",
+                    "description": "<capability_description>"
+                }
+                # Add more capabilities as needed
+            ],
+            tags=["<tag1>", "<tag2>"]
+        )
+        logger.info("registered_with_registry", agent_key=settings.AGENT_KEY)
+        
+        # 2. Start heartbeat background task
+        heartbeat_task = asyncio.create_task(registry_client.heartbeat_loop())
+        logger.info("heartbeat_started")
+        
+        # 3. Create event subscriptions (if agent consumes events)
+        # Uncomment and customize for agents that subscribe to events:
+        # subscription_manager = SubscriptionManager()
+        # await subscription_manager.create_subscriptions([
+        #     {
+        #         "event_type": "intake.completed",
+        #         "filters": {}  # Optional JSONB filters
+        #     }
+        # ])
+        # logger.info("subscriptions_created")
+        
+        yield  # Application runs here
+        
+    finally:
+        # 4. Cleanup on shutdown
+        logger.info("shutting_down_agent")
+        
+        # Cancel heartbeat task
+        heartbeat_task.cancel()
+        try:
+            await heartbeat_task
+        except asyncio.CancelledError:
+            pass
+        
+        # Deregister from Registry
+        try:
+            await registry_client.deregister_agent()
+            logger.info("deregistered_from_registry")
+        except Exception as e:
+            logger.error("deregistration_failed", error=str(e))
+
+
+# Create FastAPI application
+app = FastAPI(
+    title="Scoutica <Agent> Agent",
+    description="<Agent description>",
+    version="1.0.0",
+    lifespan=lifespan
+)
+
+# Add CORS middleware (configure as needed)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # Adjust for production
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# Include routers
+app.include_router(health.router, tags=["Health"])
+app.include_router(a2a_<agent>.router, tags=["A2A"])
+
+
+@app.get("/")
+async def root():
+    """Root endpoint - basic agent info."""
+    settings = get_settings()
+    return {
+        "agent": "<Agent> Agent",
+        "version": "1.0.0",
+        "status": "operational",
+        "agent_key": settings.AGENT_KEY
+    }
+
+
+if __name__ == "__main__":
+    import uvicorn
+    settings = get_settings()
+    
+    uvicorn.run(
+        "app.main:app",
+        host="0.0.0.0",
+        port=settings.AGENT_PORT,
+        reload=settings.ENVIRONMENT == "development",
+        log_level=settings.LOG_LEVEL.lower()
+    )
+

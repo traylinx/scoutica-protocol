@@ -1,0 +1,50 @@
+{
+  "schema_version": "0.1.0",
+  "name": "Alex Chen",
+  "title": "Senior Full-Stack Engineer",
+  "seniority": "senior",
+  "years_experience": 10,
+  "availability": "immediately",
+  "primary_domains": [
+    "Backend Engineering",
+    "Cloud Infrastructure",
+    "API Design"
+  ],
+  "skills": [
+    "Python",
+    "TypeScript",
+    "Go",
+    "REST API Design",
+    "Microservices Architecture",
+    "Database Design",
+    "CI/CD Pipelines",
+    "Technical Leadership"
+  ],
+  "tools_and_platforms": [
+    "FastAPI",
+    "React",
+    "Node.js",
+    "Kubernetes",
+    "Docker",
+    "AWS",
+    "PostgreSQL",
+    "Redis",
+    "GitHub Actions",
+    "Terraform"
+  ],
+  "certifications_and_licenses": [
+    "AWS Solutions Architect Associate"
+  ],
+  "specializations": [
+    "Event-Driven Architecture",
+    "API Gateway Design",
+    "Infrastructure as Code"
+  ],
+  "spoken_languages": [
+    {"language": "English", "level": "native"},
+    {"language": "Mandarin", "level": "fluent"},
+    {"language": "Spanish", "level": "basic"}
+  ],
+  "education": "BSc Computer Science, UC Berkeley",
+  "summary": "Full-stack engineer with 10 years building cloud-native applications. Specializes in event-driven microservices, API design, and infrastructure automation. Led teams of 5-8 engineers across three product launches."
+}

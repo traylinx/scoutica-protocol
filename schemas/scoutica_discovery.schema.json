@@ -1,0 +1,50 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Scoutica Discovery File",
+  "description": "Well-known file placed at repo root to indicate the presence of a Scoutica Skill Card. Like robots.txt but for AI-readable professional profiles.",
+  "type": "object",
+  "required": ["scoutica", "card_url", "name"],
+  "properties": {
+    "scoutica": {
+      "type": "string",
+      "description": "Protocol version",
+      "pattern": "^\\d+\\.\\d+\\.\\d+$"
+    },
+    "card_url": {
+      "type": "string",
+      "format": "uri",
+      "description": "Base URL to fetch card files (profile.json, rules.yaml, etc.)"
+    },
+    "name": {
+      "type": "string",
+      "description": "Candidate's professional name"
+    },
+    "title": {
+      "type": "string",
+      "description": "Professional title"
+    },
+    "seniority": {
+      "type": "string",
+      "enum": ["entry", "junior", "mid", "senior", "lead", "manager", "director", "executive"]
+    },
+    "domains": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Top professional domains (public — Zone 1)"
+    },
+    "availability": {
+      "type": "string",
+      "enum": ["immediately", "in_2_weeks", "in_4_weeks", "in_8_weeks", "not_looking"]
+    },
+    "updated": {
+      "type": "string",
+      "format": "date",
+      "description": "Last card update date (ISO 8601)"
+    },
+    "entity_type": {
+      "type": "string",
+      "enum": ["human", "ai_agent", "service", "robot", "team", "organization"],
+      "default": "human"
+    }
+  }
+}

@@ -1,0 +1,33 @@
+{
+  "schema_version": "0.1.0",
+  "items": [
+    {
+      "type": "github_repo",
+      "title": "CloudDeploy — Kubernetes Deployment Toolkit",
+      "url": "https://github.com/alexchen/cloud-deploy",
+      "description": "Open-source Kubernetes deployment toolkit with GitOps workflow and automated rollbacks.",
+      "skills_demonstrated": ["Kubernetes", "Go", "CI/CD Pipelines", "Infrastructure as Code"]
+    },
+    {
+      "type": "github_repo",
+      "title": "FastAPI Starter — Production API Template",
+      "url": "https://github.com/alexchen/fastapi-starter",
+      "description": "Production-ready FastAPI template with async database, auth, and observability built in.",
+      "skills_demonstrated": ["Python", "FastAPI", "PostgreSQL", "Docker"]
+    },
+    {
+      "type": "article",
+      "title": "Designing Event-Driven Microservices at Scale",
+      "url": "https://blog.alexchen.dev/event-driven-microservices",
+      "description": "Technical deep-dive on event sourcing patterns used in a payment processing system handling 10K events/sec.",
+      "skills_demonstrated": ["Event-Driven Architecture", "Microservices Architecture", "Technical Leadership"]
+    },
+    {
+      "type": "certificate",
+      "title": "AWS Solutions Architect Associate",
+      "url": "https://www.credly.com/badges/example-badge-id",
+      "description": "Validates expertise in designing distributed systems on AWS.",
+      "skills_demonstrated": ["AWS", "Cloud Infrastructure"]
+    }
+  ]
+}

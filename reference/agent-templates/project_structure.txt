@@ -1,0 +1,60 @@
+# Standard Scoutica Agent Project Structure
+
+scoutica_<agent>_agent/
+├── app/
+│   ├── __init__.py
+│   ├── main.py              # FastAPI app + lifespan (registry registration)
+│   ├── config.py            # Pydantic Settings with Traylinx URLs
+│   │
+│   ├── routers/
+│   │   ├── __init__.py
+│   │   ├── health.py        # /health (liveness), /ready (readiness)
+│   │   └── a2a_<agent>.py   # /a2a/request (with @require_a2a_auth), /capabilities
+│   │
+│   ├── services/
+│   │   ├── __init__.py
+│   │   ├── <agent>_service.py     # Main business logic
+│   │   ├── agent_client.py         # Call other agents via Router
+│   │   ├── event_publisher.py      # Publish events via Router
+│   │   ├── registry_client.py      # Registry registration/heartbeat
+│   │   └── subscription_manager.py # Manage subscriptions (if needed)
+│   │
+│   ├── models/
+│   │   ├── __init__.py
+│   │   ├── requests.py      # Pydantic request models
+│   │   ├── responses.py     # Pydantic response models
+│   │   └── events.py        # Event payload models
+│   │
+│   └── db/
+│       ├── __init__.py
+│       ├── connection.py    # SQLAlchemy async engine + session
+│       ├── models.py        # SQLAlchemy ORM models
+│       └── migrations/      # Alembic migration files
+│           ├── env.py
+│           ├── script.py.mako
+│           └── versions/
+│
+├── tests/
+│   ├── __init__.py
+│   ├── conftest.py          # Pytest fixtures
+│   ├── test_<agent>_service.py
+│   ├── test_a2a_endpoints.py
+│   ├── test_registry_integration.py
+│   └── test_event_publishing.py
+│
+├── .env                     # Environment variables (git-ignored)
+├── .env.example             # Template for .env
+├── .gitignore
+├── alembic.ini              # Alembic configuration
+├── docker-compose.yml       # Local PostgreSQL for development
+├── Dockerfile               # Container image
+├── pyproject.toml           # Poetry dependencies
+├── pytest.ini               # Pytest configuration
+└── README.md                # Agent documentation
+
+# Notes:
+# - Replace <agent> with actual agent name (e.g., "conversation", "jd", "sourcing")
+# - All agents follow this exact structure for consistency
+# - PostgreSQL only - NO Redis anywhere
+# - Traylinx Auth Client SDK required for all agents
+
