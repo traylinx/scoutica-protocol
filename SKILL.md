@@ -118,6 +118,7 @@ scoutica info [dir]              # Display card summary
 | Claude Code | `claude` | `scoutica scan --with claude` |
 | Ollama | `ollama` | `scoutica scan --with ollama` |
 | switchAILocal | `ail` | `scoutica scan --with ail` |
+| OpenClaw | `openclaw` | `scoutica scan --with openclaw` |
 
 ## Learn More
 

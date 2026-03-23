@@ -879,6 +879,7 @@ cmd_scan() {
                 echo -e "    ${CYAN}opencode${NC}   OpenCode CLI         ${DIM}(github.com/opencode-ai/opencode)${NC}" >&2
                 echo -e "    ${CYAN}ollama${NC}     Ollama (local LLM)   ${DIM}(ollama.com)${NC}" >&2
                 echo -e "    ${CYAN}ail${NC}        switchAILocal        ${DIM}(github.com/traylinx/switchAILocal)${NC}" >&2
+                echo -e "    ${CYAN}openclaw${NC}   OpenClaw             ${DIM}(github.com/open-claw/open-claw)${NC}" >&2
                 echo "" >&2
                 echo -e "  ${BOLD}Examples:${NC}" >&2
                 echo -e "    scoutica scan ~/CV/                      ${DIM}# auto-detect CLI${NC}" >&2
@@ -1085,6 +1086,8 @@ $all_text"
             provider="ollama"
         elif curl -sf http://localhost:18080/health &>/dev/null; then
             provider="ail"
+        elif command -v openclaw &>/dev/null; then
+            provider="openclaw"
         else
             provider="clipboard"
         fi
@@ -1205,6 +1208,17 @@ except Exception as e:
     print(f'ERROR: {e}', file=sys.stderr)
     sys.exit(1)
 " 2>&1)
+            ;;
+        openclaw)
+            # OpenClaw — AI agent framework with embedded Pi agent
+            if ! command -v openclaw &>/dev/null; then
+                error "OpenClaw CLI not found. Install from: https://github.com/open-claw/open-claw"
+                rm -f "$tmp_prompt"
+                exit 1
+            fi
+            response=$(openclaw agent --message "$(cat "$tmp_prompt")
+
+Read my documents and generate my Scoutica Skill Card. Return ONLY raw JSON with keys: profile, rules, evidence, skill_md. No markdown fences, no explanation." 2>/dev/null)
             ;;
         codex)
             response=$(codex exec "$(cat "$tmp_prompt")
