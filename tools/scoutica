@@ -879,7 +879,7 @@ cmd_scan() {
                 echo -e "    ${CYAN}opencode${NC}   OpenCode CLI         ${DIM}(github.com/opencode-ai/opencode)${NC}" >&2
                 echo -e "    ${CYAN}ollama${NC}     Ollama (local LLM)   ${DIM}(ollama.com)${NC}" >&2
                 echo -e "    ${CYAN}ail${NC}        switchAILocal        ${DIM}(github.com/traylinx/switchAILocal)${NC}" >&2
-                echo -e "    ${CYAN}openclaw${NC}   OpenClaw             ${DIM}(github.com/open-claw/open-claw)${NC}" >&2
+                echo -e "    ${CYAN}openclaw${NC}   OpenClaw             ${DIM}(github.com/openclaw/openclaw)${NC}" >&2
                 echo "" >&2
                 echo -e "  ${BOLD}Examples:${NC}" >&2
                 echo -e "    scoutica scan ~/CV/                      ${DIM}# auto-detect CLI${NC}" >&2
@@ -1212,7 +1212,7 @@ except Exception as e:
         openclaw)
             # OpenClaw — AI agent framework with embedded Pi agent
             if ! command -v openclaw &>/dev/null; then
-                error "OpenClaw CLI not found. Install from: https://github.com/open-claw/open-claw"
+                error "OpenClaw CLI not found. Install from: https://github.com/openclaw/openclaw"
                 rm -f "$tmp_prompt"
                 exit 1
             fi
