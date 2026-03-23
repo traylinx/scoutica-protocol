@@ -1,0 +1,162 @@
+---
+title: "profile.json"
+description: "Your machine-readable professional profile"
+---
+
+`profile.json` is the core of your Skill Card. It describes your professional identity in a structured format that any AI agent can read and reason over. Agents use this file to evaluate your capability match against a role.
+
+<Note>
+  Demographic fields — age, gender, nationality, ethnicity — are deliberately excluded from the schema to comply with the EU AI Act and to reduce bias in automated screening.
+</Note>
+
+## Schema
+
+<ResponseField name="schema_version" type="string" required>
+  Protocol version this profile conforms to. Current value: `"0.1.0"`.
+</ResponseField>
+
+<ResponseField name="name" type="string">
+  Your professional name as you want it presented to agents and employers.
+</ResponseField>
+
+<ResponseField name="title" type="string" required>
+  Your current or most recent professional title (e.g. `"Senior Software Engineer"`, `"Executive Chef"`).
+</ResponseField>
+
+<ResponseField name="seniority" type="string" required>
+  Your seniority level. One of: `entry`, `junior`, `mid`, `senior`, `lead`, `manager`, `director`, `executive`.
+</ResponseField>
+
+<ResponseField name="years_experience" type="integer">
+  Total years of professional experience.
+</ResponseField>
+
+<ResponseField name="availability" type="string">
+  Current availability for new opportunities. One of: `immediately`, `in_2_weeks`, `in_4_weeks`, `in_8_weeks`, `not_looking`.
+</ResponseField>
+
+<ResponseField name="primary_domains" type="string[]" required>
+  Top-level professional domains you work in — for example `Backend Engineering`, `DevOps`, or `AI/ML`. Must have at least one item. These appear in Zone 1 (public) data and are used for discovery filtering.
+</ResponseField>
+
+<ResponseField name="skills" type="string[]" required>
+  Your professional skills as a flat list. Can include coding languages, soft skills, domain knowledge, or any professional capability — for example `"Python"`, `"Leadership"`, `"SQL"`. Must have at least one item.
+</ResponseField>
+
+<ResponseField name="tools_and_platforms" type="string[]">
+  Tools, equipment, software, or platforms used in professional work — for example `"Kubernetes"`, `"AWS"`, `"Docker"`.
+</ResponseField>
+
+<ResponseField name="certifications_and_licenses" type="string[]">
+  Professional certifications or licenses — for example `"AWS Solutions Architect Associate"`, `"CDL-A"`, `"ServSafe"`.
+</ResponseField>
+
+<ResponseField name="specializations" type="string[]">
+  Niche areas of deep expertise — for example `"Event-Driven Architecture"`, `"API Gateway Design"`.
+</ResponseField>
+
+<ResponseField name="spoken_languages" type="object[]">
+  Languages you speak professionally.
+
+  <Expandable title="item properties">
+    <ResponseField name="language" type="string" required>
+      Language name — for example `"English"`, `"Mandarin"`.
+    </ResponseField>
+
+    <ResponseField name="level" type="string" required>
+      Proficiency level. One of: `native`, `fluent`, `professional`, `basic`.
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+<ResponseField name="education" type="string">
+  Highest relevant education or training — for example `"BSc Computer Science, UC Berkeley"`.
+</ResponseField>
+
+<ResponseField name="summary" type="string">
+  A 2–3 sentence professional summary. Maximum 1000 characters.
+</ResponseField>
+
+## Seniority levels
+
+| Value | Typical profile |
+|---|---|
+| `entry` | 0–1 years |
+| `junior` | 1–3 years |
+| `mid` | 3–6 years |
+| `senior` | 6–10 years |
+| `lead` | 8+ years, team responsibility |
+| `manager` | People management focus |
+| `director` | Department or org-wide leadership |
+| `executive` | C-suite or VP level |
+
+## Example
+
+Based on the sample card in the repository:
+
+```json
+{
+  "schema_version": "0.1.0",
+  "name": "Alex Chen",
+  "title": "Senior Full-Stack Engineer",
+  "seniority": "senior",
+  "years_experience": 10,
+  "availability": "immediately",
+  "primary_domains": [
+    "Backend Engineering",
+    "Cloud Infrastructure",
+    "API Design"
+  ],
+  "skills": [
+    "Python",
+    "TypeScript",
+    "Go",
+    "REST API Design",
+    "Microservices Architecture",
+    "Database Design",
+    "CI/CD Pipelines",
+    "Technical Leadership"
+  ],
+  "tools_and_platforms": [
+    "FastAPI",
+    "React",
+    "Node.js",
+    "Kubernetes",
+    "Docker",
+    "AWS",
+    "PostgreSQL",
+    "Redis",
+    "GitHub Actions",
+    "Terraform"
+  ],
+  "certifications_and_licenses": [
+    "AWS Solutions Architect Associate"
+  ],
+  "specializations": [
+    "Event-Driven Architecture",
+    "API Gateway Design",
+    "Infrastructure as Code"
+  ],
+  "spoken_languages": [
+    {"language": "English", "level": "native"},
+    {"language": "Mandarin", "level": "fluent"},
+    {"language": "Spanish", "level": "basic"}
+  ],
+  "education": "BSc Computer Science, UC Berkeley",
+  "summary": "Full-stack engineer with 10 years building cloud-native applications. Specializes in event-driven microservices, API design, and infrastructure automation. Led teams of 5-8 engineers across three product launches."
+}
+```
+
+## Privacy zones
+
+Different fields are exposed at different access levels:
+
+| Zone | Fields exposed | Who can access |
+|---|---|---|
+| **Zone 1** (public) | `title`, `seniority`, `primary_domains`, `availability` | Anyone |
+| **Zone 2** (verified) | Full profile, `skills`, `years_experience`, `evidence` | Authenticated agents |
+| **Zone 3** (private) | Contact details, exact salary | Only after ACCEPT |
+
+<Tip>
+  Generate your `profile.json` automatically from your CV with `scoutica scan ~/my-docs/`. The CLI pipes your documents to a local AI — your data never leaves your machine.
+</Tip>

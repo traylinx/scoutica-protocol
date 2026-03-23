@@ -1,0 +1,121 @@
+---
+title: "evidence.json"
+description: "Verifiable links to your public work"
+---
+
+`evidence.json` contains a list of items that agents can use to verify your skills. Each item points to something real and public — a GitHub repository, a certification, a portfolio piece, or a publication. Agents can fetch and inspect these links to confirm your capabilities rather than relying solely on your self-reported `profile.json`.
+
+<Info>
+  Evidence URLs are checked for reachability during `scoutica validate`. A URL that returns a non-200 status will produce a validation warning.
+</Info>
+
+## Schema
+
+<ResponseField name="schema_version" type="string" required>
+  Protocol version this evidence registry conforms to. Current value: `"0.1.0"`.
+</ResponseField>
+
+<ResponseField name="items" type="object[]" required>
+  Array of evidence items.
+
+  <Expandable title="item properties">
+    <ResponseField name="type" type="string" required>
+      The kind of evidence. One of: `github_repo`, `website`, `portfolio`, `certificate`, `article`, `review`, `reference`, `photo`, `video`, `case_study`, `publication`, `other`.
+    </ResponseField>
+
+    <ResponseField name="title" type="string" required>
+      A short human-readable name for this evidence item.
+    </ResponseField>
+
+    <ResponseField name="url" type="string" required>
+      The public URL where this evidence can be found. Must be a valid URI.
+    </ResponseField>
+
+    <ResponseField name="description" type="string" required>
+      What this evidence proves about your capabilities.
+    </ResponseField>
+
+    <ResponseField name="skills_demonstrated" type="string[]" required>
+      Skills or technologies this evidence demonstrates — for example `["Go", "API Design", "Kubernetes"]`. Must have at least one item. Agents use this list to match evidence to capability claims in `profile.json`.
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+## Evidence types
+
+| Type | Description |
+|---|---|
+| `github_repo` | A public GitHub repository. Agents can inspect language distribution, commit history, and last activity. |
+| `website` | A personal or project website. |
+| `portfolio` | A portfolio page or design showcase. |
+| `certificate` | An industry certification with a verifiable certificate URL. |
+| `article` | A blog post or technical article. |
+| `review` | A third-party review or testimonial. |
+| `reference` | A reference from a colleague or employer. |
+| `photo` | A photo demonstrating work (e.g., physical project, installation). |
+| `video` | A video demonstrating work or a talk. |
+| `case_study` | A detailed write-up of a project or engagement. |
+| `publication` | A research paper, academic publication, or book. |
+| `other` | Any other form of verifiable public evidence. |
+
+## Trust levels
+
+Trust levels describe how strongly an evidence item has been independently verified. Higher levels carry more weight with employer agents.
+
+| Level | Label | Meaning |
+|---|---|---|
+| `0` | Self-asserted | You added this URL yourself. No external verification has occurred. |
+| `1` | URL reachable | The Scoutica validator confirmed the URL returns a 200 response. |
+| `2` | Content verified | An agent has inspected the content and confirmed it matches the claimed skills. |
+| `3` | Peer-endorsed | A trusted third party has attested to this item. |
+| `4` | Blockchain-verified | The item is anchored to an immutable public ledger (roadmap feature). |
+
+<Note>
+  Trust levels 0 and 1 are assigned by the CLI validator. Trust levels 3 and 4 require external processes not yet automated — they are part of the roadmap.
+</Note>
+
+## Example
+
+Based on the sample card in the repository:
+
+```json
+{
+  "schema_version": "0.1.0",
+  "items": [
+    {
+      "type": "github_repo",
+      "title": "CloudDeploy — Kubernetes Deployment Toolkit",
+      "url": "https://github.com/alexchen/cloud-deploy",
+      "description": "Open-source Kubernetes deployment toolkit with GitOps workflow and automated rollbacks.",
+      "skills_demonstrated": ["Kubernetes", "Go", "CI/CD Pipelines", "Infrastructure as Code"]
+    },
+    {
+      "type": "github_repo",
+      "title": "FastAPI Starter — Production API Template",
+      "url": "https://github.com/alexchen/fastapi-starter",
+      "description": "Production-ready FastAPI template with async database, auth, and observability built in.",
+      "skills_demonstrated": ["Python", "FastAPI", "PostgreSQL", "Docker"]
+    },
+    {
+      "type": "certificate",
+      "title": "AWS Solutions Architect Associate",
+      "url": "https://www.credly.com/badges/example-badge-id",
+      "description": "Validates expertise in designing distributed systems on AWS.",
+      "skills_demonstrated": ["AWS", "Cloud Infrastructure"]
+    }
+  ]
+}
+```
+
+## How agents verify evidence
+
+For `github_repo` items, agents can inspect the repository directly:
+
+- Does the repository exist and is it publicly accessible?
+- What programming languages are present?
+- How many commits does it have and when was it last active?
+- Does the candidate appear as a contributor?
+
+For `certificate` items, agents check the provided URL to confirm the credential is live and valid.
+
+For `article` and `publication` items, agents treat them as demonstrations of domain knowledge and writing ability.

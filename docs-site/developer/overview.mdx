@@ -1,0 +1,94 @@
+---
+title: "Developer Overview"
+description: "Build apps, plugins, and integrations that consume the Scoutica Protocol"
+---
+
+The Scoutica Protocol defines a standard way for AI agents and applications to discover, read, evaluate, and interact with professional profiles. Any platform — job board, ATS, recruiting agent, or personal website widget — can integrate by following the four-step flow below.
+
+## Integration flow
+
+<Steps>
+  <Step title="Discover">
+    Find a candidate's card via `scoutica.json` — a well-known file placed at the root of their GitHub repository. It contains the `card_url` needed to fetch the full profile.
+  </Step>
+  <Step title="Fetch">
+    Retrieve the structured card files from the `card_url`: `profile.json`, `rules.yaml`, and `evidence.json`. These contain skills, rules of engagement, and verifiable evidence links.
+  </Step>
+  <Step title="Evaluate">
+    Score the candidate's skills against job requirements and pre-screen against their rules. Check rules **before** making contact.
+  </Step>
+  <Step title="Interact">
+    Proceed to negotiation or interview scheduling only for candidates who pass pre-screening.
+  </Step>
+</Steps>
+
+## Quick integration examples
+
+<CodeGroup>
+
+```python python
+import requests, json
+
+BASE = "https://raw.githubusercontent.com/{user}/{repo}/main"
+
+def fetch_card(base_url):
+    """Fetch all Scoutica Protocol card files from a base URL."""
+    return {
+        'profile': requests.get(f"{base_url}/profile.json").json(),
+        'rules': requests.get(f"{base_url}/rules.yaml").text,
+        'evidence': requests.get(f"{base_url}/evidence.json").json(),
+        'discovery': requests.get(f"{base_url}/scoutica.json").json(),
+    }
+
+card = fetch_card("https://raw.githubusercontent.com/user/my-card/main")
+print(card['profile']['name'])    # "Alice Developer"
+print(card['profile']['skills'])  # {languages: [...], frameworks: [...]}
+```
+
+```javascript javascript
+async function fetchCard(baseUrl) {
+  const [profile, rules, evidence] = await Promise.all([
+    fetch(`${baseUrl}/profile.json`).then(r => r.json()),
+    fetch(`${baseUrl}/rules.yaml`).then(r => r.text()),
+    fetch(`${baseUrl}/evidence.json`).then(r => r.json()),
+  ]);
+  return { profile, rules, evidence };
+}
+
+// Usage
+const card = await fetchCard('https://raw.githubusercontent.com/user/my-card/main');
+console.log(card.profile.name);
+```
+
+</CodeGroup>
+
+## Data security rules
+
+All integrations must follow these six rules:
+
+1. **Cache responsibly** — refresh cards every 24 hours minimum
+2. **Respect privacy zones** — Zone 1 is public, Zone 2 needs auth, Zone 3 needs approval
+3. **Never store Zone 3 data** — email, phone, exact salary are ephemeral only
+4. **Audit trail** — log every card access for EU AI Act compliance
+5. **Candidate can revoke** — if card is deleted, purge all cached data
+6. **Anti-discrimination** — never evaluate on demographics, only skills and evidence
+
+## Explore the integration guide
+
+<CardGroup cols={2}>
+  <Card title="Fetching Skill Cards" icon="download" href="/developer/fetching-cards">
+    Fetch and parse Scoutica Skill Cards in Python, JavaScript, Go, and CLI.
+  </Card>
+  <Card title="Discovery Protocol" icon="search" href="/developer/discovery-protocol">
+    How AI agents discover Skill Cards via scoutica.json and registries.
+  </Card>
+  <Card title="Evaluating Candidates" icon="chart-bar" href="/developer/evaluating-candidates">
+    Score candidates and pre-screen against their rules of engagement.
+  </Card>
+  <Card title="Evidence Verification" icon="shield-check" href="/developer/evidence-verification">
+    Verify candidate evidence URLs and calculate trust scores.
+  </Card>
+  <Card title="Schema Validation" icon="check-circle" href="/developer/schema-validation">
+    Validate Skill Card files against the Scoutica Protocol JSON schemas.
+  </Card>
+</CardGroup>

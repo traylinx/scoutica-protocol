@@ -1,0 +1,99 @@
+---
+title: "Fetching Skill Cards"
+description: "How to fetch and parse Scoutica Skill Cards in Python, JavaScript, and Go"
+---
+
+A Scoutica Skill Card is a collection of files hosted at a public URL — most commonly a GitHub repository. The `scoutica.json` discovery file provides a `card_url` that serves as the base URL for fetching all card files.
+
+## Card file contents
+
+Every Skill Card contains four files:
+
+| File | Format | Contents |
+|---|---|---|
+| `profile.json` | JSON | Skills (flat array), `primary_domains`, `tools_and_platforms`, seniority, experience |
+| `rules.yaml` | YAML | Engagement types, compensation floors, remote policy, `filters.blocked_industries` |
+| `evidence.json` | JSON | Verifiable links: repos, certs, portfolio, publications — with `skills_demonstrated` |
+| `scoutica.json` | JSON | Discovery metadata: name, title, availability |
+
+## Fetching from GitHub
+
+<Note>
+  GitHub raw content base URLs follow the pattern `https://raw.githubusercontent.com/{user}/{repo}/main`. Append the filename to this base URL to fetch each card file.
+</Note>
+
+<CodeGroup>
+
+```python python
+import requests, json
+
+BASE = "https://raw.githubusercontent.com/{user}/{repo}/main"
+
+def fetch_card(base_url):
+    """Fetch all Scoutica Protocol card files from a base URL."""
+    return {
+        'profile': requests.get(f"{base_url}/profile.json").json(),
+        'rules': requests.get(f"{base_url}/rules.yaml").text,
+        'evidence': requests.get(f"{base_url}/evidence.json").json(),
+        'discovery': requests.get(f"{base_url}/scoutica.json").json(),
+    }
+
+card = fetch_card("https://raw.githubusercontent.com/user/my-card/main")
+print(card['profile']['name'])             # "Alex Chen"
+print(card['profile']['skills'])           # ["Python", "TypeScript", "Go", ...]
+print(card['profile']['primary_domains'])  # ["Backend Engineering", "Cloud Infrastructure"]
+```
+
+```javascript Node.js
+async function fetchCard(baseUrl) {
+  const [profile, rules, evidence] = await Promise.all([
+    fetch(`${baseUrl}/profile.json`).then(r => r.json()),
+    fetch(`${baseUrl}/rules.yaml`).then(r => r.text()),
+    fetch(`${baseUrl}/evidence.json`).then(r => r.json()),
+  ]);
+  return { profile, rules, evidence };
+}
+
+// Usage
+const card = await fetchCard('https://raw.githubusercontent.com/user/my-card/main');
+console.log(card.profile.name);
+console.log(card.profile.skills);           // flat string array
+console.log(card.profile.primary_domains);  // e.g. ["Backend Engineering"]
+```
+
+```go Go
+type Profile struct {
+    SchemaVersion           string       `json:"schema_version"`
+    Name                    string       `json:"name"`
+    Title                   string       `json:"title"`
+    Seniority               string       `json:"seniority"`
+    YearsExp                int          `json:"years_experience"`
+    Availability            string       `json:"availability"`
+    PrimaryDomains          []string     `json:"primary_domains"`
+    Skills                  []string     `json:"skills"`
+    ToolsAndPlatforms       []string     `json:"tools_and_platforms"`
+    CertificationsLicenses  []string     `json:"certifications_and_licenses"`
+    Specializations         []string     `json:"specializations"`
+    SpokenLanguages         []LangEntry  `json:"spoken_languages"`
+    Education               string       `json:"education"`
+    Summary                 string       `json:"summary"`
+}
+
+type LangEntry struct {
+    Language string `json:"language"`
+    Level    string `json:"level"`
+}
+```
+
+```bash CLI
+scoutica resolve https://github.com/user/my-card
+scoutica resolve https://github.com/user/my-card ./local-copy/
+```
+
+</CodeGroup>
+
+## Caching
+
+<Tip>
+  Cache fetched cards locally and refresh every 24 hours at minimum. Cards may be updated at any time, and a candidate may also delete their card — if that happens, purge all cached data immediately per the [data security rules](/developer/overview#data-security-rules).
+</Tip>

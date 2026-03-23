@@ -1,0 +1,62 @@
+---
+title: "Compliance & Ethics"
+description: "EU AI Act compliance and anti-discrimination by design"
+---
+
+## EU AI Act
+
+Recruitment and candidate screening AI is classified as **High-Risk** under the EU AI Act. All implementations that consume the Scoutica Protocol must satisfy five requirements:
+
+| Requirement | Description |
+|-------------|-------------|
+| **Human-in-the-loop** | No fully automated hiring decisions. A human must review and approve before any action is taken on a candidate. |
+| **Audit trail** | Log every evaluation with the full reasoning, matched skills, and score breakdown. |
+| **Transparency** | Candidates can see exactly the same data that employers and agents see. No hidden scoring criteria. |
+| **Non-discrimination** | No demographic inference. Evaluation is based solely on skills, experience, evidence, and engagement rules. |
+| **Explainability** | Every score must include a breakdown of matched skills, missing skills, and rule outcomes. |
+
+<Warning>
+If you are building a product that uses Scoutica Protocol data to filter, rank, or recommend candidates in an employment context, you are operating a High-Risk AI system under EU law. Ensure your implementation meets all five requirements above.
+</Warning>
+
+---
+
+## Anti-discrimination by design
+
+The Scoutica Protocol profile schema **deliberately excludes** the following fields:
+
+- Gender, age, ethnicity, nationality
+- Photos or any visual identifiers
+- Marital status, religion, disability status
+
+Evaluation is based **solely** on: skills, years of experience, verifiable evidence, and the candidate's own Rules of Engagement.
+
+<Note>
+This is a protocol-level guarantee, not just a policy. The fields do not exist in the schema, so they cannot be submitted, stored, or evaluated — intentionally or accidentally.
+</Note>
+
+---
+
+## GDPR compliance
+
+The protocol is designed around four GDPR rights:
+
+| Right | How it's implemented |
+|-------|---------------------|
+| **Ownership** | The candidate controls their card. It lives in their own GitHub repository under their own account. |
+| **Deletion** | Deleting the repository removes the card from the network entirely. Consumers must purge cached data when a card becomes unreachable. |
+| **Portability** | All data is stored in standard, open formats (JSON and YAML). No vendor-specific serialization. |
+| **Transparency** | Candidates can inspect exactly what any agent sees by fetching their own card files. |
+
+---
+
+## Note for developers
+
+If you are building an integration on top of the Scoutica Protocol, follow these data security rules:
+
+1. **Cache responsibly** — refresh cards at least every 24 hours.
+2. **Respect privacy zones** — Zone 1 is public, Zone 2 requires authentication, Zone 3 requires explicit candidate approval.
+3. **Never persist Zone 3 data** — email, phone, and exact salary are ephemeral. Do not store them in any database or log.
+4. **Maintain an audit trail** — log every card access for EU AI Act compliance.
+5. **Honor deletions** — if a card becomes unreachable (404), purge all locally cached data for that card.
+6. **Evaluate on skills only** — never use inferred or external demographic data in scoring logic.

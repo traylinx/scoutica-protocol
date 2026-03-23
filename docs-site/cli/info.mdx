@@ -1,0 +1,68 @@
+---
+title: "scoutica info"
+description: "Display a summary of your local Skill Card"
+---
+
+## Syntax
+
+```bash
+scoutica info [directory]
+```
+
+## Options
+
+<ParamField path="directory" type="string">
+  Path to the card directory to inspect. Defaults to the current directory.
+</ParamField>
+
+## Usage examples
+
+```bash
+# Show info for the current directory
+scoutica info
+
+# Show info for a specific card folder
+scoutica info ./my-card/
+```
+
+## What it shows
+
+`scoutica info` reads `profile.json`, `rules.yaml`, and `evidence.json` from the card directory and prints a formatted summary.
+
+The summary includes:
+
+| Field | Source file |
+|-------|-------------|
+| Name | `profile.json` → `name` |
+| Title | `profile.json` → `title` |
+| Seniority | `profile.json` → `seniority` |
+| Availability | `profile.json` → `availability` |
+| Remote policy | `rules.yaml` → `remote.policy` |
+| Evidence item count | `evidence.json` → count of `items` |
+| Rule file count | `rules/` directory — number of `.md` files |
+
+## Expected output
+
+```text
+  Alice Developer
+  Lead Engineering Manager (lead)
+  Availability: immediately
+
+  Profile:  profile.json
+  Remote:   remote_only
+  Evidence: 3 items
+  Rules:    4 rule files
+```
+
+<Note>
+  `info` is a quick local inspection tool. It reads from files in the specified directory and does not validate the card against schemas. Run `scoutica validate` to check for schema errors.
+</Note>
+
+## Error behavior
+
+If `profile.json` is not found in the target directory, the command exits with code `1` and a message:
+
+```text
+  ❌ No profile.json found in ./my-card
+     Run 'scoutica init' first to create your card.
+```

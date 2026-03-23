@@ -1,0 +1,109 @@
+---
+title: "Scoutica Protocol"
+description: "The open protocol for candidate-owned, AI-readable professional profiles. Your skills. Your rules. Your data."
+---
+
+## What is the Scoutica Protocol?
+
+The Scoutica Protocol is an open standard for **AI-readable, candidate-owned professional profiles**. Instead of uploading your CV to job boards that own your data, you create a **Skill Card** — a set of structured files that any AI agent can discover, read, and act on.
+
+> LinkedIn charges employers $10,000/year for **your** data. You get $0. The Scoutica Protocol is the alternative: you own your skill card, AI agents do the matching — transparently, verifiably, without bias.
+
+<CardGroup cols={2}>
+  <Card title="Quick Start" icon="rocket" href="/quickstart">
+    Create your Skill Card in 5 minutes
+  </Card>
+  <Card title="Install the CLI" icon="terminal" href="/installation">
+    Install the Scoutica CLI on macOS, Linux, or Windows
+  </Card>
+  <Card title="CLI Reference" icon="book" href="/cli/overview">
+    Full reference for all CLI commands
+  </Card>
+  <Card title="Developer Guide" icon="code" href="/developer/overview">
+    Build apps and integrations on the protocol
+  </Card>
+</CardGroup>
+
+---
+
+## How it works
+
+```
+1. Candidate installs the CLI or uses any AI assistant
+2. Generates their Skill Card (profile + evidence + rules)
+3. Pushes their card to their own GitHub repo
+4. Employer's AI agent discovers and scores the card locally
+5. Match confirmed → candidate shares contact info directly
+```
+
+The protocol has a strict two-part architecture:
+
+| Part | What | Visibility |
+|------|------|------------|
+| **The Protocol** | Open standard, schemas, agent rules, registry API | Public — anyone can clone, fork, build on it |
+| **Your Skill Card** | Your personal profile, Rules of Engagement, evidence, salary floor | Private — never committed to this repo |
+
+**The protocol is the network. Your skill card is your node on it.**
+
+---
+
+## Key features
+
+<CardGroup cols={2}>
+  <Card title="AI-powered generation" icon="wand-magic-sparkles">
+    Drop your CV, certs, and portfolio in a folder. The CLI auto-generates all 4 card files using your local AI provider — no cloud API calls, no data leaving your machine.
+  </Card>
+  <Card title="You own your data" icon="lock">
+    Your card lives in your own GitHub repo. Delete the repo and you disappear from the network entirely. No vendor lock-in.
+  </Card>
+  <Card title="Rules of Engagement" icon="shield-check">
+    Set your salary floor, remote policy, and blocked industries. AI agents **must** respect these rules before contacting you.
+  </Card>
+  <Card title="Three-zone privacy" icon="eye-slash">
+    Zone 1 (public title), Zone 2 (full profile, auth required), Zone 3 (contact info, your approval only).
+  </Card>
+  <Card title="EU AI Act compliant" icon="scale-balanced">
+    No demographic fields in the schema. Evaluation is based solely on skills, experience, and evidence.
+  </Card>
+  <Card title="Cross-platform" icon="laptop">
+    Native CLI for macOS, Linux, and Windows (PowerShell). Works with Gemini, Claude, Ollama, and more.
+  </Card>
+</CardGroup>
+
+---
+
+## Current status
+
+<Info>
+The protocol, CLI, schemas, and AI-powered card generation are **live and ready to use today**. The monetization layer (micropayments, blockchain identity, $SKILL token) is on the roadmap and under active development.
+</Info>
+
+| Feature | Status |
+|---------|--------|
+| CLI install (macOS / Linux / Windows) | ✅ Live |
+| AI scan from documents | ✅ Live |
+| JSON Schema validation | ✅ Live |
+| GitHub publishing | ✅ Live |
+| Agent-side matching | ✅ Live |
+| Decentralized registry | 🔜 Roadmap |
+| Blockchain identity (SBTs) | 🔜 Roadmap |
+| Micropayments ($SKILL token) | 🔜 Roadmap |
+
+---
+
+## Next steps
+
+<CardGroup cols={2}>
+  <Card title="Create your Skill Card" icon="id-card" href="/guides/create-card">
+    Step-by-step guide to creating and publishing your first Skill Card
+  </Card>
+  <Card title="Explore use cases" icon="lightbulb" href="/guides/use-cases">
+    Real-world scenarios: candidates, recruiters, and platform integrations
+  </Card>
+  <Card title="Build an integration" icon="puzzle-piece" href="/developer/overview">
+    Fetch cards, evaluate candidates, and build ATS integrations
+  </Card>
+  <Card title="View the roadmap" icon="map" href="/roadmap">
+    See what's coming: decentralized registry, blockchain verification, $SKILL token
+  </Card>
+</CardGroup>

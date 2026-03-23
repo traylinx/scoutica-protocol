@@ -1,0 +1,171 @@
+---
+title: "Use Cases"
+description: "Real-world scenarios for candidates, recruiters, and platform developers"
+---
+
+The Scoutica Protocol is used across the full recruiting lifecycle — by candidates creating discoverable profiles, companies building recruiting agents, platforms adding card import, and teams publishing composite cards.
+
+## Quick reference
+
+| If you are... | Start here |
+|---------------|------------|
+| A professional creating your card | [Scenario 1: Candidate creates their card](#scenario-1-candidate-creates-their-card) |
+| A company building a recruiting agent | [Scenario 2: AI recruiter finds candidates](#scenario-2-ai-recruiter-finds-candidates) |
+| A platform adding Scoutica Protocol import | [Scenario 3: Job board auto-import](#scenario-3-job-board-auto-import) |
+| Building autonomous agent negotiation | [Scenario 4: Agent-to-agent negotiation](#scenario-4-agent-to-agent-negotiation) |
+| Implementing evidence verification | [Scenario 5: Evidence verification](#scenario-5-evidence-verification) |
+| Creating team or org cards | [Scenario 6: Team card](#scenario-6-team-card) |
+| Exploring blockchain verification | [Scenario 7: Blockchain-verified card](#scenario-7-blockchain-verified-card-future) |
+
+---
+
+<AccordionGroup>
+  <Accordion title="Scenario 1: Candidate creates their card">
+    **Maria**, a senior backend engineer, wants to make her skills discoverable by AI agents without sharing her data with job boards.
+
+    **Flow:**
+
+    1. Maria runs `scoutica scan ~/maria-cv/ --with gemini`
+    2. The CLI reads her CV, certifications, and portfolio documents
+    3. Documents are piped to her local Gemini CLI — nothing leaves her machine
+    4. The AI generates `profile.json`, `rules.yaml`, `evidence.json`, and `SKILL.md`
+    5. Maria runs `scoutica validate` — 5 checks pass
+    6. Maria runs `scoutica publish` — the CLI commits and pushes to GitHub
+
+    ```bash
+    scoutica scan ~/maria-cv/ --with gemini
+    scoutica validate
+    scoutica publish
+    ```
+
+    **Result:** Maria's Skill Card is published at `github.com/maria/skills`. Her data never left her laptop. Any AI agent can now discover and evaluate her profile.
+
+    For the full creation walkthrough, see the [Create Your Skill Card](/guides/create-card) guide.
+  </Accordion>
+
+  <Accordion title="Scenario 2: AI recruiter finds candidates">
+    **TechCorp's AI agent** needs to fill a Senior DevOps Engineer position. It searches the Scoutica Protocol registry.
+
+    **Flow:**
+
+    1. The agent queries the registry: `skills=["Kubernetes","Terraform"], seniority="senior"`
+    2. The registry returns a list of matching card URLs
+    3. The agent fetches `profile.json` and `rules.yaml` for each candidate in parallel
+    4. Each card is scored and checked against the job requirements
+    5. Candidates whose `rules.yaml` auto-rejects the offer (e.g., salary below minimum) are removed automatically
+    6. The agent contacts only the candidates who passed all checks
+
+    **Example scoring results:**
+
+    | Candidate | Score | Outcome |
+    |-----------|-------|---------|
+    | Maria | 85 | Contacted |
+    | Alex | 72 | Contacted (note: requires on-site option) |
+    | Sam | 91 | Auto-rejected — salary below minimum |
+
+    **Key insight:** Sam was never contacted. The agent respected the `rules.yaml` auto-reject for salary. No wasted time for either party.
+  </Accordion>
+
+  <Accordion title="Scenario 3: Job board auto-import">
+    **DevJobs.io** lets applicants import their Scoutica Protocol card instead of filling out application forms.
+
+    **Flow:**
+
+    1. The candidate clicks "Import Scoutica Card" and pastes their card URL
+    2. The platform fetches `scoutica.json` to get the card URL and basic details
+    3. The platform fetches `profile.json` and auto-fills name, title, skills, and experience
+    4. The platform fetches `rules.yaml` and runs a pre-screen against the job's salary and remote policy
+    5. If there is a mismatch (e.g., role pays 75K, candidate minimum is 85K), the platform warns the candidate before they apply
+
+    **Benefit:** Candidates don't fill forms. The platform pre-screens and surfaces mismatches upfront, saving time for both sides.
+
+    <Note>
+      Building a platform integration? See the developer guide for the API spec and code examples.
+    </Note>
+  </Accordion>
+
+  <Accordion title="Scenario 4: Agent-to-agent negotiation">
+    **Maria's personal AI agent** receives an inbound opportunity and negotiates autonomously on her behalf.
+
+    **Flow:**
+
+    1. TechCorp's hiring agent sends: `{role: "Lead DevOps", salary: 95K, remote: hybrid}`
+    2. Maria's agent loads `rules.yaml` and checks all conditions:
+       - Salary 95K > minimum 85K — pass
+       - Remote hybrid — pass (policy: flexible)
+       - Industry fintech — pass (not in blocked list)
+    3. Maria's agent responds with a counter-offer: `{salary: 110K, equity: "1%"}`
+    4. TechCorp's agent counters: `{salary: 105K, equity: "0.5%", signing_bonus: 5K}`
+    5. Maria's agent accepts — the total package is within acceptable range
+    6. Maria receives a notification: "Interview scheduled: Lead DevOps at FinTech Corp, 105K + equity"
+
+    **Result:** Three negotiation rounds completed in seconds. Maria is only notified when there is a concrete interview to schedule.
+  </Accordion>
+
+  <Accordion title="Scenario 5: Evidence verification">
+    **Before an interview**, an employer's agent verifies Maria's claimed skills against her `evidence.json`.
+
+    **Flow:**
+
+    1. The agent loads `evidence.json` (5 items)
+    2. For each GitHub repo: fetches stars, languages, and commit counts via the GitHub API
+    3. For each certification URL: sends a `HEAD` request to verify the link is live
+    4. For each portfolio link: checks HTTP status
+
+    **Example results:**
+
+    | Evidence item | Result |
+    |---------------|--------|
+    | `github.com/maria/infra-toolkit` | Verified — Go + Python match claimed skills |
+    | Terraform certification URL | Verified — 200 OK |
+    | `github.com/maria/k8s-operator` | Verified — Kubernetes expertise confirmed |
+    | Portfolio site | Verified — live |
+    | Old certification link | Failed — 404 Not Found |
+
+    **Trust score:** 4/5 verified (80%). The agent proceeds — strong evidence with one minor dead link.
+
+    <Tip>
+      Keep your `evidence.json` up to date. Dead certification links reduce your trust score even if the underlying skill is real.
+    </Tip>
+  </Accordion>
+
+  <Accordion title="Scenario 6: Team card">
+    **SquadAlpha** — a team of 4 engineers — publishes a composite team card that companies can hire as a unit.
+
+    **Structure:**
+
+    The team card aggregates data from individual member cards:
+
+    - **Combined skills** across all members
+    - **Team rules** — availability, engagement model, team rate
+    - **Collective evidence** — joint projects and publications
+
+    **Members:**
+
+    | Member | Role | Entity type |
+    |--------|------|-------------|
+    | Maria | Lead DevOps | `human` |
+    | Alex | Senior Backend | `human` |
+    | Sam | ML Engineer | `human` |
+    | CodeBot | AI Agent | `ai_agent` |
+
+    This enables companies to hire entire teams rather than assembling individuals one by one. The team card uses the same three-zone privacy model as individual cards.
+  </Accordion>
+
+  <Accordion title="Scenario 7: Blockchain-verified card (future)">
+    In a future release, cards can be verified on-chain using **Soulbound Tokens (SBTs)** on the Base L2 network.
+
+    **Flow:**
+
+    1. The candidate mints an SBT with a hash of their profile
+    2. Verifiers (e.g., former employers, certification bodies) endorse specific skills on-chain
+    3. Employers query the smart contract to check endorsements
+    4. The trust level is elevated to "Blockchain-verified" — a 2x multiplier on the trust score
+
+    **Why SBTs?** Soulbound Tokens are non-transferable — they prove that an endorsement was given to a specific person and cannot be sold or transferred.
+
+    <Note>
+      Blockchain verification is on the roadmap. Today's V1 uses URL-based evidence verification (Scenario 5) as the trust mechanism.
+    </Note>
+  </Accordion>
+</AccordionGroup>

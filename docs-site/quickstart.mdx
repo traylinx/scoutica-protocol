@@ -1,0 +1,191 @@
+---
+title: "Quick Start"
+description: "Create your Scoutica Skill Card in 5 minutes. Your skills, your rules, your data."
+---
+
+<Steps>
+  <Step title="Install the CLI">
+    <Tabs>
+      <Tab title="macOS / Linux">
+        ```bash
+        curl -fsSL https://raw.githubusercontent.com/traylinx/scoutica-protocol/main/install.sh | bash
+        ```
+
+        Then reload your shell:
+        ```bash
+        source ~/.zshrc   # or source ~/.bashrc
+        ```
+      </Tab>
+      <Tab title="Windows (PowerShell)">
+        ```powershell
+        irm https://raw.githubusercontent.com/traylinx/scoutica-protocol/main/install.ps1 | iex
+        ```
+      </Tab>
+    </Tabs>
+
+    Verify the install:
+    ```bash
+    scoutica version
+    ```
+
+    <Tip>
+      Run `scoutica doctor` to confirm all prerequisites (Git, Python 3, AI providers) are installed correctly.
+    </Tip>
+  </Step>
+
+  <Step title="Create your Skill Card">
+    Choose the method that fits you best:
+
+    <Tabs>
+      <Tab title="AI Scan (Recommended)">
+        Put your CV, certifications, and portfolio files in a folder and let AI generate your card automatically. Your documents never leave your machine.
+
+        ```bash
+        scoutica scan ~/my-docs/
+        ```
+
+        Use a specific AI provider:
+        ```bash
+        scoutica scan ~/my-docs/ --with gemini      # Gemini CLI
+        scoutica scan ~/my-docs/ --with claude      # Claude Code
+        scoutica scan ~/my-docs/ --with ollama      # Ollama (fully offline)
+        scoutica scan ~/my-docs/ --output ./my-card/  # Custom output directory
+        ```
+
+        No AI CLI installed? Copy the prompt to your clipboard and paste it into any web-based AI:
+        ```bash
+        scoutica scan ~/my-docs/ --clipboard
+        ```
+
+        **Supported document formats:** `.md` `.txt` `.pdf` `.docx` `.json` `.yaml` `.csv` `.html`
+
+        **Supported AI providers (auto-detected in this order):**
+
+        | Provider | CLI Command |
+        |----------|-------------|
+        | Gemini CLI | `gemini` |
+        | Claude Code | `claude` |
+        | OpenAI Codex | `codex` |
+        | Mistral Vibe | `vibe` |
+        | OpenCode | `opencode` |
+        | Ollama | `ollama` |
+        | switchAILocal | `ail` |
+        | OpenClaw | `openclaw` |
+      </Tab>
+      <Tab title="Interactive Wizard">
+        Answer questions step-by-step to build your card:
+
+        ```bash
+        scoutica init ./my-card/
+        ```
+
+        Or get AI-guided instructions:
+        ```bash
+        scoutica init --ai
+        ```
+      </Tab>
+      <Tab title="AI Paste (No Install)">
+        The easiest method — no CLI required.
+
+        <Steps>
+          <Step title="Open GENERATE_MY_CARD.md on GitHub">
+            Go to the [Scoutica Protocol repo](https://github.com/traylinx/scoutica-protocol) and open `GENERATE_MY_CARD.md`.
+          </Step>
+          <Step title="Copy and paste into any AI">
+            Copy the entire file contents and paste it into ChatGPT, Claude, Gemini, Copilot, or any AI assistant.
+          </Step>
+          <Step title="Follow the conversation">
+            The AI will interview you and generate your 4 card files.
+          </Step>
+          <Step title="Save to GitHub">
+            Save the files to a new GitHub repo — your card is live.
+          </Step>
+        </Steps>
+
+        <Note>
+          This is the recommended path for non-technical users. No git, no CLI, no install required.
+        </Note>
+      </Tab>
+      <Tab title="GitHub Template">
+        <Steps>
+          <Step title="Use the template">
+            Click **"Use this template"** on the [Scoutica Protocol repo](https://github.com/traylinx/scoutica-protocol).
+          </Step>
+          <Step title="Name your repo">
+            Name it something like `my-scoutica-card`.
+          </Step>
+          <Step title="Edit the files">
+            Edit the files in `protocol/templates/` with your data.
+          </Step>
+          <Step title="Push">
+            Push — your card is live.
+          </Step>
+        </Steps>
+      </Tab>
+    </Tabs>
+
+    After creation, your card folder looks like this:
+
+    ```
+    my-card/
+    ├── profile.json        # Your skills, experience, tools
+    ├── rules.yaml          # Your rules of engagement
+    ├── evidence.json       # Links to your public work
+    ├── SKILL.md            # Agent entry point
+    ├── scoutica.json       # Discovery file (auto-generated)
+    └── rules/              # Evaluation rule templates
+        ├── evaluate-fit.md
+        ├── negotiate-terms.md
+        ├── verify-evidence.md
+        └── request-interview.md
+    ```
+  </Step>
+
+  <Step title="Validate your card">
+    Run the schema validator to check your card for errors:
+
+    ```bash
+    scoutica validate ./my-card/
+    ```
+
+    Expected output:
+    ```text
+    ✅ 5 checks passed
+    ```
+
+    Fix any validation errors before publishing.
+  </Step>
+
+  <Step title="Publish to GitHub">
+    Push your card to your GitHub repository:
+
+    ```bash
+    scoutica validate && scoutica publish
+    ```
+
+    Your card is now live and discoverable by any AI agent at your GitHub repo URL.
+
+    <Note>
+      `scoutica publish` only stages canonical card files (`profile.json`, `rules.yaml`, `evidence.json`, `scoutica.json`, `SKILL.md`). Your raw source documents are never committed.
+    </Note>
+  </Step>
+</Steps>
+
+---
+
+## What's next
+
+<CardGroup cols={2}>
+  <Card title="CLI Reference" icon="terminal" href="/cli/overview">
+    Full reference for all Scoutica CLI commands and flags
+  </Card>
+  <Card title="Your Skill Card" icon="id-card" href="/skill-card/overview">
+    Understand the 4 files that make up your Skill Card
+  </Card>
+  <Card title="Privacy Zones" icon="lock" href="/guides/privacy-zones">
+    How your three-zone privacy model works
+  </Card>
+  <Card title="Developer Guide" icon="code" href="/developer/overview">
+    Build apps and integrations on the Scoutica Protocol
+  </Card>
+</CardGroup>

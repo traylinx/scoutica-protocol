@@ -1,0 +1,209 @@
+---
+title: "Installation"
+description: "Install the Scoutica CLI on macOS, Linux, or Windows"
+---
+
+<Note>
+  Everything runs locally. Your documents and data never leave your machine — the scan command pipes your files to a local AI CLI with no cloud API calls.
+</Note>
+
+## Prerequisites
+
+Before installing, make sure you have:
+
+- **Git** — required to publish your card to GitHub
+- **Python 3** — required for card validation (`python3 --version` to check)
+- **An AI CLI provider** — at least one of the providers below must be installed for `scoutica scan` to work
+
+### Supported AI providers
+
+`scoutica scan` auto-detects installed providers in this order:
+
+| Provider | CLI command | Install |
+|----------|------------|------|
+| Gemini CLI | `gemini` | [google-gemini/gemini-cli](https://github.com/google-gemini/gemini-cli) |
+| Claude Code | `claude` | [anthropics/claude-code](https://github.com/anthropics/claude-code) |
+| OpenAI Codex | `codex` | [openai/codex](https://github.com/openai/codex) |
+| Mistral Vibe | `vibe` | [mistralai/mistral-vibe](https://github.com/mistralai/mistral-vibe) |
+| OpenCode | `opencode` | [opencode-ai/opencode](https://github.com/opencode-ai/opencode) |
+| Ollama | `ollama` | [ollama.com](https://ollama.com) |
+| switchAILocal | `ail` | [traylinx/switchAILocal](https://github.com/traylinx/switchAILocal) |
+| OpenClaw | `openclaw` | [openclaw/openclaw](https://github.com/openclaw/openclaw) |
+
+You can also use `--clipboard` mode to copy the scan prompt to any AI chat without installing a local provider.
+
+## Install the CLI
+
+<Steps>
+  <Step title="Run the installer">
+    <CodeGroup>
+
+    ```bash macOS / Linux
+    curl -fsSL https://raw.githubusercontent.com/traylinx/scoutica-protocol/main/install.sh | bash
+    ```
+
+    ```powershell Windows
+    irm https://raw.githubusercontent.com/traylinx/scoutica-protocol/main/install.ps1 | iex
+    ```
+
+    </CodeGroup>
+
+    The installer:
+
+    1. Creates `~/.scoutica/` (or `%USERPROFILE%\.scoutica\` on Windows)
+    2. Downloads the `scoutica` CLI binary
+    3. Downloads JSON schemas for card validation
+    4. Downloads card templates and rule templates
+    5. Downloads the AI card generator prompt
+    6. Downloads the validation tool
+    7. Adds `~/.scoutica/bin` to your `PATH`
+
+    Example output:
+
+    ```text
+    ╔═══════════════════════════════════════════════════════╗
+    ║                                                       ║
+    ║   ⚡ Scoutica Protocol — CLI Installer               ║
+    ║                                                       ║
+    ║   Your skills. Your rules. Your data.                 ║
+    ║                                                       ║
+    ╚═══════════════════════════════════════════════════════╝
+
+    → Creating directories in /Users/you/.scoutica...
+    → Downloading scoutica CLI...
+    → Downloading JSON schemas...
+    → Downloading card templates...
+    → Downloading AI card generator...
+    → Downloading validation tool...
+
+    ╔═══════════════════════════════════════════════════════╗
+    ║                                                       ║
+    ║   ✅ Scoutica CLI installed successfully!             ║
+    ║                                                       ║
+    ╚═══════════════════════════════════════════════════════╝
+
+      To get started, run:
+
+      source /Users/you/.zshrc && scoutica init
+    ```
+  </Step>
+
+  <Step title="Reload your shell (macOS / Linux)">
+    After installation, reload your shell configuration so the `scoutica` command is available:
+
+    ```bash
+    source ~/.zshrc   # or source ~/.bashrc
+    ```
+
+    On Windows, the installer adds the binary to your user `PATH` automatically. If `scoutica` is not found, restart your terminal.
+  </Step>
+
+  <Step title="Verify the installation">
+    Check the installed version:
+
+    ```bash
+    scoutica version
+    ```
+
+    View all available commands:
+
+    ```bash
+    scoutica help
+    ```
+
+    ```text
+    Scoutica CLI v0.1.0
+    Your skills. Your rules. Your data.
+
+    Usage:
+      scoutica <command> [options] [directory]
+
+    Commands:
+      init              Create your Skill Card (interactive wizard)
+      init --ai         Create card using AI assistant
+      scan              Auto-generate card from your documents (AI-powered)
+      resolve           Fetch and display a card from a URL
+      validate          Validate card against protocol schemas
+      publish           Push card to GitHub
+      info              Show card summary
+      update            Update the Scoutica CLI to the latest version
+      help              Show this help
+      version           Show version
+
+    Examples:
+      # Create your card in the current directory
+      scoutica init
+
+      # Create card in a specific folder
+      scoutica init ./my-card
+
+      # Validate and publish
+      scoutica validate && scoutica publish
+
+      # Auto-generate card from your CV folder
+      scoutica scan ~/CV/
+    ```
+  </Step>
+
+  <Step title="Run a diagnostics check (optional)">
+    Verify all prerequisites are detected correctly:
+
+    ```bash
+    scoutica doctor
+    ```
+
+    This checks for the CLI executable, template directories, schema directories, Python 3, Git, and any installed AI providers.
+  </Step>
+</Steps>
+
+## Keeping the CLI up to date
+
+To update the CLI and rule templates to the latest version:
+
+```bash
+scoutica update
+```
+
+## Troubleshooting
+
+**`scoutica: command not found`**
+
+Reload your shell:
+
+```bash
+source ~/.zshrc   # or source ~/.bashrc
+```
+
+On Windows, restart your terminal or open a new PowerShell window.
+
+**PDF text extraction fails during scan**
+
+Install `pdftotext`:
+
+<CodeGroup>
+
+```bash macOS
+brew install poppler
+```
+
+```bash Linux
+apt install poppler-utils
+```
+
+</CodeGroup>
+
+**`Empty response from provider`**
+
+Make sure your AI CLI is installed and working:
+
+```bash
+gemini --version    # or: claude --version, ollama list
+```
+
+## What's next
+
+Now that the CLI is installed, create your first Skill Card:
+
+<Card title="Quick start" icon="rocket" href="/quickstart">
+  Walk through the complete flow: scan, validate, and publish your Skill Card in 5 minutes.
+</Card>

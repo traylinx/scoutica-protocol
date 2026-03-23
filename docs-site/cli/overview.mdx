@@ -1,0 +1,95 @@
+---
+title: "CLI Overview"
+description: "Complete reference for all Scoutica CLI commands"
+---
+
+The Scoutica CLI is a single Bash script installed to `~/.scoutica/bin/scoutica`. It handles the full lifecycle of a Skill Card — from creation to validation, publishing, and discovery.
+
+## Help output
+
+```text
+Scoutica CLI v0.1.0
+Your skills. Your rules. Your data.
+
+Usage:
+  scoutica <command> [options] [directory]
+
+Commands:
+  init              Create your Skill Card (interactive wizard)
+  init --ai         Create card using AI assistant
+  scan              Auto-generate card from your documents (AI-powered)
+  resolve           Fetch and display a card from a URL
+  validate          Validate card against protocol schemas
+  publish           Push card to GitHub
+  info              Show card summary
+  update            Update the Scoutica CLI to the latest version
+  doctor            Diagnostics and system check for the CLI
+  help              Show this help
+  version           Show version
+
+Examples:
+  # Create your card in the current directory
+  scoutica init
+
+  # Create card in a specific folder
+  scoutica init ./my-card
+
+  # Validate and publish
+  scoutica validate && scoutica publish
+
+  # Auto-generate card from your CV folder
+  scoutica scan ~/CV/
+```
+
+## Command summary
+
+| Command | Description |
+|---------|-------------|
+| [`init`](/cli/init) | Interactive wizard to create your Skill Card |
+| [`scan`](/cli/scan) | AI-powered card generation from your documents |
+| [`validate`](/cli/validate) | Validate your card against the protocol schemas |
+| [`publish`](/cli/publish) | Stage and push your card files to GitHub |
+| [`resolve`](/cli/resolve) | Fetch and display a remote Skill Card by URL |
+| [`info`](/cli/info) | Show a summary of your local card |
+| [`doctor`](/cli/doctor) | Run system diagnostics and check prerequisites |
+| [`update`](/cli/update) | Update the CLI and templates to the latest version |
+
+## All commands
+
+<CardGroup cols={2}>
+  <Card title="init" icon="wand-magic-sparkles" href="/cli/init">
+    Create your Skill Card with an interactive wizard or AI-guided flow.
+  </Card>
+  <Card title="scan" icon="magnifying-glass" href="/cli/scan">
+    Auto-generate a card from your CV, certificates, and portfolio using a local AI CLI.
+  </Card>
+  <Card title="validate" icon="circle-check" href="/cli/validate">
+    Validate your card against the JSON Schema before publishing.
+  </Card>
+  <Card title="publish" icon="cloud-arrow-up" href="/cli/publish">
+    Stage only canonical card files and push them to your GitHub repo.
+  </Card>
+  <Card title="resolve" icon="link" href="/cli/resolve">
+    Fetch and display any Skill Card from a public URL.
+  </Card>
+  <Card title="info" icon="circle-info" href="/cli/info">
+    Show a quick summary of the card in the current directory.
+  </Card>
+  <Card title="doctor" icon="stethoscope" href="/cli/doctor">
+    Run a full system check to verify all prerequisites are installed.
+  </Card>
+  <Card title="update" icon="arrow-rotate-right" href="/cli/update">
+    Re-run the installer to fetch the latest CLI and templates.
+  </Card>
+</CardGroup>
+
+## Global conventions
+
+All commands accept an optional `[directory]` argument. When omitted, the current working directory is used.
+
+```bash
+scoutica validate            # validates ./
+scoutica validate ./my-card  # validates ./my-card/
+```
+
+Exit codes follow standard UNIX conventions: `0` for success, non-zero for failure.

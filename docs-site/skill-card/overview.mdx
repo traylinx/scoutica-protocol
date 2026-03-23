@@ -1,0 +1,57 @@
+---
+title: "Skill Card Overview"
+description: "The 4 files that make up your Scoutica Skill Card"
+---
+
+A Skill Card is a small directory of structured files that any AI agent can discover, read, and act on. You publish it to your own GitHub repository — no central server holds your data.
+
+<Note>
+  Your card lives in **your** repo. You own the data, you set the rules, and you can remove yourself from the network at any time by deleting the repository.
+</Note>
+
+## Directory layout
+
+```
+my-card/
+├── profile.json        # Your skills, experience, and domains
+├── rules.yaml          # Your rules of engagement for AI agents
+├── evidence.json       # Verifiable links to your public work
+├── SKILL.md            # Agent entry point — human-readable instructions
+├── scoutica.json       # Discovery file (auto-generated)
+└── rules/              # Evaluation rule templates for agents
+    ├── evaluate-fit.md
+    ├── negotiate-terms.md
+    ├── verify-evidence.md
+    └── request-interview.md
+```
+
+## What each file does
+
+**`profile.json`** is the machine-readable core of your card. It describes your name, title, seniority level, years of experience, professional domains, and specific skills — skills, tools, and specializations. Agents read this file to understand your capabilities.
+
+**`rules.yaml`** defines your rules of engagement. It specifies which engagement types you accept, your minimum compensation, remote-work policy, and industries that trigger automatic rejection, preferred tech stack keywords, and a soft-reject threshold. Agents are required to respect these rules before proceeding with any opportunity.
+
+**`evidence.json`** contains verifiable links to your public work — GitHub repositories, certifications, portfolio pieces, and publications. Each item includes a trust level that describes how it has been verified.
+
+**`SKILL.md`** is the agent entry point. It provides human-readable instructions for AI agents reading your card, describing when and how to use the structured data files. Agents load this file first.
+
+**`scoutica.json`** is the discovery file. Placed at the root of your repository, it allows crawlers and agents to detect that this repo contains a Scoutica Skill Card and find the card's base URL.
+
+**`rules/`** contains four rule templates that agents follow when evaluating an opportunity: fit scoring, terms negotiation, evidence verification, and interview handoff.
+
+## File pages
+
+<CardGroup cols={2}>
+  <Card title="profile.json" icon="user" href="/skill-card/profile">
+    Your machine-readable professional profile — skills, domains, and experience.
+  </Card>
+  <Card title="rules.yaml" icon="shield" href="/skill-card/rules">
+    Your rules of engagement — what you accept and what gets auto-rejected.
+  </Card>
+  <Card title="evidence.json" icon="link" href="/skill-card/evidence">
+    Verifiable links to your public work with trust levels.
+  </Card>
+  <Card title="scoutica.json" icon="search" href="/skill-card/discovery">
+    The discovery file that lets agents find your card.
+  </Card>
+</CardGroup>

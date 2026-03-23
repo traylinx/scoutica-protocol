@@ -1,0 +1,88 @@
+---
+title: "Privacy & Data Ownership"
+description: "Understanding your three-zone privacy model and data ownership"
+---
+
+The Scoutica Protocol is built on the principle that your professional data belongs to you. You decide what is public, what requires authentication, and what only you can share.
+
+## Your four data ownership guarantees
+
+1. **You own everything** — your card lives in your own GitHub repository, not on a platform's servers
+2. **Scan is local** — documents processed by `scoutica scan` never leave your machine; everything runs through your local AI CLI
+3. **Rules are enforced** — agents that consume your card must respect your `rules.yaml`; auto-reject criteria are binding by protocol convention
+4. **You can disappear** — delete your GitHub repository and you are immediately gone from the network with no residual data
+
+## The three-zone privacy model
+
+Your Skill Card data is divided into three zones with distinct access controls:
+
+| Zone | Data included | Who can access |
+|------|--------------|----------------|
+| **Zone 1** — Public | Title, seniority, domains, availability | Anyone, no authentication required |
+| **Zone 2** — Verified | Full profile, evidence, experience details | Authenticated agents only |
+| **Zone 3** — Private | Email, phone, exact salary | Only with your explicit approval |
+
+### Zone 1 — Public
+
+Zone 1 data is the discovery surface of your card. It allows agents to determine basic fit without any credentials. This is intentionally minimal — enough for initial matching, not enough to build a dossier.
+
+Any crawler, recruiter agent, or job board integration can read Zone 1 data freely.
+
+### Zone 2 — Verified
+
+Zone 2 contains your full professional profile. Accessing it requires an authenticated agent — in practice, a recruiter or platform that has agreed to the protocol's terms.
+
+In the current V1 implementation, Zone 2 data is stored in your public GitHub repo. The authentication layer and micropayment model (where employers pay ~$0.05 per Zone 2 access, with revenue going to you) are on the roadmap.
+
+### Zone 3 — Private
+
+Zone 3 data — your contact information and exact compensation expectations — is never stored in your card files. It is only shared by you, directly, after a match has been confirmed and you have approved the handoff.
+
+<Warning>
+  Never put your email address, phone number, or precise salary figures in `profile.json`, `rules.yaml`, or `evidence.json`. These files are committed to a public GitHub repository.
+</Warning>
+
+## GDPR compliance
+
+The protocol is designed to satisfy GDPR requirements without additional configuration:
+
+- **Right to ownership** — all data lives in repositories you control
+- **Right to deletion** — deleting your repository removes you from the network immediately; there is no central copy
+- **Right to portability** — your data is stored as standard JSON and YAML, readable by any tool
+- **Transparency** — you see exactly the same data that employers and agents see; there is no hidden profile
+
+## Anti-discrimination by design
+
+The profile schema deliberately excludes fields that could enable discriminatory screening:
+
+- Gender, age, ethnicity, nationality
+- Photos or visual identifiers
+- Marital status, religion, disability status
+
+Evaluation by any conforming agent is based solely on: skills, years of experience, evidence links, and engagement rules.
+
+This design aligns with the EU AI Act's requirements for high-risk AI systems in recruitment. Specifically, the protocol enforces:
+
+- Human-in-the-loop — no fully automated hiring decisions
+- Audit trail — evaluations are logged with reasoning
+- Explainability — score breakdowns show matched and missing skills
+- Non-discrimination — no demographic inference
+
+## Entity types and privacy
+
+The protocol supports Skill Cards for multiple entity types beyond individual professionals. Each type follows the same three-zone model:
+
+| Entity type | Description | Example |
+|-------------|-------------|----------|
+| `human` | Individual professional | Software engineer |
+| `ai_agent` | Autonomous AI agent | Coding assistant |
+| `service` | API or SaaS product | Translation API |
+| `robot` | Physical system | Warehouse drone |
+| `team` | Group of entities | Engineering squad |
+| `organization` | Company or department | DevOps team |
+
+For team and organization cards, Zone 3 data maps to the team's point of contact rather than an individual's personal details.
+
+<Note>
+  The monetization layer — micropayments for Zone 2 access, blockchain identity, and the `$SKILL` token — is on the roadmap. Today's V1 implementation uses standard GitHub hosting with no payment gates.
+</Note>

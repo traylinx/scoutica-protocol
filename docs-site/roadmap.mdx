@@ -1,0 +1,81 @@
+---
+title: "Roadmap"
+description: "What's live today and what's coming next for the Scoutica Protocol"
+---
+
+<Note>
+The protocol, CLI, schemas, and AI-powered card generation are **live and ready to use today**. The monetization layer (micropayments, blockchain identity, `$SKILL` token) is under active development.
+</Note>
+
+## V1 — Live today
+
+Everything in V1 is available now:
+
+| Feature | Details |
+|---------|--------|
+| **CLI** | `scoutica init`, `scan`, `validate`, `publish`, `resolve`, `info` — macOS, Linux, Windows |
+| **JSON Schemas** | Validation schemas for all four card files |
+| **AI-powered scan** | Generate a full Skill Card from your documents using your local AI provider |
+| **GitHub publishing** | Publish your card to your own GitHub repo with one command |
+| **Agent-side matching** | AI agents fetch and score cards locally using the skills matching algorithm |
+| **Rules of Engagement** | Candidates set salary floors, remote policies, and blocked industries |
+| **Three-zone privacy** | Zone 1 (public), Zone 2 (auth required), Zone 3 (candidate approval) |
+| **EU AI Act compliance** | No demographic fields; human-in-the-loop by design |
+
+---
+
+## V2+ — Roadmap
+
+### Decentralized federated registries
+
+Phase 1 uses a GitHub-based central registry. Phase 2 replaces this with a federated network where anyone can run a registry node. Cards registered on any node become discoverable across the entire network.
+
+### `npx skills find` command
+
+A zero-install discovery command for employers and agents:
+
+```bash
+npx skills find "Senior AI Engineer"
+```
+
+This queries the federated registry and returns matching cards ranked by fit score, without requiring any setup.
+
+### Micropayments (~$0.05 per Zone 2 access)
+
+When an employer's agent unlocks Zone 2 (full profile), a ~$0.05 micro-fee is paid directly to the candidate. V1 uses Stripe credits; V2 moves to on-chain micro-fees.
+
+### Blockchain identity — Soulbound Tokens on Base L2
+
+Verification Level 4 (blockchain-verified) will be implemented using Soulbound Tokens (SBTs) on Base L2, with Polygon as a fallback. SBTs are non-transferable on-chain tokens that act as cryptographic endorsements of a candidate's verified skills.
+
+### `$SKILL` token
+
+The `$SKILL` token is the native currency of the Scoutica Protocol economy. It powers micro-fees, verifier payments, and registry subscriptions. Token mechanics and launch timeline are under active design.
+
+### On-chain micro-fees
+
+V3 migrates from Stripe credits to fully on-chain micro-fee settlement using `$SKILL`. This removes intermediaries and makes payments instant, transparent, and auditable.
+
+---
+
+## Key decisions
+
+| Decision | Choice | Status |
+|----------|--------|--------|
+| **Format** | Pure Markdown + JSON + YAML — no runtime needed | ✅ Live |
+| **Distribution** | GitHub (Phase 1) → Federated registries (Phase 2) | ✅ Phase 1 live |
+| **Matching** | Agent-side (decentralized — each agent scores locally) | ✅ Live |
+| **Identity** | Soulbound Tokens on Base L2 (primary), Polygon (fallback) | 🔜 Roadmap |
+| **Payment** | Stripe credits (V1) → On-chain micro-fees (V2) → `$SKILL` token (V3) | 🔜 Roadmap |
+| **Compliance** | EU AI Act High-Risk compliant by design | ✅ Live |
+| **Anti-bias** | No demographic fields in schema | ✅ Live |
+
+---
+
+## Target cost model
+
+| Channel | Cost per hire |
+|---------|---------------|
+| LinkedIn Recruiter | ~$10,000/year |
+| Recruiting agency | $15,000–$30,000 |
+| **Scoutica Protocol** | **~$4** |

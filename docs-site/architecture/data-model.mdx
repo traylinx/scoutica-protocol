@@ -1,0 +1,237 @@
+---
+title: "Data Model"
+description: "The Scoutica Protocol card file relationships and schema definitions"
+---
+
+A Skill Card consists of four files. `scoutica.json` is the entry point; it points consumers to the other three files.
+
+## File relationships
+
+```text
+scoutica.json
+  └── discovers → profile.json
+                    ├── has → skills[]
+                    ├── has → tools_and_platforms[]
+                    ├── has → certifications_and_licenses[]
+                    └── speaks → spoken_languages[]
+
+rules.yaml
+  ├── engagement → allowed_types, compensation
+  ├── remote → policy, hybrid_locations
+  ├── filters → blocked_industries, stack_keywords, soft_reject
+  └── privacy → zone_1_public, zone_2_paid, zone_3_private
+
+evidence.json
+  └── items[]
+        ├── type, title, url, description
+        └── skills_demonstrated[]
+```
+
+---
+
+## scoutica.json
+
+The discovery file. Place this at the root of any GitHub repository to declare that it contains a Scoutica Protocol card.
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `scoutica` | `string` | ✅ | Protocol version (e.g. `"0.1.0"`) |
+| `card_url` | `string` | ✅ | Base URL for fetching the other card files |
+| `name` | `string` | ✅ | Display name of the card owner |
+| `title` | `string` | — | Professional title |
+| `seniority` | `string` | — | Seniority level (e.g. `"senior"`) |
+| `domains` | `string[]` | — | Primary domains (e.g. `["Backend Engineering"]`) |
+| `availability` | `string` | — | Availability status (e.g. `"in_2_weeks"`) |
+| `entity_type` | `string` | — | Entity type: `human`, `ai_agent`, `service`, `robot`, `team`, `organization` |
+| `updated` | `string` | — | ISO 8601 date of last update |
+
+```json
+{
+  "scoutica": "0.1.0",
+  "card_url": "https://raw.githubusercontent.com/user/my-card/main",
+  "name": "Alex Chen",
+  "title": "Senior Full-Stack Engineer",
+  "seniority": "senior",
+  "domains": ["Backend Engineering", "Cloud Infrastructure"],
+  "availability": "immediately",
+  "entity_type": "human",
+  "updated": "2026-03-23"
+}
+```
+
+---
+
+## profile.json
+
+The candidate's professional profile. This is the primary data file.
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `schema_version` | `string` | ✅ | Schema version (e.g. `"0.1.0"`) |
+| `name` | `string` | — | Full professional name |
+| `title` | `string` | ✅ | Current professional title |
+| `seniority` | `string` | ✅ | Seniority level: `entry`, `junior`, `mid`, `senior`, `lead`, `manager`, `director`, `executive` |
+| `years_experience` | `integer` | — | Total years of professional experience |
+| `availability` | `string` | — | One of: `immediately`, `in_2_weeks`, `in_4_weeks`, `in_8_weeks`, `not_looking` |
+| `primary_domains` | `string[]` | ✅ | Top-level professional domains (min 1 item) |
+| `skills` | `string[]` | ✅ | Professional skills as a flat list (min 1 item) |
+| `tools_and_platforms` | `string[]` | — | Tools, equipment, software, platforms used |
+| `certifications_and_licenses` | `string[]` | — | Professional certifications or licenses |
+| `specializations` | `string[]` | — | Niche areas of deep expertise |
+| `spoken_languages` | `object[]` | — | Languages spoken; each item has `language` (string) and `level` (`native`\|`fluent`\|`professional`\|`basic`) |
+| `education` | `string` | — | Highest relevant education or training |
+| `summary` | `string` | — | 2–3 sentence professional summary (max 1000 chars) |
+
+```json
+{
+  "schema_version": "0.1.0",
+  "name": "Alex Chen",
+  "title": "Senior Full-Stack Engineer",
+  "seniority": "senior",
+  "years_experience": 10,
+  "availability": "immediately",
+  "primary_domains": ["Backend Engineering", "Cloud Infrastructure", "API Design"],
+  "skills": ["Python", "TypeScript", "Go", "REST API Design", "CI/CD Pipelines"],
+  "tools_and_platforms": ["FastAPI", "React", "Kubernetes", "Docker", "AWS", "PostgreSQL"],
+  "certifications_and_licenses": ["AWS Solutions Architect Associate"],
+  "specializations": ["Event-Driven Architecture", "Infrastructure as Code"],
+  "spoken_languages": [
+    {"language": "English", "level": "native"},
+    {"language": "Mandarin", "level": "fluent"}
+  ],
+  "education": "BSc Computer Science, UC Berkeley",
+  "summary": "Full-stack engineer with 10 years building cloud-native applications."
+}
+```
+
+---
+
+## rules.yaml
+
+The candidate's Rules of Engagement. Agents **must** evaluate these before contacting a candidate.
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `schema_version` | `string` | ✅ | Schema version |
+| `engagement.allowed_types` | `string[]` | ✅ | Accepted engagement types: `permanent`, `contract`, `fractional`, `advisory`, `internship` |
+| `engagement.compensation.minimum_base_eur` | `object` | — | Min compensation by type: `permanent` (annual), `contract` (daily), `advisory` (hourly) |
+| `remote.policy` | `string` | ✅ | One of: `remote_only`, `hybrid`, `flexible`, `on_site` |
+| `remote.hybrid_locations` | `string[]` | — | Acceptable locations for hybrid roles |
+| `filters.blocked_industries` | `string[]` | — | Industries the candidate refuses to work in |
+| `filters.stack_keywords.preferred` | `string[]` | — | Preferred tech keywords for match scoring |
+| `filters.soft_reject.weak_stack_overlap_below` | `integer` | — | Min keyword matches; below this → SOFT_REJECT |
+| `privacy.zone_1_public` | `string[]` | ✅ | Fields visible to everyone (free) |
+| `privacy.zone_2_paid` | `string[]` | ✅ | Fields visible after micro-fee payment |
+| `privacy.zone_3_private` | `string[]` | ✅ | Fields shared only after candidate ACCEPT |
+
+```yaml
+schema_version: "0.1.0"
+
+engagement:
+  allowed_types:
+    - permanent
+    - contract
+  compensation:
+    minimum_base_eur:
+      permanent: 80000
+      contract: 600
+
+remote:
+  policy: "remote_only"
+
+filters:
+  blocked_industries:
+    - "gambling"
+    - "weapons"
+  stack_keywords:
+    preferred:
+      - "Python"
+      - "Kubernetes"
+  soft_reject:
+    weak_stack_overlap_below: 3
+
+privacy:
+  zone_1_public:
+    - title
+    - seniority
+    - primary_domains
+    - availability
+  zone_2_paid:
+    - full_profile
+    - evidence
+  zone_3_private:
+    - email
+    - phone
+    - exact_salary
+```
+
+---
+
+## evidence.json
+
+Verifiable links that prove the candidate's skills.
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `schema_version` | `string` | ✅ | Schema version |
+| `items` | `array` | ✅ | List of evidence items |
+| `items[].type` | `string` | ✅ | Type: `github_repo`, `website`, `portfolio`, `certificate`, `article`, `review`, `reference`, `photo`, `video`, `case_study`, `publication`, `other` |
+| `items[].title` | `string` | ✅ | Display name of the evidence |
+| `items[].url` | `string` | ✅ | Public URL to the evidence |
+| `items[].description` | `string` | ✅ | What this evidence proves about the candidate |
+| `items[].skills_demonstrated` | `string[]` | ✅ | Skills this evidence proves (min 1 item) |
+
+```json
+{
+  "schema_version": "0.1.0",
+  "items": [
+    {
+      "type": "github_repo",
+      "title": "CloudDeploy — Kubernetes Deployment Toolkit",
+      "url": "https://github.com/alexchen/cloud-deploy",
+      "description": "Open-source Kubernetes deployment toolkit with GitOps workflow.",
+      "skills_demonstrated": ["Kubernetes", "Go", "CI/CD Pipelines"]
+    },
+    {
+      "type": "certificate",
+      "title": "AWS Solutions Architect Associate",
+      "url": "https://www.credly.com/badges/example-badge-id",
+      "description": "Validates expertise in designing distributed systems on AWS.",
+      "skills_demonstrated": ["AWS", "Cloud Infrastructure"]
+    }
+  ]
+}
+```
+
+---
+
+## Schema validation
+
+All card files have corresponding JSON Schema definitions:
+
+| File | Schema | Location |
+|------|--------|----------|
+| `profile.json` | `candidate_profile.schema.json` | `protocol/platform/01_schemas/` |
+| `rules.yaml` | `roe.schema.json` | `protocol/platform/01_schemas/` |
+| `evidence.json` | `evidence.schema.json` | `protocol/platform/01_schemas/` |
+| `scoutica.json` | `scoutica_discovery.schema.json` | `schemas/` |
+
+Validate your card with the CLI:
+
+```bash
+scoutica validate ./my-card/
+```
+
+Or programmatically with `jsonschema`:
+
+```python
+import json, jsonschema
+
+with open('protocol/platform/01_schemas/candidate_profile.schema.json') as f:
+    schema = json.load(f)
+
+with open('profile.json') as f:
+    profile = json.load(f)
+
+jsonschema.validate(profile, schema)  # raises ValidationError if invalid
+```

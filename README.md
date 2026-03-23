@@ -39,11 +39,14 @@ They do NOT get your private data. Your card lives in your own private directory
 scoutica-protocol/
 ├── README.md                       ← You are here
 ├── SKILL.md                        ← Agent instructions for this repo
-├── docs/                           ← 📚 DOCUMENTATION
-│   ├── USER_MANUAL.md              ← CLI guide, card format, privacy
-│   ├── DEVELOPER_GUIDE.md          ← Build integrations (Python/JS/Go)
-│   ├── USE_CASES.md                ← 7 scenarios with flow diagrams
-│   └── ARCHITECTURE.md             ← 6 pillars, data model, compliance
+├── docs-site/                      ← 📚 DOCUMENTATION (Mintlify site → docs.scoutica.com)
+│   ├── docs.json                   ← Mintlify configuration
+│   ├── introduction.mdx            ← Protocol overview
+│   ├── cli/                        ← CLI command reference
+│   ├── guides/                     ← User guides & use cases
+│   ├── developer/                  ← Build integrations (Python/JS/Go)
+│   ├── architecture/               ← 6 pillars, data model, compliance
+│   └── skill-card/                 ← Card file format reference
 ├── .specs/                         ← 🔬 SPECIFICATIONS
 │   ├── ROADMAP.md                  ← 5-phase roadmap (blockchain, SDKs)
 │   ├── protocol_flows.md           ← 6 mermaid sequence diagrams
@@ -195,7 +198,7 @@ Your data never leaves your machine — everything runs through your local AI CL
 
 ---
 
-📗 **Learn More:** Check out the [Complete Documentation & User Manual](docs/USER_MANUAL.md) for full commands and CLI architecture.
+📗 **Learn More:** Check out the [Complete Documentation](https://docs.scoutica.com) for full commands, guides, and architecture.
 
 ### Option 2: Paste Into Any AI (Easiest — No Install Needed)
 

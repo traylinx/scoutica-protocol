@@ -1,0 +1,115 @@
+---
+title: "scoutica publish"
+description: "Stage canonical card files and push them to your GitHub repository"
+---
+
+## Syntax
+
+```bash
+scoutica publish [directory]
+```
+
+## Options
+
+<ParamField path="directory" type="string">
+  Path to the card directory to publish. Defaults to the current directory.
+</ParamField>
+
+## Usage examples
+
+```bash
+# Publish the current directory
+scoutica publish
+
+# Publish a specific card folder
+scoutica publish ./my-card/
+
+# Validate first, then publish
+scoutica validate ./my-card && scoutica publish ./my-card
+```
+
+## How it works
+
+`scoutica publish` uses Git to commit and push your card. Its behavior depends on whether the target directory already has a Git repository.
+
+### Existing Git repo
+
+If a `.git` directory is found, the CLI:
+
+1. Stages only the canonical card files (see below)
+2. Creates a commit with the message `Update Scoutica Skill Card — YYYY-MM-DD`
+3. Pushes to the current branch on `origin`
+
+### New repo setup
+
+If no `.git` directory is found, the CLI walks you through initial setup:
+
+<Steps>
+  <Step title="Enter repo details">
+    You are prompted for a GitHub repo name (default: `my-scoutica-card`) and your GitHub username.
+  </Step>
+  <Step title="Initialize git">
+    The CLI runs `git init`, stages the card files, and creates the initial commit.
+  </Step>
+  <Step title="Create the GitHub repo">
+    You are shown a link to `https://github.com/new` and asked to create the repo with the name you entered.
+  </Step>
+  <Step title="Push">
+    After creating the repo on GitHub, run the displayed command to push:
+
+    ```bash
+    git push -u origin main
+    ```
+  </Step>
+</Steps>
+
+## Files that are staged
+
+To prevent accidental commits of raw documents or secrets, `publish` stages **only** these canonical card files:
+
+| File / Directory | Staged |
+|-----------------|--------|
+| `profile.json` | Yes |
+| `rules.yaml` | Yes |
+| `evidence.json` | Yes |
+| `SKILL.md` | Yes |
+| `scoutica.json` | Yes |
+| `rules/` directory | Yes |
+| All other files | Never staged |
+
+<Warning>
+  Never run `git add -A` or `git commit -a` at the root of a card directory — you risk committing raw documents that may contain private information. Always use `scoutica publish`, which stages only the files listed above.
+</Warning>
+
+## Expected output
+
+```text
+  Git repo detected. Adding and pushing...
+  ✅ Pushed to GitHub!
+```
+
+Or, if there are no changes:
+
+```text
+  ⚠️  No changes to commit
+```
+
+## Prerequisites
+
+- **Git** must be installed and available in `PATH`. The CLI aborts if Git is not found.
+- The `origin` remote must be configured and point to your GitHub repository.
+- You must have push access to the repository.
+
+<Tip>
+  To check your remote configuration:
+
+  ```bash
+  git -C ./my-card remote -v
+  ```
+
+  To add a remote if one is missing:
+
+  ```bash
+  git -C ./my-card remote add origin https://github.com/YOU/YOUR-CARD.git
+  ```
+</Tip>

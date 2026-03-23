@@ -1,0 +1,90 @@
+---
+title: "Architecture Overview"
+description: "System design and components of the Scoutica Protocol"
+---
+
+## System layers
+
+The Scoutica Protocol is organized into four layers. Three are live today; the Trust Layer is on the roadmap.
+
+| Layer | Status | Components |
+|-------|--------|------------|
+| **Candidate Layer** | ✅ Live | Documents, Scoutica CLI, Skill Card, Local AI CLI |
+| **Distribution Layer** | ✅ Live | GitHub, Registry, `scoutica.json` |
+| **Consumption Layer** | ✅ Live | AI Agents, Job Boards, ATS Systems, Widgets |
+| **Trust Layer** | 🔜 Roadmap | Blockchain, Soulbound Tokens, Zero-Knowledge Proofs |
+
+### Candidate Layer
+
+The Candidate Layer is where Skill Cards are created. Candidates use the Scoutica CLI or any AI assistant to generate a structured set of files (`profile.json`, `rules.yaml`, `evidence.json`, `scoutica.json`) from their documents. All AI processing runs locally — no data leaves your machine.
+
+### Distribution Layer
+
+Once created, a Skill Card is published to a GitHub repository. The `scoutica.json` discovery file at the repo root makes the card machine-readable. Cards can also be registered in the central registry index for broader discovery.
+
+### Consumption Layer
+
+AI agents, job boards, ATS systems, and embeddable widgets all consume cards from the Distribution Layer. Consumers fetch card files directly from GitHub over HTTPS and evaluate candidates locally using their own scoring logic.
+
+### Trust Layer (future)
+
+The Trust Layer will add cryptographic verification via Soulbound Tokens on Base L2 and Zero-Knowledge Proofs. This enables Verification Level 4 (blockchain-verified) in the trust model.
+
+---
+
+## Two-part architecture
+
+The project has a strict separation between two concerns:
+
+| Part | What | Visibility |
+|------|------|------------|
+| **The Protocol** | Open standard, schemas, agent rules, registry API spec, CLI tools, smart contracts, templates | Public — anyone can clone, fork, build on it |
+| **Your Skill Card** | Your personal profile, Rules of Engagement, evidence, salary floor | Private — never committed to the protocol repo |
+
+**The protocol is the network. Your skill card is your node on it.**
+
+When you clone this repo, you get:
+- JSON Schemas to validate your card
+- Agent rule templates to evaluate opportunities
+- Registry API spec to run your own node
+- CLI tools to publish and discover cards
+
+You do not get anyone's private data. Each card lives in its owner's private directory.
+
+---
+
+## Card generation flow
+
+Cards flow from source documents through the CLI to GitHub:
+
+```text
+Documents → scoutica scan → Local AI → Skill Card files → GitHub repo → Registry / Discovery
+```
+
+From GitHub, any consumer can resolve a card by fetching the four canonical files:
+
+```text
+scoutica.json   ← discovery entry point
+profile.json    ← skills, experience, seniority
+rules.yaml      ← engagement rules, salary floor, auto-reject criteria
+evidence.json   ← GitHub repos, certifications, portfolio links
+```
+
+---
+
+## Next steps
+
+<CardGroup cols={2}>
+  <Card title="The six pillars" icon="columns-3" href="/architecture/six-pillars">
+    Generation, Distribution, Verification, Agentic Extension, Privacy, and Economics
+  </Card>
+  <Card title="Data model" icon="database" href="/architecture/data-model">
+    Full schema definitions for every card file
+  </Card>
+  <Card title="Compliance & ethics" icon="scale-balanced" href="/architecture/compliance">
+    EU AI Act requirements and anti-discrimination by design
+  </Card>
+  <Card title="Roadmap" icon="map" href="/roadmap">
+    What's live today and what's coming next
+  </Card>
+</CardGroup>

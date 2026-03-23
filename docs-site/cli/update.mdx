@@ -1,0 +1,78 @@
+---
+title: "scoutica update"
+description: "Update the Scoutica CLI and rule templates to the latest version"
+---
+
+## Syntax
+
+```bash
+scoutica update
+```
+
+The update command takes no arguments or flags.
+
+## Usage example
+
+```bash
+scoutica update
+```
+
+## What gets updated
+
+`scoutica update` re-runs the official install script from the `main` branch of the Scoutica Protocol repository. This updates:
+
+- The `scoutica` CLI binary at `~/.scoutica/bin/scoutica`
+- Rule templates in `~/.scoutica/templates/rules/`
+- JSON schemas in `~/.scoutica/schemas/`
+- The `validate_card.py` validation script
+- The `GENERATE_MY_CARD.md` AI prompt file
+
+Your personal card files (`profile.json`, `rules.yaml`, `evidence.json`, `SKILL.md`) are never touched by the update command — they live in your own private directory, not inside `~/.scoutica/`.
+
+## Expected output
+
+```text
+  Checking for updates...
+
+  Current: v0.1.0
+  Latest:  v0.2.0
+
+  Running installer to fetch the latest version...
+
+  ✅ Update complete! Run 'scoutica version' to check.
+```
+
+If you are already on the latest version:
+
+```text
+  Current: v0.1.0
+  Latest:  v0.1.0
+
+  ✅ Already up to date!
+```
+
+## Safety note
+
+<Note>
+  The update command overwrites your local `~/.scoutica/` installation files. This is safe — all files inside `~/.scoutica/` are protocol-owned (CLI, schemas, templates), not personal data.
+
+  Your Skill Card files live in a separate directory (e.g. `~/my-card/`) and are never modified by `scoutica update`.
+</Note>
+
+## Verify the update
+
+After updating, confirm the new version:
+
+```bash
+scoutica version
+```
+
+```text
+scoutica v0.2.0
+```
+
+Run `scoutica doctor` to confirm everything is consistent after the update:
+
+```bash
+scoutica doctor
+```

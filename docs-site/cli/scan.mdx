@@ -1,0 +1,153 @@
+---
+title: "scoutica scan"
+description: "Auto-generate a Skill Card from your documents using a local AI CLI"
+---
+
+## Syntax
+
+```bash
+scoutica scan <docs-folder> [options]
+```
+
+## Options
+
+<ParamField path="docs-folder" type="string" required>
+  Path to a directory containing your source documents (CV, certificates, portfolio, etc.).
+</ParamField>
+
+<ParamField query="--output, -o" type="string">
+  Directory where the generated card files are written. Defaults to the current directory.
+</ParamField>
+
+<ParamField query="--with, -w" type="string">
+  AI provider to use. One of: `gemini`, `claude`, `codex`, `vibe`, `opencode`, `ollama`, `ail`. When omitted, the CLI auto-detects the first installed provider in that order.
+</ParamField>
+
+<ParamField query="--clipboard, -c" type="flag">
+  Instead of calling a local AI CLI, copy the generated prompt (with your documents included) to the clipboard. Use this if you want to paste it manually into an AI chat interface.
+</ParamField>
+
+## Usage examples
+
+```bash
+# Auto-detect installed AI CLI
+scoutica scan ~/my-docs/
+
+# Use a specific provider
+scoutica scan ~/my-docs/ --with gemini
+scoutica scan ~/my-docs/ --with claude
+scoutica scan ~/my-docs/ --with ollama
+
+# Write output to a specific directory
+scoutica scan ~/my-docs/ --output ./my-card/
+
+# Combine provider and output flags
+scoutica scan ~/my-docs/ --with codex --output ./my-card/
+
+# Copy prompt to clipboard instead of running an AI CLI
+scoutica scan ~/my-docs/ --clipboard
+```
+
+## Supported document formats
+
+| Extension | Notes |
+|-----------|-------|
+| `.md` | Read directly |
+| `.txt` | Read directly |
+| `.json` | Read directly |
+| `.yaml` / `.yml` | Read directly |
+| `.csv` | Read directly |
+| `.html` / `.htm` | Read directly |
+| `.pdf` | Extracted via `pdftotext`, `PyPDF2`, or `textutil` |
+| `.docx` | Extracted via `textutil` (macOS) or `python-docx` |
+
+<Tip>
+  Install `pdftotext` for the best PDF extraction results:
+
+  ```bash
+  brew install poppler       # macOS
+  apt install poppler-utils  # Linux
+  ```
+</Tip>
+
+## AI providers
+
+Providers are auto-detected in the following priority order when `--with` is not specified:
+
+| Priority | Provider | CLI command | Install |
+|----------|----------|-------------|--------|
+| 1 | Gemini CLI | `gemini` | [google-gemini/gemini-cli](https://github.com/google-gemini/gemini-cli) |
+| 2 | Claude Code | `claude` | [anthropics/claude-code](https://github.com/anthropics/claude-code) |
+| 3 | OpenAI Codex | `codex` | [openai/codex](https://github.com/openai/codex) |
+| 4 | Mistral Vibe | `vibe` | [mistralai/mistral-vibe](https://github.com/mistralai/mistral-vibe) |
+| 5 | OpenCode | `opencode` | [opencode-ai/opencode](https://github.com/opencode-ai/opencode) |
+| 6 | Ollama | `ollama` | [ollama.com](https://ollama.com) |
+| 7 | switchAILocal | `ail` | [traylinx/switchAILocal](https://github.com/traylinx/switchAILocal) |
+| 8 | OpenClaw | `openclaw` | [openclaw/openclaw](https://github.com/openclaw/openclaw) |
+| — | Clipboard | — | Fallback when no CLI is found |
+
+If no provider is installed and `--clipboard` is not set, the CLI automatically falls back to clipboard mode.
+
+## Expected output
+
+```text
+  → Scanning /Users/you/my-docs/...
+
+    📄 resume.pdf (1420 words, extracted from PDF)
+    📄 certifications.md (340 words)
+    📄 portfolio.json (210 words)
+
+  ✅ Found 3 documents
+
+  → Generating card via gemini (local CLI — your data stays on your machine)...
+
+  ✅ Response received from gemini
+
+  → Writing card files to ./my-card...
+  ✅ Created profile.json
+  ✅ Created rules.yaml
+  ✅ Created evidence.json
+  ✅ Created SKILL.md
+  ✅ Copied evaluation rule templates
+  ✅ Created .gitignore (protects secrets from accidental commits)
+```
+
+## Updating an existing card & backups
+
+If the output directory already contains a generated Skill Card, running `scoutica scan` again is the easiest way to update it. Just add your new documents (like a recent certificate or updated CV) to the folder and run the command.
+
+The `scan` command will automatically back up your old card before overwriting it with the new, freshly-generated version:
+
+```text
+  ⚠️  Existing card files found in ./my-card/:
+    • profile.json
+    • rules.yaml
+
+  ✅ Backed up existing files to .backup/20260323_142501/
+```
+
+<Tip>
+  **Important:** Because `scan` completely regenerates the files based on your documents, any manual text edits you made directly to the `profile.json` or `rules.yaml` files will be overwritten. You can always retrieve them from the `.backup` folder if needed.
+</Tip>
+
+<Note>
+  **Privacy:** Your documents are piped directly to the local AI CLI running on your machine. No data is sent to any cloud API. The raw AI response is saved temporarily as `.scan_response_raw.txt` and deleted immediately after the card files are written.
+</Note>
+
+## Clipboard mode
+
+When `--clipboard` is used (or no AI CLI is installed), the full prompt — including the contents of all your documents — is copied to your clipboard or saved as `scoutica_prompt.txt` in the output directory.
+
+```bash
+scoutica scan ~/my-docs/ --clipboard
+```
+
+Paste it into any AI assistant and save the returned JSON files to your card directory.
+
+## Next steps
+
+```bash
+scoutica info ./my-card      # review the generated card
+scoutica validate ./my-card  # check for schema errors
+scoutica publish ./my-card   # push to GitHub
+```

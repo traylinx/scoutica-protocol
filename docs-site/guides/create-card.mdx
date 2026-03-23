@@ -1,0 +1,228 @@
+---
+title: "Create Your Skill Card"
+description: "Step-by-step guide to creating and publishing your Skill Card"
+---
+
+A Skill Card is a set of structured files that any AI agent can discover, read, and act on. You own your data, you set the rules, and agents work for you.
+
+<Steps>
+  <Step title="Install the CLI">
+    Install the Scoutica CLI on your machine.
+
+    <Tabs>
+      <Tab title="macOS / Linux">
+        ```bash
+        curl -fsSL https://raw.githubusercontent.com/traylinx/scoutica-protocol/main/install.sh | bash
+        ```
+
+        ```text
+        ╔═══════════════════════════════════════════════════════╗
+        ║                                                       ║
+        ║   ⚡ Scoutica Protocol — CLI Installer               ║
+        ║                                                       ║
+        ║   Your skills. Your rules. Your data.                 ║
+        ║                                                       ║
+        ╚═══════════════════════════════════════════════════════╝
+
+        → Creating directories in /Users/sebastian/.scoutica...
+        → Downloading scoutica CLI...
+        → Downloading JSON schemas...
+        → Downloading card templates...
+        → Downloading AI card generator...
+        → Downloading validation tool...
+
+        ╔═══════════════════════════════════════════════════════╗
+        ║                                                       ║
+        ║   ✅ Scoutica CLI installed successfully!             ║
+        ║                                                       ║
+        ╚═══════════════════════════════════════════════════════╝
+
+          To get started, run:
+
+          source /Users/sebastian/.zshrc && scoutica init
+        ```
+
+        After installation, reload your shell:
+
+        ```bash
+        source ~/.zshrc   # or source ~/.bashrc
+        ```
+      </Tab>
+      <Tab title="Windows (PowerShell)">
+        ```powershell
+        irm https://raw.githubusercontent.com/traylinx/scoutica-protocol/main/install.ps1 | iex
+        ```
+      </Tab>
+    </Tabs>
+
+    Verify the installation:
+
+    ```bash
+    scoutica help
+    ```
+
+    ```text
+    Scoutica CLI v0.1.0
+    Your skills. Your rules. Your data.
+
+    Usage:
+      scoutica <command> [options] [directory]
+
+    Commands:
+      init              Create your Skill Card (interactive wizard)
+      init --ai         Create card using AI assistant
+      scan              Auto-generate card from your documents (AI-powered)
+      resolve           Fetch and display a card from a URL
+      validate          Validate card against protocol schemas
+      publish           Push card to GitHub
+      info              Show card summary
+      update            Update the Scoutica CLI to the latest version
+      help              Show this help
+      version           Show version
+    ```
+  </Step>
+
+  <Step title="Choose a creation method">
+    There are four ways to create your Skill Card. Pick the one that fits your workflow.
+
+    <Tabs>
+      <Tab title="AI scan (recommended for devs)">
+        Put your CV, certifications, and portfolio files in a folder, then let the CLI extract your Skill Card automatically. Your data never leaves your machine — everything runs through your local AI CLI.
+
+        ```bash
+        scoutica scan ~/my-docs/
+        ```
+
+        You can also specify a provider or output directory:
+
+        ```bash
+        scoutica scan ~/my-docs/ --with gemini     # use a specific provider
+        scoutica scan ~/my-docs/ --with claude     # use Claude Code
+        scoutica scan ~/my-docs/ --with ollama     # fully offline
+        scoutica scan ~/my-docs/ --output ./my-card/
+        ```
+
+        **Supported document formats:** `.md` `.txt` `.pdf` `.docx` `.json` `.yaml` `.csv` `.html`
+
+        <Note>
+          PDF text extraction requires `pdftotext`. Install it with `brew install poppler` (macOS) or `apt install poppler-utils` (Linux) if PDF files are not being read.
+        </Note>
+
+        **Supported AI providers (auto-detected in this order):**
+
+        | Provider | CLI command |
+        |----------|-------------|
+        | Gemini CLI | `gemini` |
+        | Claude Code | `claude` |
+        | OpenAI Codex | `codex` |
+        | Mistral Vibe | `vibe` |
+        | OpenCode | `opencode` |
+        | Ollama | `ollama` |
+        | switchAILocal | `ail` |
+        | OpenClaw | `openclaw` |
+      </Tab>
+
+      <Tab title="Interactive wizard">
+        Answer prompts step by step to build your card without any documents.
+
+        ```bash
+        scoutica init ./my-card/
+        ```
+
+        You can also run `scoutica init` in the current directory, or use `--ai` for AI-guided instructions:
+
+        ```bash
+        scoutica init              # current directory
+        scoutica init --ai         # AI-guided mode
+        ```
+      </Tab>
+
+      <Tab title="AI paste (no install needed)">
+        This is the easiest path and requires no CLI installation. Suitable for non-technical users.
+
+        1. Open [`GENERATE_MY_CARD.md`](https://github.com/traylinx/scoutica-protocol/blob/main/GENERATE_MY_CARD.md) on GitHub
+        2. Copy the entire file contents
+        3. Paste it into any AI assistant — ChatGPT, Claude, Gemini, Copilot, etc.
+        4. Follow the conversation — the AI will interview you and generate your 4 files
+        5. Save the files to a GitHub repo
+
+        Alternatively, use the CLI to copy the prompt to your clipboard without running a full scan:
+
+        ```bash
+        scoutica scan ~/my-docs/ --clipboard
+        ```
+
+        Then paste the clipboard contents into any AI chat.
+      </Tab>
+
+      <Tab title="Clone and customize">
+        Clone the protocol repo and edit the template files directly. Gives you full access to all protocol files.
+
+        ```bash
+        git clone https://github.com/traylinx/scoutica-protocol.git
+        cp -r protocol/templates/ my-card/
+        ```
+
+        Edit the files in `my-card/` with your data, then validate:
+
+        ```bash
+        python tools/validate_card.py ./my-card/
+        ```
+      </Tab>
+    </Tabs>
+  </Step>
+
+  <Step title="Validate your card">
+    Check your card against the protocol schemas before publishing.
+
+    ```bash
+    scoutica validate ./my-card/
+    ```
+
+    A passing result looks like:
+
+    ```text
+    ✅ 5 checks passed
+    ```
+
+    Fix any reported errors before proceeding.
+  </Step>
+
+  <Step title="Publish to GitHub">
+    Push your card to a GitHub repository to make it discoverable by AI agents.
+
+    ```bash
+    scoutica publish ./my-card/
+    ```
+
+    You can also chain validation and publish together:
+
+    ```bash
+    scoutica validate && scoutica publish
+    ```
+
+    Your card will be live at your GitHub repository URL. Any AI agent can now discover and evaluate your profile.
+  </Step>
+</Steps>
+
+## What gets created
+
+After creation, your card folder contains these files:
+
+```text
+my-card/
+├── profile.json        # Your skills, experience, tools
+├── rules.yaml          # Your rules of engagement
+├── evidence.json       # Links to your public work
+├── SKILL.md            # Agent entry point
+├── scoutica.json       # Discovery file (auto-generated)
+└── rules/              # Evaluation rule templates
+    ├── evaluate-fit.md
+    ├── negotiate-terms.md
+    ├── verify-evidence.md
+    └── request-interview.md
+```
+
+<Tip>
+  Run `scoutica info ./my-card/` at any time to see a summary of your published card.
+</Tip>

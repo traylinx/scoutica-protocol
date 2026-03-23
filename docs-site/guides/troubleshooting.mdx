@@ -1,0 +1,158 @@
+---
+title: "Troubleshooting"
+description: "Solutions to common issues with the Scoutica CLI"
+---
+
+<Tip>
+  Run `scoutica doctor` to automatically check that all prerequisites are installed and configured correctly. It verifies the CLI executable, template directories, schema directories, Python 3, Git, and available AI providers.
+
+  ```bash
+  scoutica doctor
+  ```
+</Tip>
+
+## Installation and shell issues
+
+<AccordionGroup>
+  <Accordion title='"scoutica: command not found"'>
+    The CLI is installed but not on your `PATH`. Reload your shell configuration:
+
+    ```bash
+    source ~/.zshrc    # zsh (default on macOS)
+    source ~/.bashrc   # bash
+    ```
+
+    If you are using a shell other than zsh or bash, add `~/.scoutica/bin` to your `PATH` manually:
+
+    ```bash
+    export PATH="$HOME/.scoutica/bin:$PATH"
+    ```
+
+    Restart your terminal session if reloading the shell config does not help.
+  </Accordion>
+
+  <Accordion title="Git not configured for publish">
+    `scoutica publish` requires Git to be installed and configured with a name and email. If publish fails with a Git error:
+
+    ```bash
+    git config --global user.name "Your Name"
+    git config --global user.email "you@example.com"
+    ```
+
+    Also ensure you have a remote origin set in your card directory:
+
+    ```bash
+    git remote -v    # should show your GitHub repo URL
+    ```
+
+    If no remote is set, add one:
+
+    ```bash
+    git remote add origin https://github.com/your-username/your-card-repo.git
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Scan and document issues
+
+<AccordionGroup>
+  <Accordion title='Scan shows "No readable documents found"'>
+    The CLI did not find any supported files in the specified directory.
+
+    Supported formats: `.md` `.txt` `.pdf` `.docx` `.json` `.yaml` `.csv` `.html`
+
+    Check that your document folder contains files with these extensions:
+
+    ```bash
+    ls ~/my-docs/
+    ```
+
+    If your files have other extensions (e.g., `.pages`, `.odt`), export or convert them to a supported format before scanning.
+  </Accordion>
+
+  <Accordion title="PDF text extraction fails">
+    PDF processing requires `pdftotext` from the Poppler library.
+
+    ```bash
+    brew install poppler          # macOS
+    apt install poppler-utils     # Ubuntu / Debian
+    dnf install poppler-utils     # Fedora / RHEL
+    ```
+
+    Verify installation:
+
+    ```bash
+    pdftotext -v
+    ```
+
+    If your PDFs are image-based (scanned documents), `pdftotext` cannot extract their contents. Convert them using an OCR tool first.
+  </Accordion>
+
+  <Accordion title='"Empty response from provider"'>
+    The CLI found an AI provider binary but received no output. Verify your AI CLI is installed and working:
+
+    ```bash
+    gemini --version      # Gemini CLI
+    claude --version      # Claude Code
+    ollama list           # Ollama
+    ```
+
+    If the command fails, reinstall the provider. If Ollama is running but returns an empty response, ensure a model is pulled:
+
+    ```bash
+    ollama pull llama3
+    ```
+
+    You can also explicitly specify a working provider:
+
+    ```bash
+    scoutica scan ~/my-docs/ --with ollama
+    ```
+  </Accordion>
+
+  <Accordion title="Schema validation failures">
+    `scoutica validate` checks your card files against the protocol's JSON Schemas. Common causes of failure:
+
+    - **Missing required field** — the error message names the field and file. Check `profile.json` for required fields like `name`, `title`, and `seniority`.
+    - **Invalid enum value** — `seniority` must be one of: `junior`, `mid`, `senior`, `lead`, `principal`, `staff`.
+    - **Malformed JSON or YAML** — use a linter to check syntax:
+
+    ```bash
+    python3 -m json.tool profile.json     # validate JSON
+    python3 -c "import yaml; yaml.safe_load(open('rules.yaml'))"  # validate YAML
+    ```
+
+    After fixing, re-run validation:
+
+    ```bash
+    scoutica validate ./my-card/
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Network issues
+
+<AccordionGroup>
+  <Accordion title="Network or SSRF errors in resolve">
+    `scoutica resolve` enforces strict URL validation. It only accepts HTTPS URLs and rejects requests to localhost or private IP ranges.
+
+    If you see a URL validation error, check that:
+
+    - The URL uses `https://`, not `http://`
+    - The URL points to a public host (not `localhost`, `127.0.0.1`, or a private range like `192.168.x.x`)
+    - Supported URL formats:
+      - `https://github.com/user/repo`
+      - `https://raw.githubusercontent.com/user/repo/main/`
+      - Any direct HTTPS URL hosting card files
+
+    ```bash
+    scoutica resolve https://github.com/username/my-card
+    ```
+
+    If the target repo is private, `scoutica resolve` cannot fetch it. The card repository must be public.
+  </Accordion>
+</AccordionGroup>
+
+## Still stuck?
+
+Run `scoutica doctor` for a full diagnostic report, then check the [GitHub Issues](https://github.com/traylinx/scoutica-protocol/issues) page. Include the output of `scoutica doctor` and the full error message when reporting a bug.

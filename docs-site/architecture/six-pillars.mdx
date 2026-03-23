@@ -1,0 +1,133 @@
+---
+title: "The Six Pillars"
+description: "The six foundational pillars of the Scoutica Protocol"
+---
+
+The Scoutica Protocol is built on six foundational pillars that together define how Skill Cards are created, shared, trusted, extended, protected, and monetized.
+
+<AccordionGroup>
+
+  <Accordion title="Pillar 1: Generation">
+
+  How Skill Cards are created. Four methods are supported:
+
+  | Method | Command | Description |
+  |--------|---------|-------------|
+  | AI scan | `scoutica scan` | Auto-generate from documents via local AI |
+  | Interactive | `scoutica init` | Step-by-step wizard |
+  | Manual | Create files directly | For developers who prefer full control |
+  | AI paste | `scoutica scan --clipboard` | Copy prompt, paste into any AI assistant |
+
+  Each method produces the same four canonical files: `profile.json`, `rules.yaml`, `evidence.json`, and `scoutica.json`.
+
+  **Schema hierarchy:**
+
+  - `profile.json` links to Skills Taxonomy, Experience Records, and Language Proficiencies
+  - `rules.yaml` defines Engagement Rules, Compensation Floor, and Auto-Reject Criteria
+  - `evidence.json` links to GitHub repos, certifications, and portfolio entries
+
+  </Accordion>
+
+  <Accordion title="Pillar 2: Distribution">
+
+  How cards are discovered and accessed.
+
+  Cards are published to a GitHub repository and made discoverable through four mechanisms:
+
+  1. **`scoutica.json`** — well-known file at the repo root; the primary entry point for any consumer
+  2. **Registry index** — centralized JSON index (GitHub-based) for search queries
+  3. **GitHub Topics** — tag repos with `scoutica-card` for passive discovery
+  4. **Direct URL** — `scoutica resolve <url>` fetches and displays any card by URL
+
+  ```bash
+  # Resolve a card from a GitHub URL
+  scoutica resolve https://github.com/user/my-card
+  ```
+
+  </Accordion>
+
+  <Accordion title="Pillar 3: Verification">
+
+  How trust is established. The protocol defines five trust levels:
+
+  | Level | Name | Trust Multiplier | Description |
+  |-------|------|-----------------|-------------|
+  | 0 | Self-Asserted | 0.0× | Candidate claims it; no external verification |
+  | 1 | URL-Verified | 0.5× | Evidence URLs are reachable |
+  | 2 | Peer-Endorsed | 1.0× | Other cards vouch for skills |
+  | 3 | Platform-Verified | 1.5× | CI/CD: commits and contributions verified |
+  | 4 | Blockchain-Verified | 2.0× | Soulbound Token endorsement |
+
+  <Note>
+  Levels 0–3 are available today. Level 4 (blockchain verification) is on the roadmap.
+  </Note>
+
+  </Accordion>
+
+  <Accordion title="Pillar 4: Agentic Extension">
+
+  The protocol supports multiple entity types, not just individual humans. This allows AI agents, APIs, robots, and organizations to participate in the same network.
+
+  | Entity type | Description | Example |
+  |-------------|-------------|--------|
+  | `human` | Individual professional | Software engineer |
+  | `ai_agent` | Autonomous AI agent | Coding assistant |
+  | `service` | API or SaaS product | Translation API |
+  | `robot` | Physical automated system | Warehouse drone |
+  | `team` | Group of entities | Engineering squad |
+  | `organization` | Company or department | DevOps team |
+
+  The `entity_type` field in `scoutica.json` declares the type of the card owner.
+
+  </Accordion>
+
+  <Accordion title="Pillar 5: Privacy & Security">
+
+  The protocol uses a three-zone data model to give candidates fine-grained control over what is visible and to whom.
+
+  | Zone | Access | Contents |
+  |------|--------|----------|
+  | **Zone 1** | Public, free | Title, seniority, domains, availability |
+  | **Zone 2** | Auth required | Full profile, evidence, experience |
+  | **Zone 3** | Candidate approval | Email, phone, exact salary |
+
+  Zones are progressive — access to Zone 2 requires authentication, and Zone 3 requires explicit candidate approval for each request.
+
+  **GDPR compliance:**
+  - Candidate owns all data
+  - Right to deletion: delete the repo and the card disappears from the network
+  - Right to portability: standard JSON/YAML formats
+  - Transparency: candidates see exactly what agents see
+
+  <Warning>
+  Never store Zone 3 data (email, phone, exact salary). These fields are ephemeral and must not be persisted in any cache or database.
+  </Warning>
+
+  </Accordion>
+
+  <Accordion title="Pillar 6: Economics">
+
+  Revenue flows in the Scoutica Protocol ecosystem.
+
+  | Actor | Revenue stream | Amount |
+  |-------|---------------|--------|
+  | Candidate | Micro-fee per Zone 2 access | ~$0.05 |
+  | Protocol | Commission on micro-fees | 10% |
+  | Verifier | Fee for endorsing skills | Market rate |
+  | Registry | Subscription for premium search | TBD |
+
+  **Cost comparison:**
+
+  | Channel | Cost per hire |
+  |---------|---------------|
+  | LinkedIn Recruiter | ~$10,000/year |
+  | Recruiting agency | $15,000–$30,000 |
+  | **Scoutica Protocol** | **~$4** |
+
+  <Note>
+  The micropayment layer (~$0.05 per Zone 2 access) and the `$SKILL` token are on the roadmap. See the [Roadmap](/roadmap) for details.
+  </Note>
+
+  </Accordion>
+
+</AccordionGroup>

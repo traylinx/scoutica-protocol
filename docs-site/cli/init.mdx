@@ -1,0 +1,116 @@
+---
+title: "scoutica init"
+description: "Create a Skill Card with an interactive wizard or AI-guided flow"
+---
+
+## Syntax
+
+```bash
+scoutica init [options] [directory]
+```
+
+## Options
+
+<ParamField path="directory" type="string">
+  Target directory for the card files. Defaults to the current directory.
+</ParamField>
+
+<ParamField query="--ai" type="flag">
+  Skip the interactive wizard and instead print AI-guided instructions for creating your card using any AI assistant (ChatGPT, Claude, Gemini, Copilot, etc.).
+</ParamField>
+
+## Usage examples
+
+```bash
+# Create card in the current directory
+scoutica init
+
+# Create card in a specific folder
+scoutica init ./my-card
+
+# Get AI-guided creation instructions
+scoutica init --ai
+
+# AI mode with a specific output folder
+scoutica init --ai ./my-card
+```
+
+## Interactive wizard flow
+
+When run without `--ai`, the wizard walks you through six sections:
+
+<Steps>
+  <Step title="Identity">
+    Enter your professional name, job title, seniority level (entry → executive), years of experience, and current availability status.
+  </Step>
+  <Step title="Skills and expertise">
+    Enter your primary domains, key skills, tools and platforms, certifications, and specializations — all as comma-separated lists.
+  </Step>
+  <Step title="Languages">
+    Add spoken languages with proficiency levels (native, fluent, professional, basic). You can add as many as you need.
+  </Step>
+  <Step title="Summary">
+    Enter your education background and a 2–3 sentence professional summary.
+  </Step>
+  <Step title="Rules of Engagement">
+    Define which engagement types you accept (permanent, contract, fractional, advisory, internship), your minimum compensation, remote policy, blocked industries, and preferred tech stack keywords for matching.
+  </Step>
+  <Step title="Public evidence">
+    Add links to public work that proves your skills — GitHub repos, portfolios, certificates, articles, case studies, videos, and more.
+  </Step>
+</Steps>
+
+## Files created
+
+After the wizard completes, the following files are written to the target directory:
+
+| File | Description |
+|------|-------------|
+| `profile.json` | Your skills, experience, domains, and availability |
+| `rules.yaml` | Your Rules of Engagement — compensation floors, remote policy, auto-reject rules |
+| `evidence.json` | Links to verifiable public work |
+| `SKILL.md` | Agent entry point — how AI agents should read and use your card |
+| `rules/` | Four evaluation rule templates (evaluate-fit, negotiate-terms, verify-evidence, request-interview) |
+| `.gitignore` | Pre-configured to keep secrets out of git |
+
+## AI mode (`--ai`)
+
+The `--ai` flag prints step-by-step instructions for using any AI assistant to generate your card through conversation. The CLI will offer to copy `GENERATE_MY_CARD.md` to your clipboard so you can paste it directly into ChatGPT, Claude, Gemini, or Copilot.
+
+```bash
+scoutica init --ai
+```
+
+```text
+  The easiest way to create your card with AI:
+
+  1. Copy the contents of this file:
+     ~/.scoutica/GENERATE_MY_CARD.md
+
+  2. Paste it into any AI assistant:
+     ChatGPT, Claude, Gemini, Copilot — any will work
+
+  3. Follow the conversation — the AI will interview you
+     and generate all 4 files
+
+  4. Save the generated files to: ./my-card/
+```
+
+<Note>
+  When `--ai` is selected, no files are written. The wizard is skipped entirely. Use this mode if you prefer a conversational AI interface over answering CLI prompts.
+</Note>
+
+## Security notes
+
+- All file generation uses `python3 json.dump` / `yaml.dump` — never raw shell variable interpolation — preventing injection attacks.
+- Before writing, the CLI checks whether any target path is a symlink and refuses to overwrite it, preventing symlink attacks.
+- The generated `.gitignore` helps prevent accidental commits of sensitive files.
+
+## Next steps
+
+After running `init`, validate and publish your card:
+
+```bash
+scoutica validate ./my-card
+scoutica publish ./my-card
+```

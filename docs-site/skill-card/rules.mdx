@@ -1,0 +1,184 @@
+---
+title: "rules.yaml"
+description: "Your rules of engagement for AI agents"
+---
+
+`rules.yaml` defines what you accept and what gets rejected — automatically. Any AI agent that evaluates an opportunity against your card **must** check this file before proceeding. Rules are not suggestions; compliant agents treat them as hard constraints.
+
+## Schema
+
+<ResponseField name="schema_version" type="string" required>
+  Protocol version this rules file conforms to. Current value: `"0.1.0"`.
+</ResponseField>
+
+<ResponseField name="engagement" type="object" required>
+  Controls which types of work you accept and your minimum compensation thresholds.
+
+  <Expandable title="properties">
+    <ResponseField name="allowed_types" type="string[]" required>
+      Engagement types you are open to. Valid values: `permanent`, `contract`, `fractional`, `advisory`, `internship`. Agents must reject any opportunity whose type is not in this list.
+    </ResponseField>
+
+    <ResponseField name="compensation" type="object">
+      Minimum compensation by engagement type.
+
+      <Expandable title="properties">
+        <ResponseField name="minimum_base_eur" type="object">
+          Minimum compensation thresholds in EUR, keyed by engagement type.
+
+          <Expandable title="properties">
+            <ResponseField name="permanent" type="integer | 'negotiable'">
+              Annual salary minimum (EUR). Use `"negotiable"` for no hard floor.
+            </ResponseField>
+            <ResponseField name="contract" type="integer | 'negotiable'">
+              Daily rate minimum (EUR).
+            </ResponseField>
+            <ResponseField name="fractional" type="integer | 'negotiable'">
+              Monthly retainer minimum (EUR).
+            </ResponseField>
+            <ResponseField name="advisory" type="integer | 'negotiable'">
+              Hourly rate minimum (EUR).
+            </ResponseField>
+          </Expandable>
+        </ResponseField>
+      </Expandable>
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+<ResponseField name="remote" type="object" required>
+  Your location and remote-work preferences.
+
+  <Expandable title="properties">
+    <ResponseField name="policy" type="string" required>
+      Your remote-work policy. One of: `remote_only`, `hybrid`, `flexible`, `on_site`.
+    </ResponseField>
+
+    <ResponseField name="hybrid_locations" type="string[]">
+      Acceptable locations for hybrid roles. Only relevant when `policy` is `"hybrid"`.
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+<ResponseField name="filters" type="object" required>
+  Automatic filtering rules for incoming opportunities.
+
+  <Expandable title="properties">
+    <ResponseField name="blocked_industries" type="string[]">
+      Industries you will not work in. Any opportunity from a company in a blocked industry is automatically rejected — for example `"gambling"`, `"weapons"`, `"tobacco"`.
+    </ResponseField>
+
+    <ResponseField name="stack_keywords" type="object">
+      Preferred technology and skill keywords for matching.
+
+      <Expandable title="properties">
+        <ResponseField name="preferred" type="string[]">
+          Keywords that increase match score — for example `"Python"`, `"Kubernetes"`, `"AWS"`.
+        </ResponseField>
+      </Expandable>
+    </ResponseField>
+
+    <ResponseField name="soft_reject" type="object">
+      Conditions that trigger a `SOFT_REJECT` (flagged for manual review rather than automatic rejection).
+
+      <Expandable title="properties">
+        <ResponseField name="weak_stack_overlap_below" type="integer">
+          Minimum number of `stack_keywords.preferred` matches required. If an opportunity matches fewer keywords than this threshold, a `SOFT_REJECT` is returned.
+        </ResponseField>
+      </Expandable>
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+<ResponseField name="privacy" type="object" required>
+  Data disclosure rules organized by zone.
+
+  <Expandable title="properties">
+    <ResponseField name="zone_1_public" type="string[]" required>
+      Fields visible to everyone for free — typically `title`, `seniority`, `primary_domains`, `availability`.
+    </ResponseField>
+
+    <ResponseField name="zone_2_paid" type="string[]" required>
+      Fields visible after a micro-fee payment — typically `full_profile`, `evidence`, `experience_details`.
+    </ResponseField>
+
+    <ResponseField name="zone_3_private" type="string[]" required>
+      Fields shared only after explicit candidate approval — typically `email`, `phone`, `exact_salary`.
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+## Example
+
+Based on the sample card in the repository:
+
+```yaml
+schema_version: "0.1.0"
+
+engagement:
+  allowed_types:
+    - permanent
+    - contract
+    - advisory
+  compensation:
+    minimum_base_eur:
+      permanent: 80000
+      contract: 600
+      advisory: 150
+
+remote:
+  policy: "remote_only"
+  hybrid_locations:
+    - "California"
+    - "New York"
+
+filters:
+  blocked_industries:
+    - "gambling"
+    - "weapons"
+    - "tobacco"
+  stack_keywords:
+    preferred:
+      - "Python"
+      - "TypeScript"
+      - "Kubernetes"
+      - "AWS"
+      - "FastAPI"
+  soft_reject:
+    weak_stack_overlap_below: 3
+
+privacy:
+  zone_1_public:
+    - title
+    - seniority
+    - primary_domains
+    - availability
+  zone_2_paid:
+    - full_profile
+    - evidence
+    - experience_details
+  zone_3_private:
+    - email
+    - phone
+    - exact_salary
+```
+
+## How agents use rules
+
+When an agent evaluates an opportunity against your card, it runs the following checks in order:
+
+1. **Engagement type check** — if the opportunity's type is not in `engagement.allowed_types`, the agent returns `REJECT`.
+2. **Remote policy check** — if the role requires on-site work and your policy is `remote_only`, the agent returns `REJECT`.
+3. **Compensation check** — if the offered compensation is below `engagement.compensation.minimum_base_eur`, the agent returns `REJECT`.
+4. **Industry filter** — if the company's industry appears in `filters.blocked_industries`, the agent returns `REJECT`.
+5. **Stack keyword check** — if matched keywords fall below `filters.soft_reject.weak_stack_overlap_below`, the agent returns `SOFT_REJECT` for manual review.
+
+If all checks pass, the agent returns `ACCEPT` and may proceed to the interview handoff step.
+
+<Warning>
+  Agents that bypass your `rules.yaml` constraints and initiate contact without a valid `ACCEPT` verdict are violating the Scoutica Protocol. If you encounter this, report it to the agent's operator. Compliant agents never skip the rules check.
+</Warning>
+
+<Tip>
+  Use `scoutica validate ./my-card/` to confirm your `rules.yaml` is well-formed and passes schema validation before publishing.
+</Tip>

@@ -1,0 +1,67 @@
+---
+title: "Evidence Verification"
+description: "Verify candidate evidence URLs and calculate trust scores"
+---
+
+Evidence items in `evidence.json` are links to external proof of a candidate's skills: GitHub repositories, certifications, portfolio sites, publications, and more. Verifying these links before an interview gives you a trust score for the candidate's claimed credentials.
+
+## Verifying evidence
+
+The verification function performs an HTTP `HEAD` request on each evidence URL and checks whether it is reachable.
+
+```python
+def verify_evidence(evidence_json):
+    """Verify each evidence item is reachable."""
+    results = []
+    for item in evidence_json.get('items', []):
+        url = item.get('url', '')
+        try:
+            resp = requests.head(url, timeout=5, allow_redirects=True)
+            results.append({
+                'title': item['title'],
+                'url': url,
+                'verified': resp.status_code < 400,
+                'status': resp.status_code
+            })
+        except:
+            results.append({
+                'title': item['title'],
+                'url': url,
+                'verified': False,
+                'status': 'unreachable'
+            })
+    
+    verified = sum(1 for r in results if r['verified'])
+    return {
+        'total': len(results),
+        'verified': verified,
+        'trust_ratio': verified / max(len(results), 1),
+        'items': results
+    }
+```
+
+<Note>
+  Requests time out after 5 seconds. URLs that fail to respond within this window are marked as `unreachable` and counted as unverified. Adjust the timeout if your network environment has higher latency.
+</Note>
+
+## Trust levels
+
+The `trust_ratio` returned by `verify_evidence` maps to five trust levels:
+
+| Trust ratio | Level | Interpretation |
+|---|---|---|
+| 1.0 (5/5) | Level 4 — Full trust | All evidence verified |
+| 0.8 (4/5) | Level 3 — High trust | One minor dead link; proceed |
+| 0.6 (3/5) | Level 2 — Moderate trust | Review unverified items manually |
+| 0.4 (2/5) | Level 1 — Low trust | Significant gaps; ask candidate to update |
+| 0.0–0.2 | Level 0 — No trust | Most links unreachable; treat as unverified |
+
+## Handling verification results
+
+**Verified evidence** (`verified: true`) can be used to confirm the candidate's claimed skills. Cross-reference the evidence type against the skills listed in `profile.json`.
+
+**Unverified evidence** (`verified: false` or `status: 'unreachable'`) should not count against the candidate immediately — links go dead for reasons outside their control. Flag these items and ask the candidate to update them if possible.
+
+<Tip>
+  A trust ratio of 0.8 or above (4 out of 5 items verified) is generally sufficient to proceed. A single dead certification link does not disqualify an otherwise strong candidate.
+</Tip>

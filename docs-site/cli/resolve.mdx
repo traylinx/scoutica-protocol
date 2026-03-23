@@ -1,0 +1,110 @@
+---
+title: "scoutica resolve"
+description: "Fetch and display a Skill Card from any public URL"
+---
+
+## Syntax
+
+```bash
+scoutica resolve <url> [save-dir]
+```
+
+## Arguments
+
+<ParamField path="url" type="string" required>
+  URL pointing to a Scoutica Skill Card repository or card base directory. Must use HTTPS.
+</ParamField>
+
+<ParamField path="save-dir" type="string">
+  Optional local directory path. If provided, the fetched card files are saved there in addition to being displayed.
+</ParamField>
+
+## Usage examples
+
+```bash
+# Display a card from a GitHub repo
+scoutica resolve https://github.com/user/my-card
+
+# Fetch from a raw GitHub URL
+scoutica resolve https://raw.githubusercontent.com/user/my-card/main/
+
+# Display and save a local copy
+scoutica resolve https://github.com/user/my-card ./local-copy/
+```
+
+## Supported URL formats
+
+| Format | Example |
+|--------|---------|
+| GitHub repo URL | `https://github.com/user/repo` |
+| Raw GitHub content URL | `https://raw.githubusercontent.com/user/repo/main/` |
+| Any HTTPS URL serving card files | `https://example.com/path/to/card/` |
+
+GitHub repo URLs (`https://github.com/user/repo`) are automatically converted to raw content URLs before fetching.
+
+## What it fetches and displays
+
+The command first checks for a `scoutica.json` discovery file at the given URL. If found, it uses the `card_url` field to locate the card files. It then fetches:
+
+- `profile.json`
+- `rules.yaml`
+- `evidence.json`
+- `SKILL.md`
+
+After fetching, it displays a formatted summary:
+
+```text
+  ✅ Found scoutica.json (discovery file)
+
+  📄 profile.json
+  📄 rules.yaml
+  📄 evidence.json
+  📄 SKILL.md
+
+  ✅ Found 4/4 card files
+
+╔═══════════════════════════════════════════════════════╗
+║  Alice Developer
+║  Lead Engineering Manager
+║  Seniority: lead  |  Experience: 19 years
+║  Domains: Backend Engineering, DevOps, AI/ML
+╚═══════════════════════════════════════════════════════╝
+
+  Skills:
+  Languages: Python, Go, TypeScript
+  Frameworks: FastAPI, React, Node.js
+  Tools: Kubernetes, AWS, Docker
+
+  Rules of Engagement:
+  Remote policy: remote_only
+  Engagement: permanent, contract
+
+  Evidence: 3 public items
+```
+
+## Saving a local copy
+
+Pass a second argument to save the fetched files to a local directory:
+
+```bash
+scoutica resolve https://github.com/user/my-card ./local-copy/
+```
+
+The following files are saved:
+
+- `profile.json`
+- `rules.yaml`
+- `evidence.json`
+- `SKILL.md`
+- `scoutica.json` (if present)
+
+## Security
+
+<Warning>
+  `resolve` enforces strict URL validation to prevent server-side request forgery (SSRF):
+
+  - Only **HTTPS** URLs are accepted. HTTP and other schemes are rejected.
+  - Requests to **localhost**, `127.x.x.x`, `10.x.x.x`, `192.168.x.x`, and `172.16–31.x.x` (private IP ranges) are blocked.
+
+  These checks cannot be bypassed.
+</Warning>

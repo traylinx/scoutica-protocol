@@ -1,0 +1,103 @@
+---
+title: "Evaluating Candidates"
+description: "Score and pre-screen candidates using the Scoutica Protocol"
+---
+
+Evaluating a candidate involves two steps: scoring their skills against job requirements, then pre-screening against their rules of engagement. Both steps must be completed before making any contact.
+
+<Warning>
+  Always check rules **before** contacting a candidate. A candidate whose offer triggers an auto-reject rule must not be contacted — doing so wastes both parties' time and violates the protocol.
+</Warning>
+
+## Skills matching algorithm
+
+The scoring function compares the candidate's declared skills against required and nice-to-have skills from the job requirements.
+
+In `profile.json`, skills are stored as a **flat array** in the `skills` field (plus separate `tools_and_platforms` and `specializations` arrays). Pool all of these when scoring:
+
+```python
+def score_candidate(profile, job_requirements):
+    """Score a candidate's profile against job requirements."""
+    # Pool all skills from the flat arrays
+    candidate_skills = set()
+    for field in ['skills', 'tools_and_platforms', 'specializations']:
+        for item in profile.get(field, []):
+            candidate_skills.add(item.lower())
+
+    required = set(s.lower() for s in job_requirements.get('required_skills', []))
+    nice_to_have = set(s.lower() for s in job_requirements.get('nice_to_have', []))
+
+    matched = required & candidate_skills
+    bonus = nice_to_have & candidate_skills
+
+    if not required:
+        return 100
+
+    score = (len(matched) / len(required)) * 100
+    score += len(bonus) * 5  # 5 bonus points per nice-to-have
+
+    return min(score, 100)
+```
+
+## Rules pre-screening
+
+After scoring, run the candidate's `rules.yaml` against the offer to check for automatic rejections.
+
+The rules schema uses `filters.blocked_industries` (not `auto_reject`) and `engagement.compensation.minimum_base_eur` (a nested object keyed by engagement type, not a top-level value):
+
+```python
+import yaml
+
+def pre_screen(rules_text, offer):
+    """Check if an offer passes the candidate's Rules of Engagement."""
+    rules = yaml.safe_load(rules_text)
+    rejections = []
+
+    # Check blocked industries
+    blocked = rules.get('filters', {}).get('blocked_industries', [])
+    if offer.get('industry') in blocked:
+        rejections.append(f"Industry '{offer['industry']}' is blocked")
+
+    # Check engagement type
+    allowed_types = rules.get('engagement', {}).get('allowed_types', [])
+    if allowed_types and offer.get('engagement_type') not in allowed_types:
+        rejections.append(f"Engagement type '{offer['engagement_type']}' not allowed")
+
+    # Check compensation (keyed by engagement type: permanent, contract, advisory)
+    eng_type = offer.get('engagement_type', 'permanent')
+    comp = rules.get('engagement', {}).get('compensation', {})
+    min_comp = comp.get('minimum_base_eur', {}).get(eng_type)
+    if min_comp and min_comp != 'negotiable':
+        if offer.get('salary', 0) < int(min_comp):
+            rejections.append(f"Salary {offer['salary']} below minimum {min_comp}")
+
+    # Check remote policy
+    policy = rules.get('remote', {}).get('policy')
+    if policy == 'remote_only' and offer.get('location_required'):
+        rejections.append("Candidate requires fully remote")
+
+    return {
+        'status': 'REJECTED' if rejections else 'PASS',
+        'reasons': rejections
+    }
+```
+
+## Scoring thresholds
+
+Use these thresholds to decide how to act on a candidate's score.
+
+| Score range | Verdict | Recommended action |
+|---|---|---|
+| 80–100 | `STRONG_MATCH` | Proceed to interview |
+| 60–79 | `GOOD_MATCH` | Review and decide |
+| 40–59 | `WEAK_MATCH` | Only if other factors compensate |
+| 0–39 | `NO_MATCH` | Do not proceed |
+| Rule violation | `REJECTED` | Auto-reject, do not present |
+
+<Warning>
+  A `REJECTED` status from `pre_screen` is a hard stop. The candidate has declared in their rules that this type of offer is unacceptable. Do not contact them, do not present the role, and do not log this as a missed opportunity.
+</Warning>
+
+<Tip>
+  Run `pre_screen` first, before `score_candidate`. If the result is `REJECTED`, skip scoring entirely — there is no point computing a fit score for an offer that will be auto-rejected.
+</Tip>
