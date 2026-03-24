@@ -1322,42 +1322,64 @@ $all_text"
     local response=""
     local tmp_prompt=$(mktemp /tmp/scoutica_prompt.XXXXXX)
     local tmp_resp=$(mktemp /tmp/scoutica_resp.XXXXXX)
-    # Ensure temp file is always cleaned up safely
-    trap "rm -f \"$tmp_prompt\" \"$tmp_resp\" 2>/dev/null" EXIT INT TERM
+    local tmp_log=$(mktemp /tmp/scoutica_log.XXXXXX)
+    # Ensure temp files are always cleaned up safely
+    trap "rm -f \"$tmp_prompt\" \"$tmp_resp\" \"$tmp_log\" 2>/dev/null" EXIT INT TERM
     echo "$full_prompt" > "$tmp_prompt"
     
+    local prompt_size=$(wc -c < "$tmp_prompt" | tr -d ' ')
+    local prompt_words=$(wc -w < "$tmp_prompt" | tr -d ' ')
+    
+    # Log function for the background process
+    _scan_log() {
+        echo "$(date +%H:%M:%S) $1" >> "$tmp_log"
+    }
+    export -f _scan_log 2>/dev/null || true
+    
+    echo -e "  ${DIM}[$(date +%H:%M:%S)]${NC} Prompt ready: ${BOLD}${prompt_words} words${NC} (${prompt_size} bytes) from ${file_count} documents"
+    echo -e "  ${DIM}[$(date +%H:%M:%S)]${NC} Connecting to ${BOLD}$provider${NC}..."
+    
+    # Background AI execution with step logging
     (
+    echo "$(date +%H:%M:%S) Sending request to $provider..." >> "$tmp_log"
+    
     case "$provider" in
         gemini)
-            cat "$tmp_prompt" | gemini -p "Read my documents and generate my Scoutica Skill Card. Return ONLY raw JSON with keys: profile, rules, evidence, skill_md. No markdown fences, no explanation." > "$tmp_resp" 2>&1
+            echo "$(date +%H:%M:%S) Running: gemini -p <prompt> (piping ${prompt_words} words)" >> "$tmp_log"
+            cat "$tmp_prompt" | gemini -p "Read my documents and generate my Scoutica Protocol Skill Card. Return ONLY raw JSON with keys: profile, rules, evidence, skill_md. No markdown fences, no explanation." > "$tmp_resp" 2>&1
             ;;
         claude)
+            echo "$(date +%H:%M:%S) Running: claude -p <prompt> --no-input" >> "$tmp_log"
             claude -p "$(cat "$tmp_prompt")
 
-Read my documents and generate my Scoutica Skill Card. Return ONLY raw JSON with keys: profile, rules, evidence, skill_md. No markdown fences, no explanation." --no-input > "$tmp_resp" 2>&1
+Read my documents and generate my Scoutica Protocol Skill Card. Return ONLY raw JSON with keys: profile, rules, evidence, skill_md. No markdown fences, no explanation." --no-input > "$tmp_resp" 2>&1
             ;;
         ollama)
             local ollama_model="llama3.2"
             # Check if the model is available
             if ! ollama list 2>/dev/null | grep -q "$ollama_model"; then
-                warn "Pulling $ollama_model model (one-time download)..."
+                echo "$(date +%H:%M:%S) Model $ollama_model not found, pulling..." >> "$tmp_log"
                 ollama pull "$ollama_model" 2>/dev/null || {
-                    error "Failed to pull model. Ensure Ollama is running."
+                    echo "$(date +%H:%M:%S) ERROR: Failed to pull model" >> "$tmp_log"
                     rm -f "$tmp_prompt" "$tmp_resp"
                     exit 1
                 }
+                echo "$(date +%H:%M:%S) Model pulled successfully" >> "$tmp_log"
             fi
+            echo "$(date +%H:%M:%S) Running: ollama run $ollama_model" >> "$tmp_log"
             ollama run "$ollama_model" "$(cat "$tmp_prompt")
 
-Read my documents and generate my Scoutica Skill Card. Return ONLY raw JSON with keys: profile, rules, evidence, skill_md. No markdown fences, no explanation." > "$tmp_resp" 2>&1
+Read my documents and generate my Scoutica Protocol Skill Card. Return ONLY raw JSON with keys: profile, rules, evidence, skill_md. No markdown fences, no explanation." > "$tmp_resp" 2>&1
             ;;
         ail)
             # switchAILocal — OpenAI-compatible local server at localhost:18080
             if ! curl -sf http://localhost:18080/health &>/dev/null; then
+                echo "$(date +%H:%M:%S) ERROR: switchAILocal is not responding at localhost:18080" >> "$tmp_log"
                 error "switchAILocal is not running. Start it with: ail start"
                 rm -f "$tmp_prompt" "$tmp_resp"
                 exit 1
             fi
+            echo "$(date +%H:%M:%S) Health check passed ✓" >> "$tmp_log"
             
             local ail_prompt
             ail_prompt=$(cat "$tmp_prompt")
@@ -1375,6 +1397,9 @@ with open('$payload_file', 'w') as f:
     json.dump(payload, f)
 " < "$tmp_prompt"
             
+            local payload_size=$(wc -c < "$payload_file" | tr -d ' ')
+            echo "$(date +%H:%M:%S) POST /v1/chat/completions (payload: ${payload_size} bytes, temp: 0.1)" >> "$tmp_log"
+            
             local ail_response
             ail_response=$(curl -sS http://localhost:18080/v1/chat/completions \
                 -H "Content-Type: application/json" \
@@ -1382,12 +1407,15 @@ with open('$payload_file', 'w') as f:
             
             rm -f "$payload_file"
             
+            echo "$(date +%H:%M:%S) Response received ($(echo "$ail_response" | wc -c | tr -d ' ') bytes)" >> "$tmp_log"
+            
             echo "$ail_response" | python3 -c "
 import sys, json
 try:
     data = json.load(sys.stdin)
     if 'choices' in data:
-        print(data['choices'][0]['message']['content'])
+        content = data['choices'][0]['message']['content']
+        print(content)
     elif 'error' in data:
         print('ERROR: ' + str(data['error']), file=sys.stderr)
         sys.exit(1)
@@ -1399,62 +1427,94 @@ except Exception as e:
         openclaw)
             # OpenClaw — AI agent framework with embedded Pi agent
             if ! command -v openclaw &>/dev/null; then
+                echo "$(date +%H:%M:%S) ERROR: OpenClaw CLI not found" >> "$tmp_log"
                 error "OpenClaw CLI not found. Install from: https://github.com/openclaw/openclaw"
                 rm -f "$tmp_prompt" "$tmp_resp"
                 exit 1
             fi
+            echo "$(date +%H:%M:%S) Running: openclaw agent --message <prompt>" >> "$tmp_log"
             openclaw agent --message "$(cat "$tmp_prompt")
 
-Read my documents and generate my Scoutica Skill Card. Return ONLY raw JSON with keys: profile, rules, evidence, skill_md. No markdown fences, no explanation." > "$tmp_resp" 2>&1
+Read my documents and generate my Scoutica Protocol Skill Card. Return ONLY raw JSON with keys: profile, rules, evidence, skill_md. No markdown fences, no explanation." > "$tmp_resp" 2>&1
             ;;
         codex)
+            echo "$(date +%H:%M:%S) Running: codex exec <prompt>" >> "$tmp_log"
             codex exec "$(cat "$tmp_prompt")
 
-Read my documents and generate my Scoutica Skill Card. Return ONLY raw JSON with keys: profile, rules, evidence, skill_md. No markdown fences, no explanation." > "$tmp_resp" 2>&1
+Read my documents and generate my Scoutica Protocol Skill Card. Return ONLY raw JSON with keys: profile, rules, evidence, skill_md. No markdown fences, no explanation." > "$tmp_resp" 2>&1
             ;;
         vibe)
+            echo "$(date +%H:%M:%S) Running: vibe -p <prompt> --output text" >> "$tmp_log"
             vibe -p "$(cat "$tmp_prompt")
 
-Read my documents and generate my Scoutica Skill Card. Return ONLY raw JSON with keys: profile, rules, evidence, skill_md. No markdown fences, no explanation." --output text > "$tmp_resp" 2>&1
+Read my documents and generate my Scoutica Protocol Skill Card. Return ONLY raw JSON with keys: profile, rules, evidence, skill_md. No markdown fences, no explanation." --output text > "$tmp_resp" 2>&1
             ;;
         opencode)
+            echo "$(date +%H:%M:%S) Running: opencode run <prompt>" >> "$tmp_log"
             opencode run "$(cat "$tmp_prompt")
 
-Read my documents and generate my Scoutica Skill Card. Return ONLY raw JSON with keys: profile, rules, evidence, skill_md. No markdown fences, no explanation." > "$tmp_resp" 2>&1
+Read my documents and generate my Scoutica Protocol Skill Card. Return ONLY raw JSON with keys: profile, rules, evidence, skill_md. No markdown fences, no explanation." > "$tmp_resp" 2>&1
             ;;
         *)
+            echo "$(date +%H:%M:%S) ERROR: Unknown provider: $provider" >> "$tmp_log"
             error "Unknown provider: $provider (supported: gemini, claude, codex, vibe, opencode, ollama, ail)"
             rm -f "$tmp_prompt" "$tmp_resp"
             exit 1
             ;;
     esac
+    
+    local resp_size=$(wc -c < "$tmp_resp" 2>/dev/null | tr -d ' ')
+    echo "$(date +%H:%M:%S) DONE (response: ${resp_size:-0} bytes)" >> "$tmp_log"
     ) &
     local bg_pid=$!
     
-    # Pixel loader animation
-    local delay=0.15
-    local frames=("▖" "▘" "▝" "▗")
-    local c=0
+    # ── Real-time log tail with elapsed timer ──
+    local start_time=$(date +%s)
+    local last_line_count=0
     tput civis 2>/dev/null || true
+    
     while kill -0 "$bg_pid" 2>/dev/null; do
-        printf "\r  ${MAGENTA}▓▒░${NC} Waiting for ${BOLD}%s${NC} to finish thinking... ${CYAN}%s${NC} " "$provider" "${frames[c]}"
-        c=$(( (c+1) % 4 ))
-        sleep $delay
+        # Print any new log lines
+        local current_lines=$(wc -l < "$tmp_log" 2>/dev/null | tr -d ' ')
+        if [ "${current_lines:-0}" -gt "$last_line_count" ]; then
+            tail -n +$((last_line_count + 1)) "$tmp_log" | while IFS= read -r line; do
+                printf "\r\033[K"
+                echo -e "  ${DIM}[$line${NC}"
+            done
+            last_line_count=$current_lines
+        fi
+        
+        # Show elapsed timer on the current line
+        local elapsed=$(( $(date +%s) - start_time ))
+        printf "\r  ${MAGENTA}▓▒░${NC} ${BOLD}%s${NC} is thinking... ${DIM}(%ds elapsed)${NC} " "$provider" "$elapsed"
+        sleep 0.3
     done
+    
+    # Print any remaining log lines
+    local final_lines=$(wc -l < "$tmp_log" 2>/dev/null | tr -d ' ')
+    if [ "${final_lines:-0}" -gt "$last_line_count" ]; then
+        tail -n +$((last_line_count + 1)) "$tmp_log" | while IFS= read -r line; do
+            printf "\r\033[K"
+            echo -e "  ${DIM}[$line${NC}"
+        done
+    fi
     printf "\r\033[K"
     tput cnorm 2>/dev/null || true
+    
+    local total_elapsed=$(( $(date +%s) - start_time ))
     
     wait "$bg_pid" 2>/dev/null || true
     response=$(cat "$tmp_resp" 2>/dev/null || true)
     
-    rm -f "$tmp_prompt" "$tmp_resp"
+    rm -f "$tmp_prompt" "$tmp_resp" "$tmp_log"
     
     if [ -z "$response" ]; then
-        error "Empty response from $provider. Is it running and configured?"
+        error "Empty response from $provider after ${total_elapsed}s. Is it running and configured?"
         exit 1
     fi
     
-    echo -e "  ${GREEN}✅${NC} Response received from $provider"
+    local resp_bytes=$(echo "$response" | wc -c | tr -d ' ')
+    echo -e "  ${GREEN}✅${NC} Response received from ${BOLD}$provider${NC} (${resp_bytes} bytes in ${total_elapsed}s)"
     echo ""
     
     # ── Step 6: Parse response and write files ──
