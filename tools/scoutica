@@ -21,6 +21,8 @@ VERSION="0.1.0"
 SCOUTICA_HOME="${SCOUTICA_HOME:-$HOME/.scoutica}"
 SCHEMAS_DIR="$SCOUTICA_HOME/schemas"
 TEMPLATES_DIR="$SCOUTICA_HOME/templates"
+STATE_DIR=".scoutica"
+STATE_FILE="$STATE_DIR/state.json"
 
 # Colors
 RED='\033[0;31m'
@@ -991,16 +993,125 @@ cmd_help() {
 
 # ─── SCAN Command ─────────────────────────────────────────────────────────────
 
+# ─── State Management ─────────────────────────────────────────────────────────
+
+_compute_source_hash() {
+    local dir="$1"
+    local hash_input=""
+    for file in "$dir"/*; do
+        [ -f "$file" ] || continue
+        local bn=$(basename "$file")
+        case "$bn" in
+            profile.json|rules.yaml|evidence.json|SKILL.md|scoutica_prompt.txt|scoutica.json) continue ;;
+        esac
+        local ext="${bn##*.}"
+        ext=$(echo "$ext" | tr '[:upper:]' '[:lower:]')
+        case "$ext" in
+            md|txt|json|yaml|yml|csv|html|htm|pdf|docx)
+                hash_input+=$(shasum -a 256 "$file" 2>/dev/null | awk '{print $1}')
+                ;;
+        esac
+    done
+    echo -n "$hash_input" | shasum -a 256 | awk '{print $1}'
+}
+
+_compute_card_hash() {
+    local dir="$1"
+    local hash_input=""
+    for f in profile.json rules.yaml evidence.json SKILL.md; do
+        [ -f "$dir/$f" ] && hash_input+=$(shasum -a 256 "$dir/$f" 2>/dev/null | awk '{print $1}')
+    done
+    echo -n "$hash_input" | shasum -a 256 | awk '{print $1}'
+}
+
+_read_state() {
+    local key="$1"
+    if [ -f "$STATE_FILE" ] && command -v python3 &>/dev/null; then
+        python3 -c "
+import json, sys
+try:
+    with open('$STATE_FILE') as f:
+        d = json.load(f)
+    keys = '$key'.split('.')
+    for k in keys:
+        d = d[k]
+    print(d)
+except: pass
+" 2>/dev/null
+    fi
+}
+
+_write_state() {
+    mkdir -p "$STATE_DIR"
+    local source_hash="$1" provider="$2" source_files="$3"
+    local now=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+    
+    # Read existing state or start fresh
+    local existing="{}"
+    [ -f "$STATE_FILE" ] && existing=$(cat "$STATE_FILE")
+    
+    python3 -c "
+import json, sys
+try:
+    state = json.loads('''$existing''')
+except:
+    state = {}
+state['schema_version'] = '0.1.0'
+state['card'] = {
+    'source_hash': '$source_hash',
+    'generated_at': '$now',
+    'source_files': '$source_files'.split(','),
+    'provider': '$provider'
+}
+# Preserve preview state if it exists
+if 'preview' not in state:
+    state['preview'] = {}
+with open('$STATE_FILE', 'w') as f:
+    json.dump(state, f, indent=2)
+" 2>/dev/null
+}
+
+_write_preview_state() {
+    mkdir -p "$STATE_DIR"
+    local url="$1" card_hash="$2"
+    local now=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+    local expires=$(python3 -c "from datetime import datetime,timedelta;print((datetime.utcnow()+timedelta(hours=24)).strftime('%Y-%m-%dT%H:%M:%SZ'))" 2>/dev/null || echo "")
+    
+    local existing="{}"
+    [ -f "$STATE_FILE" ] && existing=$(cat "$STATE_FILE")
+    
+    python3 -c "
+import json
+try:
+    state = json.loads('''$existing''')
+except:
+    state = {}
+state['preview'] = {
+    'url': '$url',
+    'published_at': '$now',
+    'expires_at': '$expires',
+    'card_hash': '$card_hash'
+}
+with open('$STATE_FILE', 'w') as f:
+    json.dump(state, f, indent=2)
+" 2>/dev/null
+}
+
+# ─── SCAN Command ─────────────────────────────────────────────────────────────
+
 cmd_scan() {
     local source_dir=""
     local output_dir="."
     local provider=""
+    
+    local force=false
     
     # Parse flags
     while [[ $# -gt 0 ]]; do
         case "$1" in
             --output|-o) output_dir="$2"; shift 2 ;;
             --with|-w) provider="$2"; shift 2 ;;
+            --force|-f) force=true; shift ;;
             --clipboard|-c) provider="clipboard"; shift ;;
             --help|-h) 
                 echo -e "  ${BOLD}Usage:${NC} scoutica scan <docs-folder> [options]" >&2
@@ -1101,6 +1212,32 @@ cmd_scan() {
         success "Backed up existing files to .backup/"
         echo -e "  ${DIM}Scan will overwrite with AI-generated versions.${NC}" >&2
         echo "" >&2
+    fi
+    
+    # ── Step 0: Check if source docs have changed ──
+    local current_hash=$(_compute_source_hash "$source_dir")
+    local stored_hash=$(_read_state "card.source_hash")
+    
+    if [ "$force" = false ] && [ -n "$stored_hash" ] && [ "$current_hash" = "$stored_hash" ]; then
+        # Check that all card files actually exist
+        local all_exist=true
+        for f in profile.json rules.yaml evidence.json SKILL.md; do
+            [ ! -f "$output_dir/$f" ] && all_exist=false
+        done
+        
+        if [ "$all_exist" = true ]; then
+            success "Card is up to date (source documents unchanged)"
+            echo -e "  ${DIM}Use --force to regenerate anyway${NC}" >&2
+            echo ""
+            
+            # Auto-chain to preview if desired
+            echo -e "  ${BOLD}What to do next:${NC}\n"
+            echo -e "  ${CYAN}•${NC} ${CYAN}scoutica preview${NC}   ${DIM}Deploy a live web preview${NC}"
+            echo -e "  ${CYAN}•${NC} ${CYAN}scoutica validate${NC}  ${DIM}Check your card for schema errors${NC}"
+            echo -e "  ${CYAN}•${NC} ${CYAN}scoutica scan --force${NC} ${DIM}Regenerate from scratch${NC}"
+            echo ""
+            return 0
+        fi
     fi
     
     # ── Step 1: Read all documents ──
@@ -1933,6 +2070,26 @@ except: pass
         [ -n "$discovery" ] && echo "$discovery" > "$save_dir/scoutica.json"
         echo ""
         success "Card saved to $save_dir/"
+        
+        # Write state tracking
+        local source_file_list=""
+        for file in "$source_dir"/*; do
+            [ -f "$file" ] || continue
+            local bn=$(basename "$file")
+            case "$bn" in
+                profile.json|rules.yaml|evidence.json|SKILL.md|scoutica_prompt.txt|scoutica.json) continue ;;
+            esac
+            local ext="${bn##*.}"
+            ext=$(echo "$ext" | tr '[:upper:]' '[:lower:]')
+            case "$ext" in
+                md|txt|json|yaml|yml|csv|html|htm|pdf|docx)
+                    [ -n "$source_file_list" ] && source_file_list+=","
+                    source_file_list+="$bn"
+                    ;;
+            esac
+        done
+        local final_hash=$(_compute_source_hash "$source_dir")
+        _write_state "$final_hash" "${provider:-auto}" "$source_file_list"
     fi
 }
 
@@ -1940,10 +2097,43 @@ except: pass
 
 cmd_preview() {
     local target_dir="${1:-.}"
+    local force=false
+    [ "$1" = "--force" ] || [ "$2" = "--force" ] && force=true
+    [ "$1" = "--force" ] && target_dir="${2:-.}"
     
     if [ ! -f "$target_dir/profile.json" ]; then
         error "No profile.json found in $target_dir. Run 'scoutica scan' first."
         exit 1
+    fi
+    
+    # ── Smart caching: skip if card unchanged and URL still valid ──
+    if [ "$force" = false ]; then
+        local current_card_hash=$(_compute_card_hash "$target_dir")
+        local stored_card_hash=$(_read_state "preview.card_hash")
+        local stored_url=$(_read_state "preview.url")
+        local stored_expires=$(_read_state "preview.expires_at")
+        
+        if [ -n "$stored_card_hash" ] && [ "$current_card_hash" = "$stored_card_hash" ] && [ -n "$stored_url" ] && [ -n "$stored_expires" ]; then
+            # Check if URL is still valid (not expired)
+            local now_epoch=$(date +%s)
+            local expires_epoch=$(python3 -c "from datetime import datetime;print(int(datetime.strptime('$stored_expires','%Y-%m-%dT%H:%M:%SZ').timestamp()))" 2>/dev/null || echo "0")
+            
+            if [ "$now_epoch" -lt "$expires_epoch" ]; then
+                local remaining_hrs=$(( (expires_epoch - now_epoch) / 3600 ))
+                echo ""
+                echo -e "${GREEN}╔═══════════════════════════════════════════════════════╗${NC}"
+                echo -e "${GREEN}║${NC}                                                       ${GREEN}║${NC}"
+                echo -e "${GREEN}║${NC}   🌍 ${BOLD}Your Skill Card is still live!${NC}                  ${GREEN}║${NC}"
+                echo -e "${GREEN}║${NC}      $stored_url"
+                echo -e "${GREEN}║${NC}                                                       ${GREEN}║${NC}"
+                echo -e "${GREEN}╚═══════════════════════════════════════════════════════╝${NC}"
+                echo ""
+                echo -e "  ${DIM}Card unchanged. Using cached preview (~${remaining_hrs}h remaining)${NC}"
+                echo -e "  ${DIM}Use --force to re-publish anyway${NC}"
+                echo ""
+                return 0
+            fi
+        fi
     fi
     
     echo -e "  ${BLUE}→${NC} Compiling Neo-Brutalist HTML presentation..."
@@ -2164,7 +2354,12 @@ EOF
     echo -e "${GREEN}║${NC}                                                       ${GREEN}║${NC}"
     echo -e "${GREEN}╚═══════════════════════════════════════════════════════╝${NC}"
     echo -e ""
-    echo -e "  ${DIM}(This is an instant anonymous publish hosted via here.now)${NC}"
+    echo -e "  ${DIM}(This is an instant anonymous publish hosted via here.now — expires in 24h)${NC}"
+    
+    # Save preview state
+    local publish_card_hash=$(_compute_card_hash "$target_dir")
+    _write_preview_state "$site_url" "$publish_card_hash"
+    
     echo -e ""
     local disp_dir=""
     [ "$target_dir" != "." ] && disp_dir=" $target_dir"
