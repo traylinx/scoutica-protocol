@@ -2028,7 +2028,7 @@ html_template = f"""<!DOCTYPE html>
       font-family: 'Courier New', Courier, monospace;
       margin: 0;
       padding: 0;
-      background-image: radial-gradient(#333 1px, transparent 1px);
+      background-image: radial-gradient(#27272a 1px, transparent 1px);
       background-size: 20px 20px;
     }}
     .container {{ max-width: 900px; margin: 0 auto; padding: 2rem; }}
@@ -2043,7 +2043,7 @@ html_template = f"""<!DOCTYPE html>
       word-wrap: break-word;
     }}
     .neo-brutalist-section {{
-      background: #15151e;
+      background: #18181b;
       border: 2px solid var(--primary);
       border-radius: 0;
       box-shadow: 6px 6px 0px var(--accent);
@@ -2056,7 +2056,7 @@ html_template = f"""<!DOCTYPE html>
       box-shadow: 4px 4px 0px var(--accent);
     }}
     .cyber-card {{
-      background: #0d0d12;
+      background: var(--bg);
       border: 1px solid var(--border);
       padding: 1rem;
       margin-top: 1rem;
@@ -2064,7 +2064,7 @@ html_template = f"""<!DOCTYPE html>
     }}
     .tag {{
       background: var(--accent);
-      color: #fff;
+      color: #e4e4e7;
       padding: 2px 8px;
       font-size: 0.8rem;
       font-weight: bold;
