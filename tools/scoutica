@@ -629,7 +629,7 @@ cmd_publish() {
         echo -e "  ${BOLD}To publish your Scoutica Protocol card, you need a free GitHub account.${NC}"
         echo -e "  1. Create an account: ${CYAN}https://github.com/signup${NC}"
         echo -e "  2. Install Git:        ${CYAN}https://git-scm.com/downloads${NC}"
-        echo -e "  3. After installing, run ${CYAN}scoutica publish .${NC} again."
+        echo -e "  3. After installing, run ${CYAN}scoutica publish${NC} again."
         echo ""
         exit 1
     fi
@@ -1707,6 +1707,9 @@ PARSE_SCRIPT
     echo -e "${GREEN}╚═══════════════════════════════════════════════════════╝${NC}"
     echo ""
     
+    local disp_dir=""
+    [ "$output_dir" != "." ] && disp_dir=" $output_dir"
+
     # Auto-chain into preview if here.now is installed
     local here_script="$HOME/.claude/skills/here-now/scripts/publish.sh"
     if [ -f "$here_script" ]; then
@@ -1716,9 +1719,9 @@ PARSE_SCRIPT
     else
         echo -e "  ${BOLD}What to do next:${NC}"
         echo ""
-        echo -e "  ${CYAN}1.${NC} ${CYAN}scoutica preview $output_dir${NC}    ${DIM}Deploy a live web preview${NC}"
-        echo -e "  ${CYAN}2.${NC} ${CYAN}scoutica validate $output_dir${NC}   ${DIM}Check for schema errors${NC}"
-        echo -e "  ${CYAN}3.${NC} ${CYAN}scoutica publish $output_dir${NC}    ${DIM}Push to GitHub and share${NC}"
+        echo -e "  ${CYAN}1.${NC} ${CYAN}scoutica preview$disp_dir${NC}    ${DIM}Deploy a live web preview${NC}"
+        echo -e "  ${CYAN}2.${NC} ${CYAN}scoutica validate$disp_dir${NC}   ${DIM}Check for schema errors${NC}"
+        echo -e "  ${CYAN}3.${NC} ${CYAN}scoutica publish$disp_dir${NC}    ${DIM}Push to GitHub and share${NC}"
         echo ""
         echo -e "  ${DIM}Not happy? Edit the JSON files directly or re-run scan.${NC}"
         echo ""
@@ -2163,9 +2166,12 @@ EOF
     echo -e ""
     echo -e "  ${DIM}(This is an instant anonymous publish hosted via here.now)${NC}"
     echo -e ""
+    local disp_dir=""
+    [ "$target_dir" != "." ] && disp_dir=" $target_dir"
+
     echo -e "  ${BOLD}What to do next:${NC}"
     echo -e ""
-    echo -e "  ${CYAN}•${NC} ${CYAN}scoutica publish .${NC}    ${DIM}Push this generated card to GitHub and share${NC}"
+    echo -e "  ${CYAN}•${NC} ${CYAN}scoutica publish$disp_dir${NC}    ${DIM}Push this generated card to GitHub and share${NC}"
     echo -e ""
 }
 
