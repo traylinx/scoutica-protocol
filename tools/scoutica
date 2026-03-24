@@ -2016,11 +2016,11 @@ html_template = f"""<!DOCTYPE html>
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <style>
     :root {{
-      --bg: #0d0d12;
-      --text: #e0e0e0;
-      --primary: #00ffcc;
-      --accent: #ff00ff;
-      --border: #333;
+      --bg: #09090b;
+      --text: #e4e4e7;
+      --primary: #ffffff;
+      --accent: #52525b;
+      --border: #27272a;
     }}
     body {{
       background-color: var(--bg);
@@ -2072,9 +2072,9 @@ html_template = f"""<!DOCTYPE html>
       margin: 2px;
       text-transform: uppercase;
     }}
-    .tag-primary {{ background: var(--primary); color: #000; }}
+    .tag-primary {{ background: var(--primary); color: #000000; }}
     a {{ color: var(--primary); text-decoration: none; }}
-    a:hover {{ background: var(--primary); color: #000; }}
+    a:hover {{ background: var(--primary); color: #000000; }}
     .header-box {{ display: flex; justify-content: space-between; align-items: flex-end; flex-wrap: wrap; gap: 1rem; }}
     .glitch {{ font-size: 1.2rem; color: var(--accent); }}
     h2 {{ color: var(--text); border-bottom: 2px solid var(--border); padding-bottom: 0.5rem; text-transform: uppercase; }}
