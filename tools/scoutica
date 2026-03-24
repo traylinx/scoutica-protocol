@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ============================================================================
-# Scoutica CLI — Your Skills. Your Rules. Your Data.
+# Scoutica Protocol CLI — Your Skills. Your Rules. Your Data.
 #
 # Commands:
 #   scoutica scan <folder>  Auto-generate card from your documents (AI-powered)
@@ -38,7 +38,7 @@ NC='\033[0m'
 header() {
     echo ""
     echo -e "${CYAN}╔═══════════════════════════════════════════════════════╗${NC}"
-    echo -e "${CYAN}║${BOLD}   ⚡ Scoutica — $1${NC}"
+    echo -e "${CYAN}║${BOLD}   ⚡ Scoutica Protocol — $1${NC}"
     echo -e "${CYAN}╚═══════════════════════════════════════════════════════╝${NC}"
     echo ""
 }
@@ -814,7 +814,7 @@ cmd_doctor() {
 
 cmd_help() {
     echo ""
-    echo -e "${BOLD}Scoutica CLI${NC} ${DIM}v$VERSION${NC}"
+    echo -e "${BOLD}Scoutica Protocol CLI${NC} ${DIM}v$VERSION${NC}"
     echo -e "${DIM}Your skills. Your rules. Your data.${NC}"
     echo ""
     echo -e "${BOLD}Usage:${NC}"

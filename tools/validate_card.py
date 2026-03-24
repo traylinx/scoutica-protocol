@@ -36,9 +36,29 @@ except ImportError:
     sys.exit(1)
 
 
-# Resolve schema directory relative to this script
-SCRIPT_DIR = Path(__file__).resolve().parent.parent
-SCHEMA_DIR = SCRIPT_DIR / "protocol" / "platform" / "01_schemas"
+# Resolve schema directory — check multiple potential locations
+SCRIPT_DIR = Path(__file__).resolve().parent
+SCHEMA_DIR = None
+
+# Priority order for finding schemas:
+_candidates = [
+    # 1. SCOUTICA_HOME env var (user override)
+    Path(os.environ.get("SCOUTICA_HOME", "")) / "schemas",
+    # 2. Installed location: ~/.scoutica/schemas/
+    Path.home() / ".scoutica" / "schemas",
+    # 3. Dev repo: script is in tools/, schemas in protocol/platform/01_schemas/
+    SCRIPT_DIR.parent / "protocol" / "platform" / "01_schemas",
+    # 4. Same directory as the script (edge case)
+    SCRIPT_DIR / "schemas",
+]
+
+for candidate in _candidates:
+    if candidate.is_dir() and any(candidate.glob("*.schema.json")):
+        SCHEMA_DIR = candidate
+        break
+
+if SCHEMA_DIR is None:
+    SCHEMA_DIR = Path.home() / ".scoutica" / "schemas"  # fallback for error messages
 
 VALIDATIONS = [
     {
