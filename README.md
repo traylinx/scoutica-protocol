@@ -94,7 +94,29 @@ scoutica-protocol/
 
 Choose the method that works best for you:
 
-### Option 1: CLI Install (Recommended for Devs)
+### Option 1: Agent-First Install (Zero Friction)
+
+The easiest way to generate your card is to give these instructions directly to an AI agent (like Claude Code, Cursor, or OpenClaw):
+
+```text
+Agent: Please install the Scoutica Protocol CLI and generate a Skill Card for my CVs in this folder.
+
+Important constraints:
+1. Ensure you are currently in the folder that contains my CV/resume files. If not, ask me which folder contains them before proceeding.
+2. If the user doesn't have local AI tools (gemini, claude, ollama), run `scoutica scan . --clipboard` instead.
+3. If I have PDFs, you may need `brew install poppler` for extraction.
+
+Supported formats: .md, .txt, .pdf, .docx, .json, .yaml, .csv, .html
+TTL: The preview URL generated at the end will expire in 24 hours.
+
+Installation:
+curl -fsSL https://raw.githubusercontent.com/traylinx/scoutica-protocol/main/install.sh | bash
+
+Generation:
+scoutica scan .
+```
+
+### Option 2: Manual CLI Install (Recommended for Devs)
 
 **macOS / Linux:**
 
