@@ -2171,7 +2171,9 @@ EOF
 
     echo -e "  ${BOLD}What to do next:${NC}"
     echo -e ""
-    echo -e "  ${CYAN}•${NC} ${CYAN}scoutica publish$disp_dir${NC}    ${DIM}Push this generated card to GitHub and share${NC}"
+    echo -e "  ${CYAN}•${NC} ${CYAN}scoutica preview$disp_dir${NC}   ${DIM}Re-deploy a fresh live web preview${NC}"
+    echo -e "  ${CYAN}•${NC} ${CYAN}scoutica validate$disp_dir${NC}  ${DIM}Check your card for schema errors${NC}"
+    echo -e "  ${CYAN}•${NC} ${CYAN}scoutica publish$disp_dir${NC}   ${DIM}Push this generated card to GitHub and share${NC}"
     echo -e ""
 }
 
