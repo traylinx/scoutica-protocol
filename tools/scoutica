@@ -613,7 +613,13 @@ cmd_publish() {
     
     # Check if git is available
     if ! command -v git &>/dev/null; then
-        error "Git is required for publishing"
+        error "Git is not installed on your system."
+        echo ""
+        echo -e "  ${BOLD}To publish your Scoutica card, you need a free GitHub account.${NC}"
+        echo -e "  1. Create an account: ${CYAN}https://github.com/signup${NC}"
+        echo -e "  2. Install Git:        ${CYAN}https://git-scm.com/downloads${NC}"
+        echo -e "  3. After installing, run ${CYAN}scoutica publish .${NC} again."
+        echo ""
         exit 1
     fi
     
