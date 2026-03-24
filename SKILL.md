@@ -98,6 +98,7 @@ scoutica init                    # Interactive card creation wizard
 scoutica init --ai               # AI-assisted card creation
 scoutica scan ./docs/            # Auto-generate card from documents (local AI CLI)
 scoutica validate [dir]          # Validate card against schemas
+scoutica preview [dir]           # Build HTML layout and publish to here.now
 scoutica publish [dir]           # Push card to GitHub
 scoutica info [dir]              # Display card summary
 ```

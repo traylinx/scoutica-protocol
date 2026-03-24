@@ -39,6 +39,7 @@
               "cli/scan",
               "cli/validate",
               "cli/publish",
+              "cli/preview",
               "cli/resolve",
               "cli/info",
               "cli/doctor",

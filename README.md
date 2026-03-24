@@ -153,6 +153,7 @@ Commands:
   resolve           Fetch and display a card from a URL
   validate          Validate card against protocol schemas
   publish           Push card to GitHub
+  preview           Build HTML layout and publish to here.now
   info              Show card summary
   update            Update the Scoutica CLI to the latest version
   help              Show this help
@@ -165,8 +166,8 @@ Examples:
   # Create card in a specific folder
   scoutica init ./my-card
 
-  # Validate and publish
-  scoutica validate && scoutica publish
+  # Validate, preview, and publish
+  scoutica validate && scoutica preview && scoutica publish
 
   # Auto-generate card from your CV folder
   scoutica scan ~/CV/
