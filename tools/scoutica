@@ -1391,38 +1391,56 @@ import sys, json
 prompt = sys.stdin.read()
 payload = {
     'messages': [{'role': 'user', 'content': prompt}],
-    'temperature': 0.1
+    'temperature': 0.1,
+    'stream': True
 }
 with open('$payload_file', 'w') as f:
     json.dump(payload, f)
 " < "$tmp_prompt"
             
             local payload_size=$(wc -c < "$payload_file" | tr -d ' ')
-            echo "$(date +%H:%M:%S) POST /v1/chat/completions (payload: ${payload_size} bytes, temp: 0.1)" >> "$tmp_log"
+            echo "$(date +%H:%M:%S) POST /v1/chat/completions (payload: ${payload_size} bytes, temp: 0.1, stream: true)" >> "$tmp_log"
             
-            local ail_response
-            ail_response=$(curl -sS http://localhost:18080/v1/chat/completions \
+            # SSE streaming using unbuffered curl and python processor
+            curl -sS -N http://localhost:18080/v1/chat/completions \
                 -H "Content-Type: application/json" \
-                -d @"$payload_file" 2>/dev/null)
+                -d @"$payload_file" 2>/dev/null | python3 -c "
+import sys, json
+non_stream_buffer = ''
+for line in sys.stdin:
+    line = line.strip()
+    if line.startswith('data: '):
+        payload = line[6:]
+        if payload == '[DONE]': continue
+        try:
+            data = json.loads(payload)
+            if 'choices' in data and len(data['choices']) > 0:
+                delta = data['choices'][0].get('delta', {})
+                content = delta.get('content', '')
+                if content:
+                    sys.stdout.write(content)
+                    sys.stdout.flush()
+        except:
+            pass
+    elif line.startswith('{'):
+        non_stream_buffer += line
+    elif non_stream_buffer != '':
+        non_stream_buffer += line
+
+# Handle cases where it returns errors like 403 or non-streaming JSON
+if non_stream_buffer:
+    try:
+        data = json.loads(non_stream_buffer)
+        if 'error' in data:
+            print('ERROR: {}'.format(data['error']), file=sys.stderr)
+            sys.exit(1)
+        elif 'choices' in data:
+            print(data['choices'][0]['message']['content'])
+    except:
+        pass
+" > "$tmp_resp" 2>&1
             
             rm -f "$payload_file"
-            
-            echo "$(date +%H:%M:%S) Response received ($(echo "$ail_response" | wc -c | tr -d ' ') bytes)" >> "$tmp_log"
-            
-            echo "$ail_response" | python3 -c "
-import sys, json
-try:
-    data = json.load(sys.stdin)
-    if 'choices' in data:
-        content = data['choices'][0]['message']['content']
-        print(content)
-    elif 'error' in data:
-        print('ERROR: ' + str(data['error']), file=sys.stderr)
-        sys.exit(1)
-except Exception as e:
-    print(f'ERROR: {e}', file=sys.stderr)
-    sys.exit(1)
-" > "$tmp_resp" 2>&1
             ;;
         openclaw)
             # OpenClaw — AI agent framework with embedded Pi agent
@@ -1484,10 +1502,18 @@ Read my documents and generate my Scoutica Protocol Skill Card. Return ONLY raw 
             last_line_count=$current_lines
         fi
         
-        # Show elapsed timer on the current line
+        # Show elapsed timer and AI output snippet on the current line
         local elapsed=$(( $(date +%s) - start_time ))
-        printf "\r  ${MAGENTA}▓▒░${NC} ${BOLD}%s${NC} is thinking... ${DIM}(%ds elapsed)${NC} " "$provider" "$elapsed"
-        sleep 0.3
+        local snippet=""
+        if [ -s "$tmp_resp" ]; then
+            # Get last 50 bytes of the live response file, strip newlines/tabs
+            snippet=$(tail -c 50 "$tmp_resp" 2>/dev/null | tr -d '\n\r\t' | sed 's/[[:space:]]\+/ /g')
+            if [ -n "$snippet" ]; then
+                snippet=" ${CYAN}\"${snippet}...\"${NC} "
+            fi
+        fi
+        printf "\r  ${MAGENTA}▓▒░${NC} ${BOLD}%s${NC} is thinking...%s${DIM}(%ds elapsed)${NC} " "$provider" "$snippet" "$elapsed"
+        sleep 0.2
     done
     
     # Print any remaining log lines
