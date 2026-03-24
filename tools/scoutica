@@ -3,13 +3,16 @@
 # Scoutica CLI — Your Skills. Your Rules. Your Data.
 #
 # Commands:
-#   scoutica init          Interactive wizard to create your Skill Card
-#   scoutica init --ai     Generate card using AI (paste GENERATE_MY_CARD.md)
-#   scoutica validate      Validate your card against protocol schemas
-#   scoutica publish       Push your card to GitHub
-#   scoutica update        Re-run wizard to update existing card
-#   scoutica info          Show card summary
-#   scoutica help          Show this help
+#   scoutica scan <folder>  Auto-generate card from your documents (AI-powered)
+#   scoutica init           Interactive wizard to create your Skill Card
+#   scoutica init --ai      Generate card using AI (paste GENERATE_MY_CARD.md)
+#   scoutica validate       Validate your card against protocol schemas
+#   scoutica publish        Push your card to GitHub
+#   scoutica resolve <url>  Fetch and display any card from a URL
+#   scoutica info           Show card summary
+#   scoutica update         Update the CLI to the latest version
+#   scoutica doctor         System diagnostics and health check
+#   scoutica help           Show this help
 # ============================================================================
 
 set -euo pipefail
@@ -817,33 +820,44 @@ cmd_help() {
     echo -e "${BOLD}Usage:${NC}"
     echo -e "  scoutica ${CYAN}<command>${NC} [options] [directory]"
     echo ""
-    echo -e "${BOLD}Commands:${NC}"
-    echo -e "  ${CYAN}init${NC}              Create your Skill Card (interactive wizard)"
-    echo -e "  ${CYAN}init --ai${NC}         Create card using AI assistant"
-    echo -e "  ${CYAN}scan${NC}              Auto-generate card from your documents (AI-powered)"
-    echo -e "  ${CYAN}resolve${NC}           Fetch and display a card from a URL"
-    echo -e "  ${CYAN}validate${NC}          Validate card against protocol schemas"
-    echo -e "  ${CYAN}publish${NC}           Push card to GitHub"
-    echo -e "  ${CYAN}info${NC}              Show card summary"
-    echo -e "  ${CYAN}update${NC}            Update the Scoutica CLI to the latest version"
-    echo -e "  ${CYAN}doctor${NC}            Diagnostics and system check for the CLI"
-    echo -e "  ${CYAN}help${NC}              Show this help"
-    echo -e "  ${CYAN}version${NC}           Show version"
+    echo -e "${BOLD}🚀 Create your card:${NC}"
+    echo -e "  ${CYAN}scan${NC} <docs-folder>   Auto-generate card from your documents (AI-powered)"
+    echo -e "  ${CYAN}init${NC}                 Step-by-step interactive wizard"
+    echo -e "  ${CYAN}init --ai${NC}            Create card via AI assistant (paste your CV)"
+    echo ""
+    echo -e "${BOLD}🔧 Manage your card:${NC}"
+    echo -e "  ${CYAN}info${NC}                 View your card summary"
+    echo -e "  ${CYAN}validate${NC}             Validate card against protocol schemas"
+    echo -e "  ${CYAN}publish${NC}              Push card to GitHub"
+    echo -e "  ${CYAN}resolve${NC} <url>        Fetch and display any card from a URL"
+    echo ""
+    echo -e "${BOLD}⚙️  Advanced:${NC}"
+    echo -e "  ${CYAN}doctor${NC}               System diagnostics and health check"
+    echo -e "  ${CYAN}update${NC}               Update the Scoutica CLI to the latest version"
+    echo -e "  ${CYAN}help${NC}                 Show this help"
+    echo -e "  ${CYAN}version${NC}              Show version"
     echo ""
     echo -e "${BOLD}Examples:${NC}"
-    echo -e "  ${DIM}# Create your card in the current directory${NC}"
-    echo -e "  scoutica init"
     echo ""
-    echo -e "  ${DIM}# Create card in a specific folder${NC}"
-    echo -e "  scoutica init ./my-card"
-    echo ""
-    echo -e "  ${DIM}# Validate and publish${NC}"
-    echo -e "  scoutica validate && scoutica publish"
-    echo ""
-    echo -e "  ${DIM}# Auto-generate card from your CV folder${NC}"
+    echo -e "  ${DIM}# Auto-generate card from your CV folder (easiest)${NC}"
     echo -e "  scoutica scan ~/CV/"
     echo ""
-    echo -e "${BOLD}Learn more:${NC} ${CYAN}https://github.com/traylinx/scoutica-protocol${NC}"
+    echo -e "  ${DIM}# Use a specific AI provider${NC}"
+    echo -e "  scoutica scan ~/CV/ --with gemini"
+    echo ""
+    echo -e "  ${DIM}# No local AI? Copy prompt to clipboard, paste in ChatGPT${NC}"
+    echo -e "  scoutica scan ~/CV/ --clipboard"
+    echo ""
+    echo -e "  ${DIM}# Validate and publish in one go${NC}"
+    echo -e "  scoutica validate && scoutica publish"
+    echo ""
+    echo -e "  ${DIM}# Check someone's card${NC}"
+    echo -e "  scoutica resolve https://github.com/user/my-card"
+    echo ""
+    echo -e "${BOLD}📚 Learn more:${NC}"
+    echo -e "  ${CYAN}Docs:${NC}     https://scoutica.com/docs"
+    echo -e "  ${CYAN}GitHub:${NC}   https://github.com/traylinx/scoutica-protocol"
+    echo -e "  ${CYAN}Guide:${NC}    ${SCOUTICA_HOME:-~/.scoutica}/GENERATE_MY_CARD.md"
     echo ""
 }
 
