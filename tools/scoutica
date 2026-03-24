@@ -1706,14 +1706,23 @@ PARSE_SCRIPT
     echo -e "${GREEN}║                                                       ║${NC}"
     echo -e "${GREEN}╚═══════════════════════════════════════════════════════╝${NC}"
     echo ""
-    echo -e "  ${BOLD}What to do next:${NC}"
-    echo ""
-    echo -e "  ${CYAN}1.${NC} ${CYAN}scoutica info $output_dir${NC}       ${DIM}Preview your card${NC}"
-    echo -e "  ${CYAN}2.${NC} ${CYAN}scoutica validate $output_dir${NC}   ${DIM}Check for schema errors${NC}"
-    echo -e "  ${CYAN}3.${NC} ${CYAN}scoutica publish $output_dir${NC}    ${DIM}Push to GitHub and share${NC}"
-    echo ""
-    echo -e "  ${DIM}Not happy? Edit the JSON files directly or re-run scan.${NC}"
-    echo ""
+    
+    # Auto-chain into preview if here.now is installed
+    local here_script="$HOME/.claude/skills/here-now/scripts/publish.sh"
+    if [ -f "$here_script" ]; then
+        echo -e "  ${BLUE}→${NC} Auto-deploying live preview via ${BOLD}here.now${NC}..."
+        echo ""
+        cmd_preview "$output_dir"
+    else
+        echo -e "  ${BOLD}What to do next:${NC}"
+        echo ""
+        echo -e "  ${CYAN}1.${NC} ${CYAN}scoutica preview $output_dir${NC}    ${DIM}Deploy a live web preview${NC}"
+        echo -e "  ${CYAN}2.${NC} ${CYAN}scoutica validate $output_dir${NC}   ${DIM}Check for schema errors${NC}"
+        echo -e "  ${CYAN}3.${NC} ${CYAN}scoutica publish $output_dir${NC}    ${DIM}Push to GitHub and share${NC}"
+        echo ""
+        echo -e "  ${DIM}Not happy? Edit the JSON files directly or re-run scan.${NC}"
+        echo ""
+    fi
 }
 
 # ─── RESOLVE Command ──────────────────────────────────────────────────────────
