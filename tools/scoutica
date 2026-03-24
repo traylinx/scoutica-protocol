@@ -1509,12 +1509,12 @@ Read my documents and generate my Scoutica Protocol Skill Card. Return ONLY raw 
             # Get last 50 bytes of the live response file, strip newlines/tabs/backslashes
             snippet=$(tail -c 50 "$tmp_resp" 2>/dev/null | tr -d '\n\r\t\\' | sed 's/[[:space:]]\+/ /g')
             if [ -n "$snippet" ]; then
-                printf "\r  ${MAGENTA}▓▒░${NC} ${BOLD}%s${NC} is thinking... ${CYAN}\"%s...\"${NC} ${DIM}(%ds elapsed)${NC}\033[K" "$provider" "$snippet" "$elapsed"
+                echo -ne "\r  ${MAGENTA}▓▒░${NC} ${BOLD}${provider}${NC} is thinking... ${CYAN}\"${snippet}...\"${NC} ${DIM}(${elapsed}s elapsed)${NC}\033[K"
                 sleep 0.2
                 continue
             fi
         fi
-        printf "\r  ${MAGENTA}▓▒░${NC} ${BOLD}%s${NC} is thinking... ${DIM}(%ds elapsed)${NC}\033[K" "$provider" "$elapsed"
+        echo -ne "\r  ${MAGENTA}▓▒░${NC} ${BOLD}${provider}${NC} is thinking... ${DIM}(${elapsed}s elapsed)${NC}\033[K"
         sleep 0.2
     done
     
