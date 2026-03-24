@@ -1040,8 +1040,32 @@ cmd_scan() {
     done
     
     if [ -z "$source_dir" ]; then
-        error "Usage: scoutica scan <docs-folder> [--output <dir>] [--with gemini|claude|ollama]"
-        echo -e "  ${DIM}Example: scoutica scan ~/CV/ --output ./my-card/${NC}" >&2
+        error "Usage: scoutica scan <docs-folder> [--output <dir>] [--with <provider>]"
+        echo "" >&2
+        echo -e "  ${DIM}Example (current folder):${NC}  scoutica scan . --with default" >&2
+        
+        # Detect available providers for the error message
+        local available=""
+        for cli in gemini claude codex vibe opencode ollama; do
+            if command -v "$cli" >/dev/null 2>&1; then
+                available="$available $cli"
+            fi
+        done
+        if curl -sf http://localhost:18080/health &>/dev/null 2>&1; then
+            available="$available ail"
+        fi
+        
+        if [ -n "$available" ]; then
+            local first=$(echo $available | awk '{print $1}')
+            echo -e "  ${DIM}Example (specific AI):${NC}     scoutica scan ~/CV/ --with $first" >&2
+            echo "" >&2
+            echo -e "  ${BOLD}Installed AI providers you can use:${NC}${CYAN}$available${NC}" >&2
+        else
+            echo -e "  ${DIM}Example (clipboard):${NC}       scoutica scan ~/CV/ --clipboard" >&2
+            echo "" >&2
+            echo -e "  ${YELLOW}⚠ No AI CLIs installed. Use --clipboard mode.${NC}" >&2
+        fi
+        echo "" >&2
         exit 1
     fi
     
@@ -1211,7 +1235,7 @@ $content
 $all_text"
     
     # ── Step 4: Detect or use specified AI CLI ──
-    if [ -z "$provider" ]; then
+    if [ -z "$provider" ] || [ "$provider" = "default" ]; then
         # Auto-detect in priority order
         if command -v gemini &>/dev/null; then
             provider="gemini"
