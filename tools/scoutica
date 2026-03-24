@@ -1150,18 +1150,20 @@ $all_text"
     # ── Step 5: Call local AI CLI ──
     local response=""
     local tmp_prompt=$(mktemp /tmp/scoutica_prompt.XXXXXX)
-    # Ensure temp file is always cleaned up
-    trap 'rm -f "$tmp_prompt" 2>/dev/null' EXIT INT TERM
+    local tmp_resp=$(mktemp /tmp/scoutica_resp.XXXXXX)
+    # Ensure temp file is always cleaned up safely
+    trap "rm -f \"$tmp_prompt\" \"$tmp_resp\" 2>/dev/null" EXIT INT TERM
     echo "$full_prompt" > "$tmp_prompt"
     
+    (
     case "$provider" in
         gemini)
-            response=$(cat "$tmp_prompt" | gemini -p "Read my documents and generate my Scoutica Skill Card. Return ONLY raw JSON with keys: profile, rules, evidence, skill_md. No markdown fences, no explanation." 2>/dev/null)
+            cat "$tmp_prompt" | gemini -p "Read my documents and generate my Scoutica Skill Card. Return ONLY raw JSON with keys: profile, rules, evidence, skill_md. No markdown fences, no explanation." > "$tmp_resp" 2>&1
             ;;
         claude)
-            response=$(claude -p "$(cat "$tmp_prompt")
+            claude -p "$(cat "$tmp_prompt")
 
-Read my documents and generate my Scoutica Skill Card. Return ONLY raw JSON with keys: profile, rules, evidence, skill_md. No markdown fences, no explanation." --no-input 2>/dev/null)
+Read my documents and generate my Scoutica Skill Card. Return ONLY raw JSON with keys: profile, rules, evidence, skill_md. No markdown fences, no explanation." --no-input > "$tmp_resp" 2>&1
             ;;
         ollama)
             local ollama_model="llama3.2"
@@ -1170,19 +1172,19 @@ Read my documents and generate my Scoutica Skill Card. Return ONLY raw JSON with
                 warn "Pulling $ollama_model model (one-time download)..."
                 ollama pull "$ollama_model" 2>/dev/null || {
                     error "Failed to pull model. Ensure Ollama is running."
-                    rm -f "$tmp_prompt"
+                    rm -f "$tmp_prompt" "$tmp_resp"
                     exit 1
                 }
             fi
-            response=$(ollama run "$ollama_model" "$(cat "$tmp_prompt")
+            ollama run "$ollama_model" "$(cat "$tmp_prompt")
 
-Read my documents and generate my Scoutica Skill Card. Return ONLY raw JSON with keys: profile, rules, evidence, skill_md. No markdown fences, no explanation." 2>/dev/null)
+Read my documents and generate my Scoutica Skill Card. Return ONLY raw JSON with keys: profile, rules, evidence, skill_md. No markdown fences, no explanation." > "$tmp_resp" 2>&1
             ;;
         ail)
             # switchAILocal — OpenAI-compatible local server at localhost:18080
             if ! curl -sf http://localhost:18080/health &>/dev/null; then
                 error "switchAILocal is not running. Start it with: ail start"
-                rm -f "$tmp_prompt"
+                rm -f "$tmp_prompt" "$tmp_resp"
                 exit 1
             fi
             
@@ -1209,7 +1211,7 @@ with open('$payload_file', 'w') as f:
             
             rm -f "$payload_file"
             
-            response=$(echo "$ail_response" | python3 -c "
+            echo "$ail_response" | python3 -c "
 import sys, json
 try:
     data = json.load(sys.stdin)
@@ -1221,42 +1223,60 @@ try:
 except Exception as e:
     print(f'ERROR: {e}', file=sys.stderr)
     sys.exit(1)
-" 2>&1)
+" > "$tmp_resp" 2>&1
             ;;
         openclaw)
             # OpenClaw — AI agent framework with embedded Pi agent
             if ! command -v openclaw &>/dev/null; then
                 error "OpenClaw CLI not found. Install from: https://github.com/openclaw/openclaw"
-                rm -f "$tmp_prompt"
+                rm -f "$tmp_prompt" "$tmp_resp"
                 exit 1
             fi
-            response=$(openclaw agent --message "$(cat "$tmp_prompt")
+            openclaw agent --message "$(cat "$tmp_prompt")
 
-Read my documents and generate my Scoutica Skill Card. Return ONLY raw JSON with keys: profile, rules, evidence, skill_md. No markdown fences, no explanation." 2>/dev/null)
+Read my documents and generate my Scoutica Skill Card. Return ONLY raw JSON with keys: profile, rules, evidence, skill_md. No markdown fences, no explanation." > "$tmp_resp" 2>&1
             ;;
         codex)
-            response=$(codex exec "$(cat "$tmp_prompt")
+            codex exec "$(cat "$tmp_prompt")
 
-Read my documents and generate my Scoutica Skill Card. Return ONLY raw JSON with keys: profile, rules, evidence, skill_md. No markdown fences, no explanation." 2>/dev/null)
+Read my documents and generate my Scoutica Skill Card. Return ONLY raw JSON with keys: profile, rules, evidence, skill_md. No markdown fences, no explanation." > "$tmp_resp" 2>&1
             ;;
         vibe)
-            response=$(vibe -p "$(cat "$tmp_prompt")
+            vibe -p "$(cat "$tmp_prompt")
 
-Read my documents and generate my Scoutica Skill Card. Return ONLY raw JSON with keys: profile, rules, evidence, skill_md. No markdown fences, no explanation." --output text 2>/dev/null)
+Read my documents and generate my Scoutica Skill Card. Return ONLY raw JSON with keys: profile, rules, evidence, skill_md. No markdown fences, no explanation." --output text > "$tmp_resp" 2>&1
             ;;
         opencode)
-            response=$(opencode run "$(cat "$tmp_prompt")
+            opencode run "$(cat "$tmp_prompt")
 
-Read my documents and generate my Scoutica Skill Card. Return ONLY raw JSON with keys: profile, rules, evidence, skill_md. No markdown fences, no explanation." 2>/dev/null)
+Read my documents and generate my Scoutica Skill Card. Return ONLY raw JSON with keys: profile, rules, evidence, skill_md. No markdown fences, no explanation." > "$tmp_resp" 2>&1
             ;;
         *)
             error "Unknown provider: $provider (supported: gemini, claude, codex, vibe, opencode, ollama, ail)"
-            rm -f "$tmp_prompt"
+            rm -f "$tmp_prompt" "$tmp_resp"
             exit 1
             ;;
     esac
+    ) &
+    local bg_pid=$!
     
-    rm -f "$tmp_prompt"
+    # Pixel loader animation
+    local delay=0.15
+    local frames=("▖" "▘" "▝" "▗")
+    local c=0
+    tput civis 2>/dev/null || true
+    while kill -0 "$bg_pid" 2>/dev/null; do
+        printf "\r  ${MAGENTA}▓▒░${NC} Waiting for ${BOLD}%s${NC} to finish thinking... ${CYAN}%s${NC} " "$provider" "${frames[c]}"
+        c=$(( (c+1) % 4 ))
+        sleep $delay
+    done
+    printf "\r\033[K"
+    tput cnorm 2>/dev/null || true
+    
+    wait "$bg_pid" 2>/dev/null || true
+    response=$(cat "$tmp_resp" 2>/dev/null || true)
+    
+    rm -f "$tmp_prompt" "$tmp_resp"
     
     if [ -z "$response" ]; then
         error "Empty response from $provider. Is it running and configured?"
