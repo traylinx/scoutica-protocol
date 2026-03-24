@@ -2160,8 +2160,13 @@ EOF
     echo -e "${GREEN}║${NC}      $site_url"
     echo -e "${GREEN}║${NC}                                                       ${GREEN}║${NC}"
     echo -e "${GREEN}╚═══════════════════════════════════════════════════════╝${NC}"
-    echo ""
+    echo -e ""
     echo -e "  ${DIM}(This is an instant anonymous publish hosted via here.now)${NC}"
+    echo -e ""
+    echo -e "  ${BOLD}What to do next:${NC}"
+    echo -e ""
+    echo -e "  ${CYAN}•${NC} ${CYAN}scoutica publish .${NC}    ${DIM}Push this generated card to GitHub and share${NC}"
+    echo -e ""
 }
 
 # ─── UPDATE Command ───────────────────────────────────────────────────────────
