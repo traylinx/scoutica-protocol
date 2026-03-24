@@ -912,6 +912,7 @@ cmd_help() {
     echo ""
     echo -e "${BOLD}🔧 Manage your card:${NC}"
     echo -e "  ${CYAN}info${NC}     [dir]       View your card summary"
+    echo -e "  ${CYAN}preview${NC}  [dir]       Build HTML layout and publish to here.now"
     echo -e "  ${CYAN}validate${NC} [dir]       Validate card against protocol schemas"
     echo -e "  ${CYAN}publish${NC}  [dir]       Push card to GitHub"
     echo -e "  ${CYAN}resolve${NC}  <url>       Fetch and display any card from a URL"
@@ -1349,10 +1350,10 @@ $all_text"
             cat "$tmp_prompt" | gemini -p "Read my documents and generate my Scoutica Protocol Skill Card. Return ONLY raw JSON with keys: profile, rules, evidence, skill_md. No markdown fences, no explanation." > "$tmp_resp" 2>&1
             ;;
         claude)
-            echo "$(date +%H:%M:%S) Running: claude -p <prompt> --no-input" >> "$tmp_log"
+            echo "$(date +%H:%M:%S) Running: claude -p <prompt>" >> "$tmp_log"
             claude -p "$(cat "$tmp_prompt")
 
-Read my documents and generate my Scoutica Protocol Skill Card. Return ONLY raw JSON with keys: profile, rules, evidence, skill_md. No markdown fences, no explanation." --no-input > "$tmp_resp" 2>&1
+Read my documents and generate my Scoutica Protocol Skill Card. Return ONLY raw JSON with keys: profile, rules, evidence, skill_md. No markdown fences, no explanation." > "$tmp_resp" 2>&1
             ;;
         ollama)
             local ollama_model="llama3.2"
@@ -1923,6 +1924,237 @@ except: pass
     fi
 }
 
+# ─── PREVIEW Command ──────────────────────────────────────────────────────────
+
+cmd_preview() {
+    local target_dir="${1:-.}"
+    
+    if [ ! -f "$target_dir/profile.json" ]; then
+        error "No profile.json found in $target_dir. Run 'scoutica scan' first."
+        exit 1
+    fi
+    
+    echo -e "  ${BLUE}→${NC} Compiling Neo-Brutalist HTML presentation..."
+    
+    local preview_dir="$target_dir/.preview"
+    mkdir -p "$preview_dir"
+    
+    # We will use Python to read JSON and build index.html
+    python3 - "$target_dir" "$preview_dir" << 'EOF'
+import json
+import sys
+import os
+
+target = sys.argv[1]
+preview = sys.argv[2]
+
+try:
+    with open(os.path.join(target, 'profile.json')) as f:
+        profile = json.load(f)
+    
+    rules = {}
+    if os.path.exists(os.path.join(target, 'rules.yaml')):
+        import yaml
+        with open(os.path.join(target, 'rules.yaml')) as f:
+            rules = yaml.safe_load(f) or {}
+            
+    evidence = {}
+    if os.path.exists(os.path.join(target, 'evidence.json')):
+        with open(os.path.join(target, 'evidence.json')) as f:
+            evidence = json.load(f) or {}
+except Exception as e:
+    print(f"Error loading files: {e}", file=sys.stderr)
+    sys.exit(1)
+
+name = profile.get("name", "Unknown Operator")
+title = profile.get("title", "Initiate")
+seniority = profile.get("seniority", "junior").upper()
+years = profile.get("years_experience", "?")
+avail = str(profile.get("availability", "unknown")).upper()
+summary = profile.get("summary", "")
+
+domains_html = " ".join([f"<span class='tag tag-primary'>{d}</span>" for d in profile.get("primary_domains", [])])
+skills_html = " ".join([f"<span class='tag'>{s}</span>" for s in profile.get("skills", [])])
+
+wt = rules.get("engagement", {}).get("allowed_types", [])
+work_types = ", ".join(wt) if isinstance(wt, list) else str(wt)
+remote_policy = rules.get("remote", {}).get("policy", "Unknown")
+min_base = str(rules.get("engagement", {}).get("compensation", {}).get("minimum_base_eur", {}).get("permanent", "negotiable"))
+
+evidence_items = evidence.get("items", [])
+evidence_html = ""
+for item in evidence_items:
+    t = item.get("title", "")
+    desc = item.get("description", "")
+    url = item.get("url", "#")
+    tags = " ".join([f"<span class='tag tag-primary'>{s}</span>" for s in item.get("skills_demonstrated", [])])
+    evidence_html += f"""
+    <div class="cyber-card">
+      <h3><a href="{url}" target="_blank">{t} ↗</a></h3>
+      <p>{desc}</p>
+      <div>{tags}</div>
+    </div>
+    """
+
+html_template = f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>{name} - Scoutica Target Card</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <style>
+    :root {{
+      --bg: #0d0d12;
+      --text: #e0e0e0;
+      --primary: #00ffcc;
+      --accent: #ff00ff;
+      --border: #333;
+    }}
+    body {{
+      background-color: var(--bg);
+      color: var(--text);
+      font-family: 'Courier New', Courier, monospace;
+      margin: 0;
+      padding: 0;
+      background-image: radial-gradient(#333 1px, transparent 1px);
+      background-size: 20px 20px;
+    }}
+    .container {{ max-width: 900px; margin: 0 auto; padding: 2rem; }}
+    .cyber-title {{
+      font-size: clamp(2rem, 5vw, 4rem);
+      text-transform: uppercase;
+      color: var(--primary);
+      text-shadow: 4px 4px 0px var(--accent);
+      border-bottom: 4px solid var(--text);
+      padding-bottom: 1rem;
+      margin-bottom: 2rem;
+      word-wrap: break-word;
+    }}
+    .neo-brutalist-section {{
+      background: #15151e;
+      border: 2px solid var(--primary);
+      border-radius: 0;
+      box-shadow: 6px 6px 0px var(--accent);
+      padding: 2rem;
+      margin-bottom: 2rem;
+      transition: transform 0.2s, box-shadow 0.2s;
+    }}
+    .neo-brutalist-section:hover {{
+      transform: translate(2px, 2px);
+      box-shadow: 4px 4px 0px var(--accent);
+    }}
+    .cyber-card {{
+      background: #0d0d12;
+      border: 1px solid var(--border);
+      padding: 1rem;
+      margin-top: 1rem;
+      border-left: 4px solid var(--primary);
+    }}
+    .tag {{
+      background: var(--accent);
+      color: #fff;
+      padding: 2px 8px;
+      font-size: 0.8rem;
+      font-weight: bold;
+      display: inline-block;
+      margin: 2px;
+      text-transform: uppercase;
+    }}
+    .tag-primary {{ background: var(--primary); color: #000; }}
+    a {{ color: var(--primary); text-decoration: none; }}
+    a:hover {{ background: var(--primary); color: #000; }}
+    .header-box {{ display: flex; justify-content: space-between; align-items: flex-end; flex-wrap: wrap; gap: 1rem; }}
+    .glitch {{ font-size: 1.2rem; color: var(--accent); }}
+    h2 {{ color: var(--text); border-bottom: 2px solid var(--border); padding-bottom: 0.5rem; text-transform: uppercase; }}
+    h3 {{ margin-top: 0; color: var(--primary); }}
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header-box">
+      <div>
+        <h1 class="cyber-title">{name}</h1>
+        <div class="glitch">>{title} [{seniority}]</div>
+      </div>
+      <div style="text-align: right; border-left: 2px solid var(--accent); padding-left: 1rem;">
+        <div>EXP: {years} YRS</div>
+        <div>AVAIL: <span style="color: var(--primary)">{avail}</span></div>
+      </div>
+    </div>
+    
+    <div class="neo-brutalist-section" style="margin-top: 3rem;">
+      <h2>// PROFILE_SUMMARY</h2>
+      <p style="line-height: 1.6">{summary}</p>
+      
+      <div style="margin-top: 2rem">
+        <strong>[DOMAINS]</strong><br>
+        <div style="margin-top: 0.5rem">{domains_html}</div>
+      </div>
+      
+      <div style="margin-top: 2rem">
+        <strong>[CORE_SKILLS]</strong><br>
+        <div style="margin-top: 0.5rem">{skills_html}</div>
+      </div>
+    </div>
+    
+    <div class="neo-brutalist-section">
+      <h2>// ENGAGEMENT_RULES</h2>
+      <div class="cyber-card">
+        <strong>Work Types:</strong> {work_types}<br>
+        <strong>Remote Policy:</strong> {remote_policy}<br>
+        <strong>Min Base:</strong> {min_base}
+      </div>
+    </div>
+    
+    <div class="neo-brutalist-section">
+      <h2>// EVIDENCE_LOG</h2>
+      {evidence_html}
+    </div>
+    
+    <footer style="text-align: center; margin-top: 4rem; opacity: 0.5">
+      <small>GENERATED BY SCOUTICA PROTOCOL_v0.1.0 // SYS_ONLINE</small>
+    </footer>
+  </div>
+</body>
+</html>"""
+
+with open(os.path.join(preview, 'index.html'), 'w') as f:
+    f.write(html_template)
+EOF
+
+    echo -e "  ${GREEN}✅${NC} Generated Neo-Brutalist HTML"
+    echo -e "  ${BLUE}→${NC} Publishing to the web via ${BOLD}here.now${NC}..."
+    
+    local here_script="$HOME/.claude/skills/here-now/scripts/publish.sh"
+    if [ ! -f "$here_script" ]; then
+        error "here.now publisher script not found! Please install it first:"
+        echo "    curl -fsSL https://here.now/install.sh | bash"
+        exit 1
+    fi
+    
+    local raw_output
+    export TARGET="$preview_dir"
+    raw_output=$(bash "$here_script" "$preview_dir" 2>&1)
+    
+    local site_url=$(echo "$raw_output" | grep -Eo 'https://[a-zA-Z0-9-]+\.here\.now' | head -n 1)
+    
+    if [ -z "$site_url" ]; then
+        error "Publish failed or output could not be parsed."
+        echo "$raw_output"
+        exit 1
+    fi
+    
+    echo ""
+    echo -e "${GREEN}╔═══════════════════════════════════════════════════════╗${NC}"
+    echo -e "${GREEN}║${NC}                                                       ${GREEN}║${NC}"
+    echo -e "${GREEN}║${NC}   🌍 ${BOLD}Your Skill Card is live globally!${NC}                ${GREEN}║${NC}"
+    echo -e "${GREEN}║${NC}      $site_url"
+    echo -e "${GREEN}║${NC}                                                       ${GREEN}║${NC}"
+    echo -e "${GREEN}╚═══════════════════════════════════════════════════════╝${NC}"
+    echo ""
+    echo -e "  ${DIM}(This is an instant anonymous publish hosted via here.now)${NC}"
+}
+
 # ─── UPDATE Command ───────────────────────────────────────────────────────────
 
 cmd_update() {
@@ -2025,6 +2257,7 @@ main() {
         validate)   cmd_validate "$@" ;;
         publish)    cmd_publish "$@" ;;
         info)       cmd_info "$@" ;;
+        preview)    cmd_preview "$@" ;;
         update)     cmd_update "$@" ;;
         doctor)     cmd_doctor "$@" ;;
         help|--help|-h)  cmd_help ;;
