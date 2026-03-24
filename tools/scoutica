@@ -619,26 +619,57 @@ cmd_publish() {
     
     # Check if already a git repo
     if [ -d "$card_dir/.git" ]; then
-        echo -e "  ${DIM}Git repo detected. Adding and pushing...${NC}"
         (
             cd "$card_dir"
             # Only stage known card files — never stage secrets or .env
             local card_files=(profile.json rules.yaml evidence.json SKILL.md scoutica.json)
             for cf in "${card_files[@]}"; do
-                [ -f "$cf" ] && git add "$cf"
+                [ -f "$cf" ] && git add "$cf" 2>/dev/null
             done
-            [ -d "rules" ] && git add rules/
-            local msg="Update Scoutica Skill Card — $(date +%Y-%m-%d)"
-            git commit -m "$msg" 2>/dev/null || {
-                warn "No changes to commit"
+            [ -d "rules" ] && git add rules/ 2>/dev/null
+            
+            # Preview changes to the user
+            local changes
+            changes=$(git status -s 2>/dev/null | grep -E 'profile\.json|rules\.yaml|evidence\.json|SKILL\.md|scoutica\.json|rules/') || true
+            
+            if [ -z "$changes" ]; then
+                echo -e "  ${GREEN}✅${NC} Your Skill Card is already up to date!"
+                local origin_url=$(git remote get-url origin 2>/dev/null || echo "")
+                if [ -n "$origin_url" ]; then
+                    local clean_url=$(echo "$origin_url" | sed 's/\.git$//')
+                    echo -e "  ${DIM}Live at:${NC} $clean_url"
+                fi
                 return 0
-            }
+            fi
+            
+            echo -e "  ${BOLD}The following changes will be published:${NC}"
+            echo "$changes" | while read -r line; do
+                echo -e "    ${CYAN}$line${NC}"
+            done
+            echo ""
+            
+            local msg="Update Scoutica Skill Card — $(date +%Y-%m-%d)"
+            git commit -m "$msg" >/dev/null 2>&1
             
             # Try to push
             if git remote -v | grep -q "origin"; then
-                git push origin "$(git branch --show-current)" 2>/dev/null && \
-                    success "Pushed to GitHub!" || \
-                    error "Push failed. Check your remote configuration."
+                echo -e "  ${DIM}Pushing to GitHub...${NC}"
+                if git push origin "$(git branch --show-current)" >/dev/null 2>&1; then
+                    echo -e "  ${GREEN}✅ Successfully published to GitHub!${NC}"
+                    echo ""
+                    
+                    # Extract URL for the user
+                    local origin_url=$(git remote get-url origin)
+                    local clean_url=$(echo "$origin_url" | sed 's/\.git$//')
+                    
+                    echo -e "  ${BOLD}View on GitHub:${NC}"
+                    echo -e "  $clean_url"
+                    echo ""
+                    echo -e "  ${BOLD}Test your live card:${NC}"
+                    echo -e "  ${CYAN}scoutica resolve $clean_url${NC}"
+                else
+                    error "Push failed. Check your remote configuration or permissions."
+                fi
             else
                 warn "No remote 'origin' configured."
                 echo -e "  ${DIM}Run: git remote add origin https://github.com/YOU/YOUR-CARD.git${NC}"
@@ -649,25 +680,38 @@ cmd_publish() {
         echo ""
         local repo_name=$(ask "GitHub repo name" "my-scoutica-card")
         local gh_user=$(ask "GitHub username")
+        echo ""
         
         (
             cd "$card_dir"
-            git init
+            git init >/dev/null 2>&1
             # Only stage known card files
             local card_files=(profile.json rules.yaml evidence.json SKILL.md scoutica.json)
             for cf in "${card_files[@]}"; do
-                [ -f "$cf" ] && git add "$cf"
+                [ -f "$cf" ] && git add "$cf" 2>/dev/null
             done
-            [ -d "rules" ] && git add rules/
-            git commit -m "Initial Scoutica Skill Card"
-            git branch -M main
-            git remote add origin "https://github.com/$gh_user/$repo_name.git"
+            [ -d "rules" ] && git add rules/ 2>/dev/null
+            
+            # Preview changes to the user
+            local changes
+            changes=$(git status -s 2>/dev/null | grep -E 'profile\.json|rules\.yaml|evidence\.json|SKILL\.md|scoutica\.json|rules/') || true
+            echo -e "  ${BOLD}The following files are ready to publish:${NC}"
+            echo "$changes" | while read -r line; do
+                echo -e "    ${CYAN}$line${NC}"
+            done
+            
+            git commit -m "Initial Scoutica Skill Card" >/dev/null 2>&1
+            git branch -M main >/dev/null 2>&1
+            git remote add origin "https://github.com/$gh_user/$repo_name.git" 2>/dev/null || true
             
             echo ""
             echo -e "  ${BOLD}Next steps:${NC}"
-            echo -e "  1. Create the repo on GitHub: ${CYAN}https://github.com/new${NC}"
-            echo -e "     Name it: ${BOLD}$repo_name${NC}"
-            echo -e "  2. Then run: ${CYAN}git push -u origin main${NC}"
+            echo -e "  1. Create an empty repo on GitHub: ${CYAN}https://github.com/new${NC}"
+            echo -e "     Name it exactly: ${BOLD}$repo_name${NC}"
+            echo -e "  2. Push your card: ${CYAN}git push -u origin main${NC}"
+            echo ""
+            echo -e "  ${BOLD}Test your live card after pushing:${NC}"
+            echo -e "  ${CYAN}scoutica resolve https://github.com/$gh_user/$repo_name${NC}"
         )
     fi
 }
