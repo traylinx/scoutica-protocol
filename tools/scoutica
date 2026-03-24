@@ -1506,13 +1506,15 @@ Read my documents and generate my Scoutica Protocol Skill Card. Return ONLY raw 
         local elapsed=$(( $(date +%s) - start_time ))
         local snippet=""
         if [ -s "$tmp_resp" ]; then
-            # Get last 50 bytes of the live response file, strip newlines/tabs
-            snippet=$(tail -c 50 "$tmp_resp" 2>/dev/null | tr -d '\n\r\t' | sed 's/[[:space:]]\+/ /g')
+            # Get last 50 bytes of the live response file, strip newlines/tabs/backslashes
+            snippet=$(tail -c 50 "$tmp_resp" 2>/dev/null | tr -d '\n\r\t\\' | sed 's/[[:space:]]\+/ /g')
             if [ -n "$snippet" ]; then
-                snippet=" ${CYAN}\"${snippet}...\"${NC} "
+                printf "\r  ${MAGENTA}▓▒░${NC} ${BOLD}%s${NC} is thinking... ${CYAN}\"%s...\"${NC} ${DIM}(%ds elapsed)${NC}\033[K" "$provider" "$snippet" "$elapsed"
+                sleep 0.2
+                continue
             fi
         fi
-        printf "\r  ${MAGENTA}▓▒░${NC} ${BOLD}%s${NC} is thinking...%s${DIM}(%ds elapsed)${NC} " "$provider" "$snippet" "$elapsed"
+        printf "\r  ${MAGENTA}▓▒░${NC} ${BOLD}%s${NC} is thinking... ${DIM}(%ds elapsed)${NC}\033[K" "$provider" "$elapsed"
         sleep 0.2
     done
     
