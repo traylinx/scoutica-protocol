@@ -1558,19 +1558,41 @@ Read my documents and generate my Scoutica Protocol Skill Card. Return ONLY raw 
 import json, sys, os, re
 
 output_dir = sys.argv[1]
-raw = sys.argv[2]
+raw = sys.argv[2].strip()
 
-# Strip markdown fences if present
-raw = raw.strip()
-# Find JSON in response (may be wrapped in markdown)
-json_match = re.search(r'\{[\s\S]*\}', raw)
-if json_match:
-    raw = json_match.group(0)
+def find_scoutica_json(text):
+    # 1. Look for markdown fences first
+    fence_matches = re.findall(r'```(?:json)?\s*(\{[\s\S]*?\})\s*```', text)
+    for fm in fence_matches:
+        try:
+            d = json.loads(fm)
+            if 'profile' in d or 'rules' in d: return d
+        except: pass
+        
+    # 2. Bracket counting from the end (to skip early stderr logs / crash traces)
+    start_indices = [i for i, c in enumerate(text) if c == '{']
+    start_indices.reverse()
+    
+    for start in start_indices:
+        stack = 0
+        for i in range(start, len(text)):
+            if text[i] == '{':
+                stack += 1
+            elif text[i] == '}':
+                stack -= 1
+                if stack == 0:
+                    try:
+                        parsed = json.loads(text[start:i+1])
+                        if isinstance(parsed, dict) and ('profile' in parsed or 'rules' in parsed or 'evidence' in parsed):
+                            return parsed
+                    except:
+                        pass
+    return None
 
-try:
-    data = json.loads(raw)
-except json.JSONDecodeError as e:
-    print(f"  ❌ Could not parse JSON from AI response: {e}", file=sys.stderr)
+data = find_scoutica_json(raw)
+
+if data is None:
+    print("  ❌ Could not parse JSON from AI response.", file=sys.stderr)
     print(f"  Raw response saved to {output_dir}/.scan_response_raw.txt", file=sys.stderr)
     sys.exit(1)
 
