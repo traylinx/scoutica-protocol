@@ -561,6 +561,17 @@ cmd_validate() {
     
     header "Validate Skill Card"
     
+    # Pre-check: are there any card files here?
+    if [ ! -f "$card_dir/profile.json" ] && [ ! -f "$card_dir/SKILL.md" ]; then
+        error "No Skill Card found in $card_dir"
+        echo ""
+        echo -e "  ${BOLD}Create your card first:${NC}"
+        echo -e "  ${CYAN}scoutica scan <docs-folder>${NC}   Auto-generate from your CV (easiest)"
+        echo -e "  ${CYAN}scoutica init${NC}                  Interactive wizard"
+        echo ""
+        exit 1
+    fi
+    
     # Check if Python is available
     local python_cmd=""
     if command -v python3 &>/dev/null; then
@@ -730,8 +741,12 @@ cmd_info() {
     header "Skill Card Summary"
     
     if [ ! -f "$card_dir/profile.json" ]; then
-        error "No profile.json found in $card_dir"
-        echo -e "  ${DIM}Run 'scoutica init' first to create your card.${NC}"
+        error "No Skill Card found in $card_dir"
+        echo ""
+        echo -e "  ${BOLD}Create your card first:${NC}"
+        echo -e "  ${CYAN}scoutica scan <docs-folder>${NC}   Auto-generate from your CV (easiest)"
+        echo -e "  ${CYAN}scoutica init${NC}                  Interactive wizard"
+        echo ""
         exit 1
     fi
     
@@ -768,6 +783,10 @@ cmd_info() {
         echo -e "  ${DIM}Rules:${NC} $rule_count rule files"
     fi
     
+    echo ""
+    echo -e "  ${BOLD}Next steps:${NC}"
+    echo -e "  ${CYAN}scoutica validate $card_dir${NC}   Check for schema errors"
+    echo -e "  ${CYAN}scoutica publish $card_dir${NC}    Push to GitHub"
     echo ""
 }
 
@@ -841,14 +860,31 @@ cmd_doctor() {
     fi
 
     echo ""
-    echo -e "${BOLD}AI Providers:${NC}"
-    for cli in gemini claude codex vibe opencode ollama ail; do
+    echo -e "${BOLD}AI Providers (for scoutica scan):${NC}"
+    local ai_found=0
+    for cli in gemini claude codex vibe opencode ollama; do
         if command -v "$cli" >/dev/null 2>&1; then
             success "$cli (installed)"
-        else
-            echo -e "  ❌  $cli (not found)"
+            ai_found=$((ai_found+1))
         fi
     done
+    # Check ail specially (network service)
+    if curl -sf http://localhost:18080/health &>/dev/null; then
+        success "ail / switchAILocal (running)"
+        ai_found=$((ai_found+1))
+    fi
+    
+    if [ $ai_found -eq 0 ]; then
+        echo -e "  ${YELLOW}⚠️  No AI CLI found.${NC}"
+        echo -e "  ${DIM}Install one to use 'scoutica scan' for auto-generation:${NC}"
+        echo -e "    ${CYAN}gemini${NC}  → ${DIM}npm install -g @google/gemini-cli${NC}"
+        echo -e "    ${CYAN}claude${NC}  → ${DIM}npm install -g @anthropic-ai/claude-code${NC}"
+        echo -e "    ${CYAN}ollama${NC}  → ${DIM}https://ollama.com (runs 100% offline)${NC}"
+        echo -e "  ${DIM}Without an AI CLI, you can still use --clipboard mode.${NC}"
+        warnings=$((warnings+1))
+    else
+        echo -e "  ${DIM}$ai_found AI provider(s) available for scanning.${NC}"
+    fi
 
     echo ""
     echo -e "  ${DIM}Result: $warnings warnings, $errors errors.${NC}"
@@ -1154,6 +1190,15 @@ $all_text"
             provider="openclaw"
         else
             provider="clipboard"
+            echo ""
+            warn "No local AI CLI found on your system."
+            echo -e "  ${DIM}Install one for fully automatic card generation:${NC}"
+            echo -e "    ${CYAN}gemini${NC}   → ${DIM}npm install -g @anthropic-ai/genkit${NC}   ${DIM}(google)${NC}"
+            echo -e "    ${CYAN}claude${NC}   → ${DIM}npm install -g @anthropic-ai/claude-code${NC}"
+            echo -e "    ${CYAN}ollama${NC}   → ${DIM}https://ollama.com${NC}   ${DIM}(runs 100% offline)${NC}"
+            echo ""
+            echo -e "  ${DIM}Falling back to clipboard mode...${NC}"
+            echo ""
         fi
     fi
     
@@ -1189,8 +1234,19 @@ $all_text"
     fi
     
     if [ "$provider" != "ail" ] && [ "$provider" != "clipboard" ] && ! command -v "$provider" &>/dev/null; then
-        error "$provider is not installed"
-        echo -e "  ${DIM}Install it or use: scoutica scan $source_dir --clipboard${NC}" >&2
+        error "$provider is not installed on your system."
+        echo ""
+        case "$provider" in
+            gemini)   echo -e "  ${DIM}Install: npm install -g @google/gemini-cli${NC}" ;;
+            claude)   echo -e "  ${DIM}Install: npm install -g @anthropic-ai/claude-code${NC}" ;;
+            ollama)   echo -e "  ${DIM}Install: https://ollama.com${NC}" ;;
+            codex)    echo -e "  ${DIM}Install: npm install -g @openai/codex${NC}" ;;
+            *)        echo -e "  ${DIM}Check the provider docs for installation instructions.${NC}" ;;
+        esac
+        echo ""
+        echo -e "  ${DIM}Or use clipboard mode instead:${NC}"
+        echo -e "  ${CYAN}scoutica scan $source_dir --clipboard${NC}"
+        echo ""
         exit 1
     fi
     
@@ -1474,11 +1530,13 @@ PARSE_SCRIPT
     echo -e "${GREEN}║                                                       ║${NC}"
     echo -e "${GREEN}╚═══════════════════════════════════════════════════════╝${NC}"
     echo ""
-    echo -e "  ${BOLD}Review your card:${NC}"
+    echo -e "  ${BOLD}What to do next:${NC}"
     echo ""
-    echo -e "  ${CYAN}scoutica info $output_dir${NC}       View card summary"
-    echo -e "  ${CYAN}scoutica validate $output_dir${NC}   Check for errors"
-    echo -e "  ${CYAN}scoutica publish $output_dir${NC}    Push to GitHub"
+    echo -e "  ${CYAN}1.${NC} ${CYAN}scoutica info $output_dir${NC}       ${DIM}Preview your card${NC}"
+    echo -e "  ${CYAN}2.${NC} ${CYAN}scoutica validate $output_dir${NC}   ${DIM}Check for schema errors${NC}"
+    echo -e "  ${CYAN}3.${NC} ${CYAN}scoutica publish $output_dir${NC}    ${DIM}Push to GitHub and share${NC}"
+    echo ""
+    echo -e "  ${DIM}Not happy? Edit the JSON files directly or re-run scan.${NC}"
     echo ""
 }
 
