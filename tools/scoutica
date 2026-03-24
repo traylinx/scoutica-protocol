@@ -862,14 +862,14 @@ cmd_doctor() {
     echo ""
     echo -e "${BOLD}AI Providers (for scoutica scan):${NC}"
     local ai_found=0
-    for cli in gemini claude codex vibe opencode ollama; do
+    for cli in gemini claude codex vibe opencode ollama ail; do
         if command -v "$cli" >/dev/null 2>&1; then
             success "$cli (installed)"
             ai_found=$((ai_found+1))
         fi
     done
-    # Check ail specially (network service)
-    if curl -sf http://localhost:18080/health &>/dev/null; then
+    # Check ail specially (network service fallback if CLI wrapper is missing)
+    if ! command -v "ail" >/dev/null 2>&1 && curl -sf http://localhost:18080/health &>/dev/null 2>&1; then
         success "ail / switchAILocal (running)"
         ai_found=$((ai_found+1))
     fi
@@ -930,7 +930,7 @@ cmd_help() {
     local ai_count=0
 
     # Detect in priority order (same as scan auto-detect)
-    for cli in gemini claude codex vibe opencode ollama; do
+    for cli in gemini claude codex vibe opencode ollama ail; do
         if command -v "$cli" >/dev/null 2>&1; then
             ai_count=$((ai_count+1))
             if [ -z "$default_provider" ]; then
@@ -941,8 +941,8 @@ cmd_help() {
             fi
         fi
     done
-    # Check ail (network service)
-    if curl -sf http://localhost:18080/health &>/dev/null 2>&1; then
+    # Fallback to switchAILocal running directly if no ail CLI
+    if ! command -v "ail" >/dev/null 2>&1 && curl -sf http://localhost:18080/health &>/dev/null 2>&1; then
         ai_count=$((ai_count+1))
         if [ -z "$default_provider" ]; then
             default_provider="ail"
@@ -1046,12 +1046,12 @@ cmd_scan() {
         
         # Detect available providers for the error message
         local available=""
-        for cli in gemini claude codex vibe opencode ollama; do
+        for cli in gemini claude codex vibe opencode ollama ail; do
             if command -v "$cli" >/dev/null 2>&1; then
                 available="$available $cli"
             fi
         done
-        if curl -sf http://localhost:18080/health &>/dev/null 2>&1; then
+        if ! command -v "ail" >/dev/null 2>&1 && curl -sf http://localhost:18080/health &>/dev/null 2>&1; then
             available="$available ail"
         fi
         
