@@ -983,7 +983,7 @@ cmd_help() {
     echo -e "  scoutica resolve https://github.com/user/my-card"
     echo ""
     echo -e "${BOLD}📚 Learn more:${NC}"
-    echo -e "  ${CYAN}Docs:${NC}     https://scoutica.com/docs"
+    echo -e "  ${CYAN}Docs:${NC}     https://docs.scoutica.com"
     echo -e "  ${CYAN}GitHub:${NC}   https://github.com/traylinx/scoutica-protocol"
     echo -e "  ${CYAN}Guide:${NC}    ${SCOUTICA_HOME:-~/.scoutica}/GENERATE_MY_CARD.md"
     echo ""
