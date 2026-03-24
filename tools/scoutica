@@ -903,41 +903,82 @@ cmd_help() {
     echo -e "${BOLD}Scoutica Protocol CLI${NC} ${DIM}v$VERSION${NC}"
     echo -e "${DIM}Your skills. Your rules. Your data.${NC}"
     echo ""
-    echo -e "${BOLD}Usage:${NC}"
-    echo -e "  scoutica ${CYAN}<command>${NC} [options] [directory]"
+    echo -e "${BOLD}Usage:${NC}  scoutica ${CYAN}<command>${NC} [options] [directory]"
     echo ""
     echo -e "${BOLD}🚀 Create your card:${NC}"
-    echo -e "  ${CYAN}scan${NC} <docs-folder>   Auto-generate card from your documents (AI-powered)"
+    echo -e "  ${CYAN}scan${NC} <docs-folder>   Auto-generate from your documents ${DIM}(easiest — just point at your CV folder)${NC}"
     echo -e "  ${CYAN}init${NC}                 Step-by-step interactive wizard"
-    echo -e "  ${CYAN}init --ai${NC}            Create card via AI assistant (paste your CV)"
+    echo -e "  ${CYAN}init --ai${NC}            Generate via AI assistant (paste your CV)"
     echo ""
     echo -e "${BOLD}🔧 Manage your card:${NC}"
-    echo -e "  ${CYAN}info${NC}                 View your card summary"
-    echo -e "  ${CYAN}validate${NC}             Validate card against protocol schemas"
-    echo -e "  ${CYAN}publish${NC}              Push card to GitHub"
-    echo -e "  ${CYAN}resolve${NC} <url>        Fetch and display any card from a URL"
+    echo -e "  ${CYAN}info${NC}     [dir]       View your card summary"
+    echo -e "  ${CYAN}validate${NC} [dir]       Validate card against protocol schemas"
+    echo -e "  ${CYAN}publish${NC}  [dir]       Push card to GitHub"
+    echo -e "  ${CYAN}resolve${NC}  <url>       Fetch and display any card from a URL"
     echo ""
     echo -e "${BOLD}⚙️  Advanced:${NC}"
     echo -e "  ${CYAN}doctor${NC}               System diagnostics and health check"
-    echo -e "  ${CYAN}update${NC}               Update the Scoutica CLI to the latest version"
+    echo -e "  ${CYAN}update${NC}               Update the Scoutica Protocol CLI"
     echo -e "  ${CYAN}help${NC}                 Show this help"
     echo -e "  ${CYAN}version${NC}              Show version"
     echo ""
-    echo -e "${BOLD}Examples:${NC}"
+
+    # ── Live AI provider detection ──
+    echo -e "${BOLD}🤖 Your AI Providers:${NC}"
+    local default_provider=""
+    local provider_list=""
+    local ai_count=0
+
+    # Detect in priority order (same as scan auto-detect)
+    for cli in gemini claude codex vibe opencode ollama; do
+        if command -v "$cli" >/dev/null 2>&1; then
+            ai_count=$((ai_count+1))
+            if [ -z "$default_provider" ]; then
+                default_provider="$cli"
+                echo -e "  ${GREEN}★${NC} ${CYAN}$cli${NC}  ${DIM}← default (auto-detected)${NC}"
+            else
+                echo -e "  ${GREEN}✓${NC} ${CYAN}$cli${NC}"
+            fi
+        fi
+    done
+    # Check ail (network service)
+    if curl -sf http://localhost:18080/health &>/dev/null 2>&1; then
+        ai_count=$((ai_count+1))
+        if [ -z "$default_provider" ]; then
+            default_provider="ail"
+            echo -e "  ${GREEN}★${NC} ${CYAN}ail${NC}  ${DIM}← default (switchAILocal running)${NC}"
+        else
+            echo -e "  ${GREEN}✓${NC} ${CYAN}ail${NC}  ${DIM}(switchAILocal)${NC}"
+        fi
+    fi
+
+    if [ $ai_count -eq 0 ]; then
+        echo -e "  ${YELLOW}⚠${NC}  No AI CLI found. Install one for auto-generation:"
+        echo -e "     ${CYAN}gemini${NC}  → ${DIM}npm i -g @google/gemini-cli${NC}"
+        echo -e "     ${CYAN}claude${NC}  → ${DIM}npm i -g @anthropic-ai/claude-code${NC}"
+        echo -e "     ${CYAN}ollama${NC}  → ${DIM}https://ollama.com (runs 100% offline)${NC}"
+        echo -e "  ${DIM}Without one, scan will copy prompt to clipboard for ChatGPT/etc.${NC}"
+    fi
     echo ""
-    echo -e "  ${DIM}# Auto-generate card from your CV folder (easiest)${NC}"
-    echo -e "  scoutica scan ~/CV/"
+
+    # ── Examples ──
+    echo -e "${BOLD}Quick start:${NC}"
     echo ""
-    echo -e "  ${DIM}# Use a specific AI provider${NC}"
-    echo -e "  scoutica scan ~/CV/ --with gemini"
+    if [ -n "$default_provider" ]; then
+        echo -e "  ${DIM}# Generate card using ${default_provider} (your default):${NC}"
+        echo -e "  scoutica scan ~/CV/"
+        echo ""
+        echo -e "  ${DIM}# Use a different provider:${NC}"
+        echo -e "  scoutica scan ~/CV/ --with claude"
+    else
+        echo -e "  ${DIM}# Copy prompt to clipboard, paste in ChatGPT:${NC}"
+        echo -e "  scoutica scan ~/CV/ --clipboard"
+    fi
     echo ""
-    echo -e "  ${DIM}# No local AI? Copy prompt to clipboard, paste in ChatGPT${NC}"
-    echo -e "  scoutica scan ~/CV/ --clipboard"
+    echo -e "  ${DIM}# Full workflow: scan → validate → publish${NC}"
+    echo -e "  scoutica scan ~/CV/ && scoutica validate && scoutica publish"
     echo ""
-    echo -e "  ${DIM}# Validate and publish in one go${NC}"
-    echo -e "  scoutica validate && scoutica publish"
-    echo ""
-    echo -e "  ${DIM}# Check someone's card${NC}"
+    echo -e "  ${DIM}# Check someone else's card:${NC}"
     echo -e "  scoutica resolve https://github.com/user/my-card"
     echo ""
     echo -e "${BOLD}📚 Learn more:${NC}"
