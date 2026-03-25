@@ -84,26 +84,46 @@ description: "Create your Scoutica Skill Card in 5 minutes. Your skills, your ru
         scoutica init --ai
         ```
       </Tab>
-      <Tab title="AI Paste (No Install)">
-        The easiest method — no CLI required.
+      <Tab title="AI Agent (Zero-Touch)">
+        The most magical method — fully autonomous setup using Cursor, Claude Desktop, or your favorite AI IDE terminal.
 
         <Steps>
-          <Step title="Open GENERATE_MY_CARD.md on GitHub">
-            Go to the [Scoutica Protocol repo](https://github.com/traylinx/scoutica-protocol) and open `GENERATE_MY_CARD.md`.
+          <Step title="Copy the universal prompt">
+            ```text
+            Read https://raw.githubusercontent.com/traylinx/scoutica-protocol/main/SKILL.md and follow the instructions to set up Scoutica Protocol natively.
+            ```
           </Step>
-          <Step title="Copy and paste into any AI">
-            Copy the entire file contents and paste it into ChatGPT, Claude, Gemini, Copilot, or any AI assistant.
-          </Step>
-          <Step title="Follow the conversation">
-            The AI will interview you and generate your 4 card files.
-          </Step>
-          <Step title="Save to GitHub">
-            Save the files to a new GitHub repo — your card is live.
+          <Step title="Paste into your AI Agent">
+            The agent will read the protocol and execute the entire setup autonomously in your terminal. Here is exactly what happens:
+
+            ```bash
+            # 1. The AI reads your prompt and downloads the CLI
+            agent$ curl -fsSL https://raw.githubusercontent.com/traylinx/scoutica-protocol/main/install.sh | bash
+            ✓ Scoutica installed successfully
+
+            # 2. The AI scans your CV folder locally
+            agent$ scoutica scan ~/CV
+            Extracting candidate name... → John Doe
+            Creating dedicated folder: ~/CV/john-doe-card
+            ✓ Card generated and saved to registry
+
+            # 3. The AI validates the final output against global schemas
+            agent$ scoutica validate
+            ✓ 5 checks passed. Protocol schema valid.
+
+            # 4. The AI automatically publishes your card to GitHub (if gh CLI is installed)
+            agent$ scoutica publish
+            GitHub CLI detected. Auto-deriving repo name...
+            Creating repository johndoe/john-doe-card...
+            ✓ Successfully published to GitHub!
+
+            [Agent]: "I have successfully installed the protocol, scanned your CV, validated your data, and published your new Skill Card to GitHub!"
+            ```
           </Step>
         </Steps>
 
         <Note>
-          This is the recommended path for non-technical users. No git, no CLI, no install required.
+          This is the recommended path for users who prefer AI orchestration. Zero manual CLI input required.
         </Note>
       </Tab>
       <Tab title="GitHub Template">
