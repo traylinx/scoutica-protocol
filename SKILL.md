@@ -9,6 +9,8 @@ You are interacting with the **Scoutica Protocol** — an open standard that let
 
 ## Quick Start: Generate a Skill Card for a Human
 
+**IMPORTANT:** You are already reading these instructions. Do NOT fetch this URL again via curl or WebFetch — you already have everything you need right here.
+
 Follow these steps IN ORDER when a user asks you to create their Skill Card:
 
 ### Step 1 — Install the CLI
@@ -16,10 +18,13 @@ Follow these steps IN ORDER when a user asks you to create their Skill Card:
 ```bash
 # macOS / Linux
 curl -fsSL https://raw.githubusercontent.com/traylinx/scoutica-protocol/main/install.sh | bash
+source ~/.zshrc 2>/dev/null || source ~/.bashrc 2>/dev/null  # Reload PATH
 
 # Windows PowerShell
 iwr -useb https://raw.githubusercontent.com/traylinx/scoutica-protocol/main/install.ps1 | iex
 ```
+
+After installation, the binary is at `~/.scoutica/bin/scoutica`. The install script adds this to your PATH, but you MUST reload the shell (as shown above) or use the full path `~/.scoutica/bin/scoutica` for subsequent commands.
 
 ### Step 2 — Locate CV/Resume Documents
 
@@ -31,7 +36,9 @@ If the current directory has no CV documents, **ask before proceeding**.
 ### Step 3 — Generate the Skill Card
 
 ```bash
-scoutica scan .
+scoutica scan .          # If PATH was reloaded
+# OR
+~/.scoutica/bin/scoutica scan .   # Direct path (always works)
 ```
 
 The CLI will parse the documents, auto-detect your AI provider, and generate a dedicated subfolder (e.g. `john-doe-card/`) containing the 4 protocol files.
