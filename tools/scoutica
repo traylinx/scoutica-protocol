@@ -714,7 +714,7 @@ cmd_publish() {
                     # Register publish event in global registry
                     local abs_card_dir
                     abs_card_dir=$(pwd)
-                    _register_card "$abs_card_dir" "publish" "{\"github_url\": \"$clean_url\"}"
+                    _register_card "$abs_card_dir" "publish" '{"github_url": "'"$clean_url"'"}'
                 else
                     error "Push failed. Check your remote configuration or permissions."
                 fi
@@ -753,13 +753,13 @@ cmd_publish() {
             git remote add origin "https://github.com/$gh_user/$repo_name.git" 2>/dev/null || true
             
             echo ""
-            echo -e "  ${BOLD}Next steps:${NC}"
-            echo -e "  1. Create an empty repo on GitHub: ${CYAN}https://github.com/new${NC}"
-            echo -e "     Name it exactly: ${BOLD}$repo_name${NC}"
-            echo -e "  2. Push your card: ${CYAN}git push -u origin main${NC}"
-            echo ""
             echo -e "  ${BOLD}Test your live card after pushing:${NC}"
             echo -e "  ${CYAN}scoutica resolve https://github.com/$gh_user/$repo_name${NC}"
+            
+            # Register intended publish event in global registry
+            local abs_card_dir
+            abs_card_dir=$(pwd)
+            _register_card "$abs_card_dir" "publish" '{"github_url": "https://github.com/'"$gh_user"'/'"$repo_name"'"}'
         )
     fi
 }
@@ -1164,19 +1164,19 @@ _register_card() {
         title=$(python3 -c "import json;d=json.load(open('$card_dir/profile.json'));print(d.get('title',''))" 2>/dev/null || echo "")
     fi
     
-    python3 << REGSCRIPT 2>/dev/null
+    python3 << 'REGSCRIPT' - "$REGISTRY_FILE" "$card_dir" "$event" "$name" "$title" "$extra_json"
 import json, os, sys
 from datetime import datetime
 
-registry_file = "$REGISTRY_FILE"
-card_dir = os.path.abspath("$card_dir")
-event = "$event"
+registry_file = sys.argv[1]
+card_dir = os.path.abspath(sys.argv[2])
+event = sys.argv[3]
 now = datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
-name = """$name"""
-title = """$title"""
+name = sys.argv[4]
+title = sys.argv[5]
 
 try:
-    extra = json.loads('''$extra_json''')
+    extra = json.loads(sys.argv[6])
 except:
     extra = {}
 
@@ -2148,7 +2148,7 @@ PARSE_SCRIPT
     abs_output_dir=$(cd "$output_dir" && pwd)
     local src_abs
     src_abs=$(cd "$source_dir" && pwd)
-    _register_card "$abs_output_dir" "scan" "{\"provider\": \"$provider\", \"source_dir\": \"$src_abs\"}"
+    _register_card "$abs_output_dir" "scan" '{"provider": "'"$provider"'", "source_dir": "'"$src_abs"'"}'
 }
 
 # ─── RESOLVE Command ──────────────────────────────────────────────────────────
