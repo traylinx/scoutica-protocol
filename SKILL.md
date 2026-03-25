@@ -34,7 +34,9 @@ If the current directory has no CV documents, **ask before proceeding**.
 scoutica scan .
 ```
 
-The CLI will auto-detect your AI provider. If no AI CLI is found, use clipboard fallback:
+The CLI will parse the documents, auto-detect your AI provider, and generate a dedicated subfolder (e.g. `john-doe-card/`) containing the 4 protocol files.
+
+If no AI CLI is found locally, use clipboard fallback:
 
 ```bash
 scoutica scan . --clipboard
@@ -56,12 +58,13 @@ scoutica validate
 
 Checks the generated card against the Scoutica JSON schemas.
 
-### Step 5 — Preview and Publish
+### Step 5 — Manage and Publish
 
 ```bash
+scoutica status           # View dashboard of all generated cards
+scoutica publish          # Push to GitHub permanently
 scoutica preview          # Builds HTML and publishes to here.now (24h for anonymous)
 scoutica preview --force  # Re-publish if expired
-scoutica publish          # Push to GitHub permanently
 ```
 
 ### Troubleshooting
@@ -141,10 +144,11 @@ If the opportunity passes all checks:
 ```bash
 scoutica init                    # Interactive card creation wizard
 scoutica init --ai               # AI-assisted card creation
-scoutica scan ./docs/            # Auto-generate card from documents
+scoutica scan ./docs/            # Auto-generate card from documents into a subfolder
 scoutica scan . --clipboard      # Generate via clipboard (no AI CLI needed)
 scoutica scan . --with gemini    # Use a specific AI provider
 scoutica validate [dir]          # Validate card against schemas
+scoutica status                  # View dashboard of all your Skill Cards
 scoutica preview [dir]           # Build HTML and publish to here.now
 scoutica publish [dir]           # Push card to GitHub
 scoutica info [dir]              # Display card summary
