@@ -91,6 +91,17 @@ scoutica-protocol/
     └── cli_audit.md             # Cross-platform CLI audit report
 ```
 
+## CLI Installation
+
+To install the `scoutica` CLI locally:
+```bash
+# macOS / Linux
+curl -fsSL https://raw.githubusercontent.com/traylinx/scoutica-protocol/main/install.sh | bash
+
+# Windows PowerShell
+iwr -useb https://raw.githubusercontent.com/traylinx/scoutica-protocol/main/install.ps1 | iex
+```
+
 ## CLI Commands
 
 ```bash
