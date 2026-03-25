@@ -36,14 +36,15 @@ The Scoutica Protocol is an open standard for **AI-readable, candidate-owned pro
 5. Match confirmed → candidate shares contact info directly
 ```
 
-The protocol has a strict two-part architecture:
+The protocol has a strict two-part architecture powered by the **Traylinx Stargate P2P Mesh**:
 
 | Part | What | Visibility |
 |------|------|------------|
-| **The Protocol** | Open standard, schemas, agent rules, registry API | Public — anyone can clone, fork, build on it |
-| **Your Skill Card** | Your personal profile, Rules of Engagement, evidence, salary floor | Private — never committed to this repo |
+| **The Protocol** | Open standard schemas, Stargate P2P transport, decentralized registry API | Public — anyone can clone, fork, build on it |
+| **Your Skill Card** | Your personal profile, Rules of Engagement, evidence, salary floor | Private by Default — verified by Sentinel |
+| **Recruiter Card** | An employer's identity, active job roles, and hiring rules | Public or Gated — scoped by privacy zones |
 
-**The protocol is the network. Your skill card is your node on it.**
+**The protocol is the zero-trust network. Your agents are the nodes on it.**
 
 ---
 
@@ -57,7 +58,7 @@ The protocol has a strict two-part architecture:
     Your card lives in your own GitHub repo. Delete the repo and you disappear from the network entirely. No vendor lock-in.
   </Card>
   <Card title="Rules of Engagement" icon="shield-check">
-    Set your salary floor, remote policy, and blocked industries. AI agents **must** respect these rules before contacting you.
+    Set your salary floor, remote policy, and blocked industries. Candidate and Employer agents negotiate autonomously over the P2P mesh based on these hard rules.
   </Card>
   <Card title="Three-zone privacy" icon="eye-slash">
     Zone 1 (public title), Zone 2 (full profile, auth required), Zone 3 (contact info, your approval only).
@@ -84,7 +85,9 @@ The protocol, CLI, schemas, and AI-powered card generation are **live and ready 
 | AI scan from documents | ✅ Live |
 | JSON Schema validation | ✅ Live |
 | GitHub publishing | ✅ Live |
-| Agent-side matching | ✅ Live |
+| Agent-side deterministic matching | ✅ Live |
+| Employer CLI (`org init`, `search`) | ✅ Live |
+| P2P Node Messaging (Stargate) | ✅ Live |
 | Decentralized registry | 🔜 Roadmap |
 | Blockchain identity (SBTs) | 🔜 Roadmap |
 | Micropayments ($SKILL token) | 🔜 Roadmap |
