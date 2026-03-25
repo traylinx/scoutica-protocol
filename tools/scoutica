@@ -684,22 +684,6 @@ cmd_publish() {
                     echo -e "  ${BOLD}View on GitHub:${NC}"
                     echo -e "  $clean_url"
                     echo ""
-                    
-                    # Broadcast to the universal registry
-                    echo -e "  ${DIM}Broadcasting to the decentralized Scoutica Network...${NC}"
-                    local response=""
-                    response=$(curl -s -X POST "https://scoutica.com/.netlify/functions/register-card" \
-                        -H "Content-Type: application/json" \
-                        -d "{\"card_url\": \"$clean_url\"}" 2>/dev/null || echo '{"status":"error"}')
-                    
-                    if echo "$response" | grep -q '"status":"success"'; then
-                        echo -e "  ${GREEN}✅ Card indexed. Recruiters and agents can now discover you.${NC}"
-                    else
-                        echo -e "  ${YELLOW}⚠️  Pushed to GitHub, but registry network is currently offline.${NC}"
-                        echo -e "  ${DIM}Your card is live, but discovery may be delayed.${NC}"
-                    fi
-                    echo ""
-                    
                     echo -e "  ${BOLD}Test your live card:${NC}"
                     echo -e "  ${CYAN}scoutica resolve $clean_url${NC}"
                 else
