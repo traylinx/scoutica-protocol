@@ -17,7 +17,7 @@
 
 set -euo pipefail
 
-VERSION="0.1.0"
+VERSION="0.1.1"
 SCOUTICA_HOME="${SCOUTICA_HOME:-$HOME/.scoutica}"
 SCHEMAS_DIR="$SCOUTICA_HOME/schemas"
 TEMPLATES_DIR="$SCOUTICA_HOME/templates"
