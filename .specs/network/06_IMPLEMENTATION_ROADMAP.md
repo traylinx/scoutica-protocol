@@ -51,8 +51,27 @@ graph TD
     R3 --> A1
 ```
 
-## Open Questions for Review
-1. Should `rules.yaml` scoring be strictly boolean (rejects if one failure) or weighted (forgive low salary if remote = 100%)?
-2. Do we fund the central Registry V2 via "premium employer searches", or keep it purely open-source?
-3. Should the DNS verification step be required before a recruiter can execute a search on the V2 API?
-4. Are we treating hiring agencies differently than in-house corporate recruiters in the schemas?
+## Resolved Design Decisions
+
+> These questions were originally flagged as open. They are now resolved and documented here for the permanent record.
+
+### Q1: Boolean vs Weighted Scoring?
+
+**Decision: Hybrid.** Hard filters (salary, location, blocked industries, engagement type) are strictly **boolean pass/fail**. If any hard filter fails, the candidate is immediately dropped. Soft scoring (skill overlap, evidence quality, title match) is **weighted** on a 0-100 scale. See `03_JOB_POSTING_CARD.md` §2 for the exact algorithm.
+
+### Q2: Registry Funding Model?
+
+**Decision: Deferred to Phase 3+.** In Phase 1-2, the registry is a GitHub-hosted static `index.json` (zero-cost infrastructure). Funding only becomes relevant when we deploy the V2 REST API with `pgvector`. Potential models to evaluate:
+- Freemium (free for `new/building` tier, paid for `trusted/elite` API access)
+- Fully open-source with community-funded infrastructure
+- Premium features (analytics dashboards, batch search APIs)
+
+### Q3: DNS Verification Required for Search?
+
+**Decision: Yes, but phased.**
+- **V1** (GitHub topics): No DNS required — anyone can search because data is publicly accessible on GitHub.
+- **V2+** (REST API): DNS verification **required** for any search beyond `anonymous` tier (10 searches/day). See `02_RECRUITER_CARD.md` §7 for the DNS verification protocol.
+
+### Q4: Agency vs In-House Schema Differences?
+
+**Decision: Already resolved.** The `entity_type` field in `recruiter_profile.json` distinguishes between `"in-house"`, `"agency"`, `"fractional"`, and `"platform"`. Trust accrues to the **client org**, not the agency (see `07_SCENARIOS.md` Scenario 9). No further schema differentiation needed — the same `role.json` is used regardless of entity type.

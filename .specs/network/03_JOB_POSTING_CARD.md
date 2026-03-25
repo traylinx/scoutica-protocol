@@ -5,15 +5,21 @@ A machine-readable job definition that allows candidate agents to algorithmicall
 
 ```json
 {
-  "$schema": "https://schema.scoutica.com/v1/role.json",
+  "$schema": "https://schema.scoutica.com/v1/role.schema.json",
+  "scoutica_version": "0.3.0",
   "job_id": "req_88f9a2",
   "title": "Senior AI Architect",
   "status": "active",
   "posted_at": "2026-03-25T10:00:00Z",
+  "expires_at": "2026-04-24T10:00:00Z",
+  "refreshed_at": "2026-03-25T10:00:00Z",
   "requirements": {
     "hard_skills": ["Python", "Agentic AI", "PostgreSQL"],
+    "preferred_skills": ["Rust", "NATS", "Next.js"],
     "soft_skills": ["System Design", "Mentorship"],
-    "minimum_years_experience": 8
+    "minimum_years_experience": 8,
+    "seniority": "senior",
+    "languages_required": ["English"]
   },
   "compensation": {
     "currency": "EUR",
@@ -23,8 +29,15 @@ A machine-readable job definition that allows candidate agents to algorithmicall
   },
   "location": {
     "type": "remote",
-    "regions_allowed": ["EU", "UK", "US-East"]
-  }
+    "regions_allowed": ["EU", "UK", "US-East"],
+    "timezone_overlap_required": "CET ±2h"
+  },
+  "engagement": {
+    "type": "permanent",
+    "start_date": "2026-05-01"
+  },
+  "description": "Lead the AI architecture for the Traylinx platform, designing agentic systems, data pipelines, and real-time inference services.",
+  "recruiter_card_url": "https://github.com/novatech-ai/.scoutica/recruiter_profile.json"
 }
 ```
 

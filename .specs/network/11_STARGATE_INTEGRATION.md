@@ -217,6 +217,10 @@ traylinx scoutica org verify    # Employer: DNS verification
 traylinx scoutica role create   # Employer: create role.json
 traylinx scoutica role publish  # Employer: register role in network
 traylinx scoutica jobs search   # Either: search the mesh for matching roles/candidates
+traylinx scoutica privacy audit # Either: view data access log for a specific org
+traylinx scoutica privacy block # Either: permanently block an org
+traylinx scoutica privacy pause # Either: freeze card visibility
+traylinx scoutica delete        # Either: remove card from all registries (irreversible)
 ```
 
 ---

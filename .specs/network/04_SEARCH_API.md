@@ -4,9 +4,29 @@
 We are evolving the search capabilities for Scoutica across three distinct phases, transitioning from zero-infrastructure to fully decentralized.
 
 ### 1.1 `V1` GitHub Topics & Scripts (Immediate)
-- **Mechanism:** Repositories tag themselves with `scoutica-card`.
-- **Crawling:** A simple python script loops over the GitHub Search API, fetching metadata and maintaining a static `index.json`.
-- **Search:** Client-side filtering over the `index.json` file.
+
+- **Topic Tag:** All Scoutica candidate repos tag themselves with the GitHub topic `scoutica-card`. Employer repos use `scoutica-employer`.
+- **Crawling:** A Python script (`tools/crawl_index.py`) queries the GitHub Search API:
+  - `GET https://api.github.com/search/repositories?q=topic:scoutica-card&sort=updated`
+  - For each repo, fetches `profile.json` and extracts: `title`, `seniority`, `skills[]`, `availability`, `last_updated`
+- **Index Format:** Results are written to a static `index.json` hosted on GitHub Pages (`registry.scoutica.com/index.json`):
+  ```json
+  {
+    "generated_at": "2026-03-26T00:00:00Z",
+    "cards": [
+      {
+        "card_url": "https://github.com/rschumann/sebastian-schkudlara-card",
+        "title": "Senior AI Architect",
+        "seniority": "senior",
+        "skills": ["Python", "Agentic AI", "PostgreSQL"],
+        "availability": "in_2_weeks",
+        "last_updated": "2026-03-25T18:00:00Z"
+      }
+    ]
+  }
+  ```
+- **Refresh Schedule:** GitHub Action runs `crawl_index.py` every 6 hours and commits the updated `index.json`.
+- **Client-Side Search:** CLI runs `scoutica jobs search` by downloading `index.json` and filtering locally. Zero server infrastructure needed.
 
 ### 1.2 `V2` REST API Registry (Mid-Term)
 - **Mechanism:** A centralized indexer (e.g., `registry.scoutica.com`).

@@ -8,16 +8,21 @@ Yes, recruiters need their own autonomous credential — parallel to the candida
 Verifiable corporate identity.
 ```json
 {
-  "$schema": "https://schema.scoutica.com/v1/recruiter_profile.json",
-  "id": "org_7b82f",
-  "type": "in-house",
+  "$schema": "https://schema.scoutica.com/v1/recruiter_profile.schema.json",
+  "scoutica_version": "0.3.0",
+  "entity_type": "in-house",
   "organization": {
     "name": "Traylinx",
     "domain": "traylinx.com",
-    "verified": true
+    "domain_verified": true,
+    "verified_at": "2026-03-20T10:00:00Z",
+    "description": "AI-powered decentralized infrastructure platform.",
+    "team_size": "11-50",
+    "headquarters": "Berlin, Germany"
   },
   "industries": ["AI", "Web3", "Enterprise Software"],
   "engagement_types": ["permanent", "contract"],
+  "tech_stack": ["Python", "Next.js", "PostgreSQL", "NATS", "Docker"],
   "team": {
     "model": "organization",
     "members_can_post_roles": true,
@@ -25,8 +30,12 @@ Verifiable corporate identity.
   },
   "contact": {
     "agent_endpoint": "https://api.traylinx.com/scoutica/webhooks",
-    "human_fallback": "recruiting@traylinx.com"
-  }
+    "human_fallback": "recruiting@traylinx.com",
+    "careers_page": "https://traylinx.com/careers"
+  },
+  "card_url": "https://github.com/traylinx/.scoutica/recruiter_profile.json",
+  "created_at": "2026-03-20T10:00:00Z",
+  "updated_at": "2026-03-25T14:00:00Z"
 }
 ```
 
@@ -38,8 +47,15 @@ commitments:
   salary_transparency_guaranteed: true
   feedback_provided_on_rejection: true
   gdpr_compliance: true
+  interview_process_max_rounds: 3
+  response_time_sla_hours: 48
 limits:
-  max_unsolicited_pings_per_week: 50 # Anti-spam declaration
+  max_unsolicited_pings_per_week: 50
+  max_active_roles: 10
+preferences:
+  preferred_seniority: ["senior", "lead", "manager"]
+  preferred_engagement: ["permanent", "contract"]
+  preferred_regions: ["EU", "UK"]
 ```
 
 ### 1.3 `reputation.json`
@@ -124,9 +140,49 @@ github.com/traylinx/.scoutica/             ← Employer identity (collaborator)
   - Inbound `response.accept` from a candidate → Employer Agent logic
 
 ## 5. CLI Commands for Recruiters
+
 - `scoutica org init` — Generates a recruiter card (prompts for team model).
 - `scoutica org verify --domain example.com` — DNS TXT record validation.
 - `scoutica org publish` — Pushes to GitHub/Registry.
 - `scoutica role create` — Interactive wizard to create a `role.json`.
 - `scoutica role validate <file>` — Schema validation for a role.
 - `scoutica role publish <file>` — Registers role in the global index.
+
+## 6. Privacy CLI Commands (Both Candidate & Employer)
+
+- `scoutica privacy audit <org>` — Shows all data accessed by the specified org, from the local transparency log.
+- `scoutica privacy revoke <org>` — Revokes Zone 2 access for the specified org.
+- `scoutica privacy block <org>` — Permanently blocks all messages from the specified org.
+- `scoutica privacy pause` — Freezes card visibility without deletion (card becomes invisible to search but is not destroyed).
+- `scoutica delete` — Removes card from all registries + GitHub. Irreversible.
+
+## 7. DNS Verification Protocol
+
+When an employer runs `scoutica org verify --domain example.com`, the following protocol is executed:
+
+### 7.1 TXT Record Generation
+
+The CLI computes a verification hash:
+```
+hash = SHA-256( organization.name + "." + organization.domain + "." + scoutica_version )
+record_value = "scoutica-verify=v1:" + hex(hash)[:32]
+```
+
+Example:
+```
+_scoutica.example.com  TXT  "scoutica-verify=v1:a7f9b2c3d4e5f6a7b8c9d0e1f2a3b4c5"
+```
+
+### 7.2 Verification Flow
+
+1. CLI prints the required TXT record and the DNS name (`_scoutica.<domain>`)
+2. User adds the record to their DNS provider
+3. CLI polls DNS every 30 seconds for up to 10 minutes (`--timeout` configurable)
+4. On success: sets `organization.domain_verified = true` and `organization.verified_at` timestamp
+5. On failure: prints error with troubleshooting steps (common DNS propagation delays)
+
+### 7.3 Re-verification
+
+- Domain verification expires after **90 days** to prevent stale cards
+- CLI warns the user 7 days before expiry
+- Re-verification grants +5 trust points (once per quarter, see `08_TRUST_REPUTATION.md`)

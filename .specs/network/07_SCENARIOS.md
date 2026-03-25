@@ -277,7 +277,7 @@ graph TD
    - Does the role match my `rules.yaml` constraints?
    - Does the compensation meet my minimum?
    - Is the employer's trust level >= my threshold?
-4. **Auto-Apply:** Candidate agent sends `opportunity.pitch` to the Employer with fit score and card URL
+4. **Auto-Apply:** Candidate agent sends `opportunity.pitch` (bidirectional) to the Employer with fit score and card URL
 
 ### Key Insight
 

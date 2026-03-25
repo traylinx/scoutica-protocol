@@ -240,6 +240,11 @@
           "type": "array",
           "items": { "type": "string" }
         },
+        "soft_skills": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Non-technical skills (e.g., System Design, Leadership, Mentorship)"
+        },
         "minimum_years_experience": {
           "type": "integer",
           "minimum": 0,

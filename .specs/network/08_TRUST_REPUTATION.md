@@ -6,7 +6,10 @@
 
 ## 1. The Trust Score
 
-Every recruiter entity has a `trust_score` (0-100) computed from observable on-chain behavior.
+Every recruiter entity has a `trust_score` (0-100) computed from observable behavioral data.
+
+> **V1:** Each agent computes trust scores locally from its own interaction history + Sentinel activity logs.
+> **V2+:** The Registry aggregates and stores trust scores globally, computed from all agents' reported events.
 
 ### 1.1 Score Components
 
@@ -131,3 +134,26 @@ recruiter_filters:
 - `avg_response_time_hours`
 - `hire_rate`
 - `spam_flags`
+
+---
+
+## 7. Rate Limit Pooling (Multi-Agent Orchestrators)
+
+When an employer uses a multi-agent architecture (e.g., Scenario 8: Swarm Sourcing with an Orchestrator + 5 Sourcing Agents), rate limits are applied **per-organization, not per-agent**.
+
+### 7.1 Rules
+
+| Scenario | Rate Limit Scope |
+|----------|-----------------|
+| Single agent, single org | Per-org limits apply |
+| 5 agents, same org | All share the org's daily quota |
+| Agency managing 3 clients | Each client org has its own quota |
+| Dual-agent (candidate + employer) | Each role has its own separate quota |
+
+### 7.2 Enforcement
+
+All agents belonging to the same `recruiter_profile.json` (same `card_url`) share the rate limit pool. The registry tracks total API calls per `card_url`, not per Stargate `peer_id`.
+
+### 7.3 Example
+
+NovaTech AI (`trust_level: "established"`) has a daily quota of 500 searches. If they spawn 5 Sourcing Agents, each agent can make up to 100 searches (500 / 5), or one agent can use the entire quota — but the total across all agents cannot exceed 500/day.
