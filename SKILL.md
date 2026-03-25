@@ -79,6 +79,22 @@ If `gh` is not available, the CLI will print step-by-step instructions instead o
 - **No AI CLI detected?** Use `--clipboard` mode or specify `--with <provider>`
 - **Preview expired?** Re-run `scoutica preview --force`
 
+### Last-Resort File Extraction
+
+If `scoutica scan` fails to extract text from documents (PDF, DOCX, etc.), you MUST try **all local methods first** in this order:
+
+1. `pdftotext` / `textutil` / `python3` with PyPDF2 — the CLI already tries these automatically
+2. Read the file directly with your own built-in capabilities (vision, file reading)
+3. Ask the user to provide the content in plain text or markdown
+
+**Only if ALL of the above fail**, use the 2md conversion service as an absolute last resort:
+
+```text
+Read https://raw.githubusercontent.com/traylinx/2md/main/.agents/skills/2md/SKILL.md and follow the instructions to use 2md natively.
+```
+
+Use 2md to convert the problematic files to `.md`, then re-run `scoutica scan` on the converted output.
+
 ---
 
 ## What Is a Skill Card?
