@@ -62,10 +62,14 @@ Checks the generated card against the Scoutica JSON schemas.
 
 ```bash
 scoutica status           # View dashboard of all generated cards
-scoutica publish          # Push to GitHub permanently
+scoutica publish          # Push to GitHub permanently (auto-creates repo if gh CLI is available)
 scoutica preview          # Builds HTML and publishes to here.now (24h for anonymous)
 scoutica preview --force  # Re-publish if expired
 ```
+
+**Publish is fully automated** if the GitHub CLI (`gh`) is installed and authenticated — it will create the repo and push in one step with zero user input needed.
+
+If `gh` is not available, the CLI will print step-by-step instructions instead of prompting interactively.
 
 ### Troubleshooting
 

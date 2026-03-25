@@ -724,43 +724,135 @@ cmd_publish() {
             fi
         )
     else
-        echo -e "  ${BOLD}No git repo found. Let's set one up.${NC}"
-        echo ""
-        local repo_name=$(ask "GitHub repo name" "my-scoutica-card")
-        local gh_user=$(ask "GitHub username")
-        echo ""
+        # ── No git repo — smart setup ──────────────────────────────────
         
-        (
-            cd "$card_dir"
-            git init >/dev/null 2>&1
-            # Only stage known card files
-            local card_files=(profile.json rules.yaml evidence.json SKILL.md scoutica.json)
-            for cf in "${card_files[@]}"; do
-                [ -f "$cf" ] && git add "$cf" 2>/dev/null
-            done
-            [ -d "rules" ] && git add rules/ 2>/dev/null
-            
-            # Preview changes to the user
-            local changes
-            changes=$(git status -s 2>/dev/null | grep -E 'profile\.json|rules\.yaml|evidence\.json|SKILL\.md|scoutica\.json|rules/') || true
-            echo -e "  ${BOLD}The following files are ready to publish:${NC}"
-            echo "$changes" | while read -r line; do
-                echo -e "    ${CYAN}$line${NC}"
-            done
-            
-            git commit -m "Initial Scoutica Protocol Skill Card" >/dev/null 2>&1
-            git branch -M main >/dev/null 2>&1
-            git remote add origin "https://github.com/$gh_user/$repo_name.git" 2>/dev/null || true
-            
+        # Try to extract a sensible default repo name from profile.json
+        local default_repo="my-scoutica-card"
+        if [ -f "$card_dir/profile.json" ] && command -v python3 &>/dev/null; then
+            local pname
+            pname=$(python3 -c "import json;d=json.load(open('$card_dir/profile.json'));print(d.get('name',''))" 2>/dev/null || echo "")
+            if [ -n "$pname" ]; then
+                default_repo=$(_slugify_name "$pname")
+                [ -n "$default_repo" ] && default_repo="${default_repo}-card" || default_repo="my-scoutica-card"
+            fi
+        fi
+        
+        # ── Tier 1: GitHub CLI (gh) — fully automated ──
+        if command -v gh &>/dev/null; then
+            # Check if gh is authenticated
+            if gh auth status &>/dev/null 2>&1; then
+                local gh_user
+                gh_user=$(gh api user --jq '.login' 2>/dev/null || echo "")
+                
+                if [ -n "$gh_user" ]; then
+                    local repo_name="$default_repo"
+                    echo -e "  ${GREEN}✅${NC} GitHub CLI detected (logged in as ${BOLD}$gh_user${NC})"
+                    echo ""
+                    
+                    (
+                        cd "$card_dir"
+                        git init >/dev/null 2>&1
+                        
+                        # Only stage known card files
+                        local card_files=(profile.json rules.yaml evidence.json SKILL.md scoutica.json)
+                        for cf in "${card_files[@]}"; do
+                            [ -f "$cf" ] && git add "$cf" 2>/dev/null
+                        done
+                        [ -d "rules" ] && git add rules/ 2>/dev/null
+                        
+                        git commit -m "Initial Scoutica Protocol Skill Card" >/dev/null 2>&1
+                        git branch -M main >/dev/null 2>&1
+                        
+                        # Create repo on GitHub automatically
+                        echo -e "  ${DIM}Creating repository ${BOLD}$gh_user/$repo_name${NC} ${DIM}on GitHub...${NC}"
+                        if gh repo create "$repo_name" --public --source=. --remote=origin --push >/dev/null 2>&1; then
+                            echo -e "  ${GREEN}✅ Successfully published to GitHub!${NC}"
+                            echo ""
+                            
+                            local github_url="https://github.com/$gh_user/$repo_name"
+                            echo -e "  ${BOLD}View on GitHub:${NC}"
+                            echo -e "  $github_url"
+                            echo ""
+                            echo -e "  ${BOLD}Test your live card:${NC}"
+                            echo -e "  ${CYAN}scoutica resolve $github_url${NC}"
+                            
+                            # Register in global registry
+                            local abs_card_dir
+                            abs_card_dir=$(pwd)
+                            _register_card "$abs_card_dir" "publish" '{"github_url": "'"$github_url"'"}'
+                        else
+                            # gh repo create failed — maybe name conflict
+                            warn "Auto-create failed (repo name '$repo_name' may already exist)."
+                            echo -e "  ${DIM}Try manually: gh repo create $repo_name --public --source=. --remote=origin --push${NC}"
+                        fi
+                    )
+                    return 0
+                fi
+            fi
+        fi
+        
+        # ── Tier 2: Interactive terminal — ask user ──
+        if [ -t 0 ]; then
+            echo -e "  ${BOLD}No git repo found. Let's set one up.${NC}"
             echo ""
-            echo -e "  ${BOLD}Test your live card after pushing:${NC}"
-            echo -e "  ${CYAN}scoutica resolve https://github.com/$gh_user/$repo_name${NC}"
+            local repo_name=$(ask "GitHub repo name" "$default_repo")
+            local gh_user=$(ask "GitHub username")
+            echo ""
             
-            # Register intended publish event in global registry
-            local abs_card_dir
-            abs_card_dir=$(pwd)
-            _register_card "$abs_card_dir" "publish" '{"github_url": "https://github.com/'"$gh_user"'/'"$repo_name"'"}'
-        )
+            (
+                cd "$card_dir"
+                git init >/dev/null 2>&1
+                local card_files=(profile.json rules.yaml evidence.json SKILL.md scoutica.json)
+                for cf in "${card_files[@]}"; do
+                    [ -f "$cf" ] && git add "$cf" 2>/dev/null
+                done
+                [ -d "rules" ] && git add rules/ 2>/dev/null
+                
+                local changes
+                changes=$(git status -s 2>/dev/null | grep -E 'profile\.json|rules\.yaml|evidence\.json|SKILL\.md|scoutica\.json|rules/') || true
+                echo -e "  ${BOLD}The following files are ready to publish:${NC}"
+                echo "$changes" | while read -r line; do
+                    echo -e "    ${CYAN}$line${NC}"
+                done
+                
+                git commit -m "Initial Scoutica Protocol Skill Card" >/dev/null 2>&1
+                git branch -M main >/dev/null 2>&1
+                git remote add origin "https://github.com/$gh_user/$repo_name.git" 2>/dev/null || true
+                
+                echo ""
+                echo -e "  ${BOLD}Next steps:${NC}"
+                echo -e "  1. Create an empty repo on GitHub: ${CYAN}https://github.com/new${NC}"
+                echo -e "     Name it exactly: ${BOLD}$repo_name${NC}"
+                echo -e "  2. Push your card: ${CYAN}git push -u origin main${NC}"
+                echo ""
+                echo -e "  ${BOLD}Test your live card after pushing:${NC}"
+                echo -e "  ${CYAN}scoutica resolve https://github.com/$gh_user/$repo_name${NC}"
+                
+                # Register in global registry
+                local abs_card_dir
+                abs_card_dir=$(pwd)
+                _register_card "$abs_card_dir" "publish" '{"github_url": "https://github.com/'"$gh_user"'/'"$repo_name"'"}'
+            )
+        else
+            # ── Tier 3: Non-interactive terminal — safe instructions ──
+            echo -e "  ${BOLD}No git repo found.${NC}"
+            echo ""
+            echo -e "  ${DIM}Non-interactive terminal detected. To publish your card:${NC}"
+            echo ""
+            echo -e "  ${BOLD}Option A — GitHub CLI (recommended):${NC}"
+            echo -e "    ${CYAN}cd $card_dir${NC}"
+            echo -e "    ${CYAN}git init && git add profile.json rules.yaml evidence.json SKILL.md${NC}"
+            echo -e "    ${CYAN}git commit -m 'Initial Scoutica Protocol Skill Card'${NC}"
+            echo -e "    ${CYAN}gh repo create $default_repo --public --source=. --remote=origin --push${NC}"
+            echo ""
+            echo -e "  ${BOLD}Option B — Manual:${NC}"
+            echo -e "    1. Create a repo at ${CYAN}https://github.com/new${NC}"
+            echo -e "    2. Run: ${CYAN}cd $card_dir && git init && git add . && git commit -m 'init'${NC}"
+            echo -e "    3. Run: ${CYAN}git remote add origin https://github.com/YOU/$default_repo.git${NC}"
+            echo -e "    4. Run: ${CYAN}git push -u origin main${NC}"
+            echo ""
+            echo -e "  ${DIM}After pushing, register your card: scoutica publish${NC}"
+        fi
     fi
 }
 
