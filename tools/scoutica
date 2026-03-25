@@ -10,6 +10,7 @@
 #   scoutica publish        Push your card to GitHub
 #   scoutica resolve <url>  Fetch and display any card from a URL
 #   scoutica info           Show card summary
+#   scoutica logs           View scan logs and timing data
 #   scoutica update         Update the CLI to the latest version
 #   scoutica doctor         System diagnostics and health check
 #   scoutica help           Show this help
@@ -17,13 +18,15 @@
 
 set -euo pipefail
 
-VERSION="0.1.1"
+VERSION="0.2.0"
 SCOUTICA_HOME="${SCOUTICA_HOME:-$HOME/.scoutica}"
 SCHEMAS_DIR="$SCOUTICA_HOME/schemas"
 TEMPLATES_DIR="$SCOUTICA_HOME/templates"
 STATE_DIR=".scoutica"
 STATE_FILE="$STATE_DIR/state.json"
 REGISTRY_FILE="$SCOUTICA_HOME/registry.json"
+LOGS_DIR="$SCOUTICA_HOME/logs"
+CACHE_DIR="$SCOUTICA_HOME/cache"
 
 # Colors
 RED='\033[0;31m'
@@ -131,6 +134,160 @@ to_yaml_list() {
             echo "${indent}- \"$item\""
         fi
     done
+}
+
+# ─── Logging Infrastructure ───────────────────────────────────────────────────
+
+_SCAN_LOG_FILE=""
+_SCAN_T0=""
+_SCAN_T_EXTRACT=""
+_SCAN_T_AI_START=""
+_SCAN_T_AI_END=""
+_SCAN_T_PARSE=""
+
+_ts_ms() {
+    # Millisecond timestamp (macOS + Linux compatible)
+    if command -v gdate &>/dev/null; then
+        gdate +%s%3N
+    elif date +%s%3N &>/dev/null 2>&1; then
+        date +%s%3N
+    else
+        echo $(( $(date +%s) * 1000 ))
+    fi
+}
+
+_scan_log_init() {
+    mkdir -p "$LOGS_DIR"
+    _SCAN_LOG_FILE="$LOGS_DIR/scan_$(date +%Y-%m-%d_%H%M%S).log"
+    _SCAN_T0=$(_ts_ms)
+    _scan_log "INIT" "scan started, version=$VERSION"
+}
+
+_scan_log() {
+    local step="$1" msg="$2"
+    local ts=$(date +%H:%M:%S)
+    [ -n "$_SCAN_LOG_FILE" ] && echo "[$ts] [$step] $msg" >> "$_SCAN_LOG_FILE"
+}
+
+_scan_log_timing() {
+    local t_now=$(_ts_ms)
+    local total_ms=$(( t_now - ${_SCAN_T0:-$t_now} ))
+    local extract_ms=$(( ${_SCAN_T_AI_START:-$t_now} - ${_SCAN_T0:-$t_now} ))
+    local ai_ms=$(( ${_SCAN_T_AI_END:-$t_now} - ${_SCAN_T_AI_START:-$t_now} ))
+    local parse_ms=$(( t_now - ${_SCAN_T_AI_END:-$t_now} ))
+    
+    local total_s=$(python3 -c "print(f'{$total_ms/1000:.1f}')" 2>/dev/null || echo "$((total_ms/1000))")
+    local extract_s=$(python3 -c "print(f'{$extract_ms/1000:.1f}')" 2>/dev/null || echo "$((extract_ms/1000))")
+    local ai_s=$(python3 -c "print(f'{$ai_ms/1000:.1f}')" 2>/dev/null || echo "$((ai_ms/1000))")
+    local parse_s=$(python3 -c "print(f'{$parse_ms/1000:.1f}')" 2>/dev/null || echo "$((parse_ms/1000))")
+    
+    # Calculate percentages
+    local extract_pct=0 ai_pct=0 parse_pct=0
+    if [ "$total_ms" -gt 0 ]; then
+        extract_pct=$(python3 -c "print(f'{$extract_ms/$total_ms*100:.1f}')" 2>/dev/null || echo "0")
+        ai_pct=$(python3 -c "print(f'{$ai_ms/$total_ms*100:.1f}')" 2>/dev/null || echo "0")
+        parse_pct=$(python3 -c "print(f'{$parse_ms/$total_ms*100:.1f}')" 2>/dev/null || echo "0")
+    fi
+    
+    _scan_log "TIMING" "total=${total_s}s, extraction=${extract_s}s (${extract_pct}%), ai=${ai_s}s (${ai_pct}%), parse+write=${parse_s}s (${parse_pct}%)"
+    
+    echo ""
+    echo -e "  ${DIM}⏱️  Timing breakdown:${NC}"
+    echo -e "      ${DIM}Extraction:${NC}  ${BOLD}${extract_s}s${NC}   ${DIM}(${extract_pct}%)${NC}"
+    echo -e "      ${DIM}AI response:${NC} ${BOLD}${ai_s}s${NC}   ${DIM}(${ai_pct}%)${NC}"
+    echo -e "      ${DIM}Parse+Write:${NC} ${BOLD}${parse_s}s${NC}   ${DIM}(${parse_pct}%)${NC}"
+    echo -e "      ${DIM}Total:${NC}       ${BOLD}${total_s}s${NC}"
+    echo -e "  ${DIM}📋 Full log: $_SCAN_LOG_FILE${NC}"
+}
+
+# ─── Extraction Cache ─────────────────────────────────────────────────────────
+
+_cache_get() {
+    local file_hash="$1"
+    local cache_file="$CACHE_DIR/extracted_texts.json"
+    [ -f "$cache_file" ] || return 1
+    python3 -c "
+import json, sys
+try:
+    with open('$cache_file') as f:
+        cache = json.load(f)
+    text = cache.get('$file_hash')
+    if text:
+        print(text, end='')
+        sys.exit(0)
+    sys.exit(1)
+except:
+    sys.exit(1)
+" 2>/dev/null
+}
+
+_cache_set() {
+    local file_hash="$1" text="$2"
+    mkdir -p "$CACHE_DIR"
+    local cache_file="$CACHE_DIR/extracted_texts.json"
+    python3 -c "
+import json, sys, os
+cache_file = '$cache_file'
+try:
+    with open(cache_file) as f:
+        cache = json.load(f)
+except:
+    cache = {}
+cache[sys.argv[1]] = sys.argv[2]
+# Keep cache small: max 100 entries
+if len(cache) > 100:
+    keys = sorted(cache.keys())
+    for k in keys[:len(cache)-100]:
+        del cache[k]
+with open(cache_file, 'w') as f:
+    json.dump(cache, f)
+" "$file_hash" "$text" 2>/dev/null || true
+}
+
+_file_sha256() {
+    shasum -a 256 "$1" 2>/dev/null | awk '{print $1}'
+}
+
+# ─── LOGS Command ─────────────────────────────────────────────────────────────
+
+cmd_logs() {
+    local action="${1:-show}"
+    
+    case "$action" in
+        --list|list)
+            if [ -d "$LOGS_DIR" ] && ls "$LOGS_DIR"/scan_*.log &>/dev/null; then
+                header "Scan Logs"
+                ls -lt "$LOGS_DIR"/scan_*.log | head -20 | while IFS= read -r line; do
+                    echo -e "  ${DIM}$line${NC}"
+                done
+            else
+                warn "No scan logs found in $LOGS_DIR"
+            fi
+            ;;
+        --clear|clear)
+            if [ -d "$LOGS_DIR" ]; then
+                local count=$(ls "$LOGS_DIR"/scan_*.log 2>/dev/null | wc -l | tr -d ' ')
+                rm -f "$LOGS_DIR"/scan_*.log
+                success "Cleared $count scan log(s)"
+            else
+                warn "No logs directory found"
+            fi
+            ;;
+        *)
+            # Show the most recent log
+            local latest=$(ls -t "$LOGS_DIR"/scan_*.log 2>/dev/null | head -1)
+            if [ -n "$latest" ]; then
+                header "Latest Scan Log"
+                echo -e "  ${DIM}File: $latest${NC}"
+                echo ""
+                cat "$latest" | while IFS= read -r line; do
+                    echo -e "  $line"
+                done
+            else
+                warn "No scan logs found. Run 'scoutica scan' first."
+            fi
+            ;;
+    esac
 }
 
 # ─── INIT Command ─────────────────────────────────────────────────────────────
@@ -512,6 +669,7 @@ GENERATE_SCRIPT
     echo -e "  ${CYAN}scoutica validate${NC}   Check your card for errors"
     echo -e "  ${CYAN}scoutica publish${NC}    Push to GitHub"
     echo -e "  ${CYAN}scoutica info${NC}       View your card summary"
+    echo -e "  ${CYAN}scoutica logs${NC}       View scan logs and timing data"
     echo ""
 }
 
@@ -1532,8 +1690,13 @@ cmd_scan() {
     fi
     
     # ── Step 0: Check if source docs have changed ──
+    # ── Initialize logging ──
+    _scan_log_init
+    _scan_log "INIT" "source_dir=$source_dir, force=$force, provider=${provider:-auto}"
+    
     local current_hash=$(_compute_source_hash "$source_dir")
     local stored_hash=$(_read_state "card.source_hash")
+    _scan_log "HASH" "current=$current_hash, stored=$stored_hash"
     
     if [ "$force" = false ] && [ -n "$stored_hash" ] && [ "$current_hash" = "$stored_hash" ]; then
         # Check that all card files actually exist
@@ -1558,6 +1721,7 @@ cmd_scan() {
     fi
     
     # ── Step 1: Read all documents ──
+    _scan_log "EXTRACT" "scanning directory: $source_dir"
     echo -e "  ${BLUE}→${NC} Scanning ${BOLD}$source_dir${NC}..."
     echo ""
     
@@ -1578,9 +1742,19 @@ cmd_scan() {
         
         case "$ext" in
             md|txt|json|yaml|yml|csv|html|htm)
-                local content=$(cat "$file")
-                local word_count=$(echo "$content" | wc -w | tr -d ' ')
-                echo -e "    ${GREEN}📄${NC} $basename ${DIM}($word_count words)${NC}"
+                local fhash=$(_file_sha256 "$file")
+                local content
+                content=$(_cache_get "$fhash" 2>/dev/null) && {
+                    local word_count=$(echo "$content" | wc -w | tr -d ' ')
+                    echo -e "    ${GREEN}📄${NC} $basename ${DIM}($word_count words, cached)${NC}"
+                    _scan_log "EXTRACT" "file=$basename, type=$ext, words=$word_count, cache=HIT"
+                } || {
+                    content=$(cat "$file")
+                    _cache_set "$fhash" "$content"
+                    local word_count=$(echo "$content" | wc -w | tr -d ' ')
+                    echo -e "    ${GREEN}📄${NC} $basename ${DIM}($word_count words)${NC}"
+                    _scan_log "EXTRACT" "file=$basename, type=$ext, words=$word_count, cache=MISS"
+                }
                 all_text+="
 --- FILE: $basename ---
 $content
@@ -1588,11 +1762,20 @@ $content
                 file_count=$((file_count + 1))
                 ;;
             pdf)
-                local content=""
-                if command -v pdftotext &>/dev/null; then
-                    content=$(pdftotext "$file" - 2>/dev/null)
-                elif command -v python3 &>/dev/null; then
-                    content=$(python3 -c "
+                local fhash=$(_file_sha256 "$file")
+                local content
+                content=$(_cache_get "$fhash" 2>/dev/null) && {
+                    local word_count=$(echo "$content" | wc -w | tr -d ' ')
+                    echo -e "    ${GREEN}📄${NC} $basename ${DIM}($word_count words, PDF cached)${NC}"
+                    _scan_log "EXTRACT" "file=$basename, type=pdf, words=$word_count, cache=HIT"
+                } || {
+                    content=""
+                    local extractor="none"
+                    if command -v pdftotext &>/dev/null; then
+                        content=$(pdftotext "$file" - 2>/dev/null)
+                        extractor="pdftotext"
+                    elif command -v python3 &>/dev/null; then
+                        content=$(python3 -c "
 import subprocess, sys
 filepath = sys.argv[1]
 try:
@@ -1607,20 +1790,29 @@ except ImportError:
         print(result.stdout)
     except: pass
 " "$file" 2>/dev/null)
-                elif command -v textutil &>/dev/null; then
-                    content=$(textutil -convert txt -stdout "$file" 2>/dev/null)
-                fi
+                        extractor="python3"
+                    elif command -v textutil &>/dev/null; then
+                        content=$(textutil -convert txt -stdout "$file" 2>/dev/null)
+                        extractor="textutil"
+                    fi
+                    
+                    if [ -n "$content" ]; then
+                        _cache_set "$fhash" "$content"
+                        local word_count=$(echo "$content" | wc -w | tr -d ' ')
+                        echo -e "    ${GREEN}📄${NC} $basename ${DIM}($word_count words, extracted from PDF)${NC}"
+                        _scan_log "EXTRACT" "file=$basename, type=pdf, words=$word_count, extractor=$extractor, cache=MISS"
+                    else
+                        echo -e "    ${YELLOW}⚠️${NC}  $basename ${DIM}(could not extract text — install pdftotext or PyPDF2)${NC}"
+                        _scan_log "EXTRACT" "file=$basename, type=pdf, FAILED, no extractor available"
+                    fi
+                }
                 
                 if [ -n "$content" ]; then
-                    local word_count=$(echo "$content" | wc -w | tr -d ' ')
-                    echo -e "    ${GREEN}📄${NC} $basename ${DIM}($word_count words, extracted from PDF)${NC}"
                     all_text+="
 --- FILE: $basename ---
 $content
 "
                     file_count=$((file_count + 1))
-                else
-                    echo -e "    ${YELLOW}⚠️${NC}  $basename ${DIM}(could not extract text — install pdftotext or PyPDF2)${NC}"
                 fi
                 ;;
             docx)
@@ -1670,16 +1862,22 @@ $content
     echo -e "  ${GREEN}✅${NC} Found ${BOLD}$file_count${NC} documents"
     echo ""
     
+    _SCAN_T_AI_START=$(_ts_ms)
+    _scan_log "EXTRACT" "total: $file_count files extracted"
+    
     # ── Step 2: Load system prompt ──
     local scan_prompt=""
     local script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
     
     if [ -f "$SCOUTICA_HOME/bin/SCAN_PROMPT.md" ]; then
         scan_prompt=$(cat "$SCOUTICA_HOME/bin/SCAN_PROMPT.md")
+        _scan_log "PROMPT" "loaded from $SCOUTICA_HOME/bin/SCAN_PROMPT.md"
     elif [ -f "$script_dir/SCAN_PROMPT.md" ]; then
         scan_prompt=$(cat "$script_dir/SCAN_PROMPT.md")
+        _scan_log "PROMPT" "loaded from $script_dir/SCAN_PROMPT.md"
     else
         scan_prompt="You are a Scoutica Protocol card generator. Analyze the candidate's documents and return ONLY a single JSON object with keys: profile, rules, evidence, skill_md. Follow the Scoutica Protocol schema exactly. Never invent skills not in the documents. Use 'negotiable' for unknown compensation. Return raw JSON only — no markdown fences."
+        _scan_log "PROMPT" "using built-in default prompt"
     fi
     
     # ── Step 3: Build the full prompt ──
@@ -1690,6 +1888,8 @@ $content
 $all_text"
     
     # ── Step 4: Detect or use specified AI CLI ──
+    _scan_log "PROMPT" "full_prompt=$(echo "$full_prompt" | wc -w | tr -d ' ') words, $(echo "$full_prompt" | wc -c | tr -d ' ') bytes"
+    
     if [ -z "$provider" ] || [ "$provider" = "default" ]; then
         # Auto-detect in priority order
         if command -v gemini &>/dev/null; then
@@ -1770,8 +1970,10 @@ $all_text"
         exit 1
     fi
     
+    _scan_log "PROVIDER" "selected: $provider"
     echo -e "  ${BLUE}→${NC} Generating card via ${BOLD}$provider${NC} (local CLI — your data stays on your machine)..."
     echo ""
+    _scan_log "AI_CALL" "sending request to $provider..."
     
     # ── Step 5: Call local AI CLI ──
     local response=""
@@ -1996,8 +2198,10 @@ Read my documents and generate my Scoutica Protocol Skill Card. Return ONLY raw 
         exit 1
     fi
     
+    _SCAN_T_AI_END=$(_ts_ms)
     local resp_bytes=$(echo "$response" | wc -c | tr -d ' ')
     echo -e "  ${GREEN}✅${NC} Response received from ${BOLD}$provider${NC} (${resp_bytes} bytes in ${total_elapsed}s)"
+    _scan_log "AI_CALL" "response received: ${resp_bytes} bytes in ${total_elapsed}s"
     echo ""
     
     # ── Step 6: Determine output directory ──
@@ -2235,12 +2439,17 @@ PARSE_SCRIPT
         fi
     fi
     
+    _scan_log "WRITE" "all card files written to $output_dir"
+    
     echo ""
     echo -e "${GREEN}╔═══════════════════════════════════════════════════════╗${NC}"
     echo -e "${GREEN}║                                                       ║${NC}"
     echo -e "${GREEN}║   🎉 Your Scoutica Protocol Skill Card is ready!              ║${NC}"
     echo -e "${GREEN}║                                                       ║${NC}"
     echo -e "${GREEN}╚═══════════════════════════════════════════════════════╝${NC}"
+    
+    # Show timing breakdown
+    _scan_log_timing
     echo ""
     
     local disp_dir=""
@@ -2978,6 +3187,7 @@ main() {
         update)     cmd_update "$@" ;;
         doctor)     cmd_doctor "$@" ;;
         status)     cmd_status "$@" ;;
+        logs)       cmd_logs "$@" ;;
         help|--help|-h)  cmd_help ;;
         version|--version|-v) echo "scoutica v$VERSION" ;;
         *)
