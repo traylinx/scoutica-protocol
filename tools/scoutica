@@ -23,6 +23,7 @@ SCHEMAS_DIR="$SCOUTICA_HOME/schemas"
 TEMPLATES_DIR="$SCOUTICA_HOME/templates"
 STATE_DIR=".scoutica"
 STATE_FILE="$STATE_DIR/state.json"
+REGISTRY_FILE="$SCOUTICA_HOME/registry.json"
 
 # Colors
 RED='\033[0;31m'
@@ -559,7 +560,20 @@ cmd_init_ai() {
 # ─── VALIDATE Command ────────────────────────────────────────────────────────
 
 cmd_validate() {
-    local card_dir="${1:-.}"
+    local card_dir="${1:-}"
+    
+    # Smart context resolution
+    if [ -z "$card_dir" ]; then
+        card_dir=$(_resolve_card_dir) || {
+            header "Validate Skill Card"
+            error "No Skill Card found."
+            echo ""
+            echo -e "  ${BOLD}Create your card first:${NC}"
+            echo -e "  ${CYAN}scoutica scan <docs-folder>${NC}   Auto-generate from your CV (easiest)"
+            echo ""
+            exit 1
+        }
+    fi
     
     header "Validate Skill Card"
     
@@ -620,7 +634,17 @@ cmd_validate() {
 # ─── PUBLISH Command ─────────────────────────────────────────────────────────
 
 cmd_publish() {
-    local card_dir="${1:-.}"
+    local card_dir="${1:-}"
+    
+    # Smart context resolution
+    if [ -z "$card_dir" ]; then
+        card_dir=$(_resolve_card_dir) || {
+            header "Publish to GitHub"
+            error "No Skill Card found."
+            echo -e "  ${DIM}Run 'scoutica scan <docs-folder>' first.${NC}"
+            exit 1
+        }
+    fi
     
     header "Publish to GitHub"
     
@@ -686,6 +710,11 @@ cmd_publish() {
                     echo ""
                     echo -e "  ${BOLD}Test your live card:${NC}"
                     echo -e "  ${CYAN}scoutica resolve $clean_url${NC}"
+                    
+                    # Register publish event in global registry
+                    local abs_card_dir
+                    abs_card_dir=$(pwd)
+                    _register_card "$abs_card_dir" "publish" "{\"github_url\": \"$clean_url\"}"
                 else
                     error "Push failed. Check your remote configuration or permissions."
                 fi
@@ -738,7 +767,17 @@ cmd_publish() {
 # ─── INFO Command ─────────────────────────────────────────────────────────────
 
 cmd_info() {
-    local card_dir="${1:-.}"
+    local card_dir="${1:-}"
+    
+    # Smart context resolution
+    if [ -z "$card_dir" ]; then
+        card_dir=$(_resolve_card_dir) || {
+            header "Skill Card Summary"
+            error "No Skill Card found."
+            echo -e "  ${DIM}Run 'scoutica scan <docs-folder>' first.${NC}"
+            exit 1
+        }
+    fi
     
     header "Skill Card Summary"
     
@@ -1097,11 +1136,192 @@ with open('$STATE_FILE', 'w') as f:
 " 2>/dev/null
 }
 
+# ─── Name Slugify ─────────────────────────────────────────────────────────────
+
+_slugify_name() {
+    local name="$1"
+    echo "$name" | tr '[:upper:]' '[:lower:]' | \
+        sed 's/[^a-z0-9 ]//g' | \
+        sed 's/  */ /g' | \
+        sed 's/ /-/g' | \
+        sed 's/--*/-/g' | \
+        sed 's/^-//;s/-$//'
+}
+
+# ─── Global Registry ─────────────────────────────────────────────────────────
+
+_register_card() {
+    local card_dir="$1" event="$2"
+    shift 2
+    local extra_json="${1:-{}}"
+    
+    mkdir -p "$SCOUTICA_HOME"
+    
+    # Read name and title from profile.json if available
+    local name="" title=""
+    if [ -f "$card_dir/profile.json" ] && command -v python3 &>/dev/null; then
+        name=$(python3 -c "import json;d=json.load(open('$card_dir/profile.json'));print(d.get('name',''))" 2>/dev/null || echo "")
+        title=$(python3 -c "import json;d=json.load(open('$card_dir/profile.json'));print(d.get('title',''))" 2>/dev/null || echo "")
+    fi
+    
+    python3 << REGSCRIPT 2>/dev/null
+import json, os, sys
+from datetime import datetime
+
+registry_file = "$REGISTRY_FILE"
+card_dir = os.path.abspath("$card_dir")
+event = "$event"
+now = datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
+name = """$name"""
+title = """$title"""
+
+try:
+    extra = json.loads('''$extra_json''')
+except:
+    extra = {}
+
+# Load existing registry
+try:
+    with open(registry_file) as f:
+        registry = json.load(f)
+except:
+    registry = {"schema_version": "0.1.0", "cards": {}}
+
+if "cards" not in registry:
+    registry["cards"] = {}
+
+# Get or create card entry
+card = registry["cards"].get(card_dir, {
+    "name": name,
+    "title": title,
+    "card_dir": card_dir,
+    "source_dir": None,
+    "github_url": None,
+    "preview_url": None,
+    "created_at": now,
+    "last_scanned": None,
+    "last_published": None,
+    "last_previewed": None,
+    "provider": None,
+    "scan_count": 0,
+    "exists": True,
+    "history": []
+})
+
+# Update fields
+if name: card["name"] = name
+if title: card["title"] = title
+card["exists"] = os.path.isdir(card_dir)
+
+history_entry = {"event": event, "at": now}
+
+if event == "scan" or event == "rescan":
+    card["last_scanned"] = now
+    card["scan_count"] = card.get("scan_count", 0) + 1
+    if extra.get("provider"): card["provider"] = extra["provider"]
+    if extra.get("source_dir"): card["source_dir"] = extra["source_dir"]
+    history_entry["provider"] = extra.get("provider", "unknown")
+elif event == "publish":
+    card["last_published"] = now
+    if extra.get("github_url"): card["github_url"] = extra["github_url"]
+    history_entry["github_url"] = extra.get("github_url", "")
+elif event == "preview":
+    card["last_previewed"] = now
+    if extra.get("preview_url"): card["preview_url"] = extra["preview_url"]
+    history_entry["preview_url"] = extra.get("preview_url", "")
+
+card["history"].append(history_entry)
+# Keep last 50 history entries
+card["history"] = card["history"][-50:]
+
+registry["cards"][card_dir] = card
+
+with open(registry_file, "w") as f:
+    json.dump(registry, f, indent=2)
+REGSCRIPT
+}
+
+_get_last_card() {
+    if [ ! -f "$REGISTRY_FILE" ] || ! command -v python3 &>/dev/null; then
+        echo ""
+        return
+    fi
+    python3 -c "
+import json
+try:
+    with open('$REGISTRY_FILE') as f:
+        reg = json.load(f)
+    cards = reg.get('cards', {})
+    if not cards:
+        print('')
+    else:
+        latest = max(cards.values(), key=lambda c: c.get('last_scanned') or c.get('created_at') or '')
+        print(latest.get('card_dir', ''))
+except:
+    print('')
+" 2>/dev/null
+}
+
+_resolve_card_dir() {
+    local explicit="${1:-}"
+    
+    # 1. Explicit argument passed
+    if [ -n "$explicit" ] && [ -f "$explicit/profile.json" ]; then
+        echo "$explicit"
+        return 0
+    fi
+    
+    # 2. CWD has a card
+    if [ -f "./profile.json" ]; then
+        echo "."
+        return 0
+    fi
+    
+    # 3. CWD is inside a card subfolder (parent has profile.json)
+    if [ -f "../profile.json" ]; then
+        echo ".."
+        return 0
+    fi
+    
+    # 4. Check global registry for last known card
+    local last_card=$(_get_last_card)
+    if [ -n "$last_card" ] && [ -d "$last_card" ] && [ -f "$last_card/profile.json" ]; then
+        echo -e "  ${DIM}Using last known card: $last_card${NC}" >&2
+        echo "$last_card"
+        return 0
+    fi
+    
+    # 5. Registry knows a card but folder is gone
+    if [ -n "$last_card" ] && [ ! -d "$last_card" ]; then
+        echo -e "  ${YELLOW}⚠️  Last known card folder was deleted: $last_card${NC}" >&2
+        # Check if there's a GitHub URL stored
+        local gh_url
+        gh_url=$(python3 -c "
+import json
+try:
+    with open('$REGISTRY_FILE') as f:
+        reg = json.load(f)
+    card = reg['cards'].get('$last_card', {})
+    print(card.get('github_url', '') or '')
+except: print('')
+" 2>/dev/null)
+        if [ -n "$gh_url" ]; then
+            echo -e "  ${DIM}Last published to: $gh_url${NC}" >&2
+        fi
+        echo -e "  ${DIM}Run 'scoutica scan' to regenerate your card.${NC}" >&2
+        return 1
+    fi
+    
+    # 6. Nothing found
+    return 1
+}
+
 # ─── SCAN Command ─────────────────────────────────────────────────────────────
 
 cmd_scan() {
     local source_dir=""
-    local output_dir="."
+    local output_dir=""
+    local explicit_output=false
     local provider=""
     
     local force=false
@@ -1109,7 +1329,7 @@ cmd_scan() {
     # Parse flags
     while [[ $# -gt 0 ]]; do
         case "$1" in
-            --output|-o) output_dir="$2"; shift 2 ;;
+            --output|-o) output_dir="$2"; explicit_output=true; shift 2 ;;
             --with|-w) provider="$2"; shift 2 ;;
             --force|-f) force=true; shift ;;
             --clipboard|-c) provider="clipboard"; shift ;;
@@ -1184,6 +1404,11 @@ cmd_scan() {
     if [ ! -d "$source_dir" ]; then
         error "Directory not found: $source_dir"
         exit 1
+    fi
+    
+    # If no explicit --output, default to source_dir (will be redirected to subfolder after AI generation)
+    if [ -z "$output_dir" ]; then
+        output_dir="$source_dir"
     fi
     
     header "AI-Powered Card Generation"
@@ -1683,7 +1908,61 @@ Read my documents and generate my Scoutica Protocol Skill Card. Return ONLY raw 
     echo -e "  ${GREEN}✅${NC} Response received from ${BOLD}$provider${NC} (${resp_bytes} bytes in ${total_elapsed}s)"
     echo ""
     
-    # ── Step 6: Parse response and write files ──
+    # ── Step 6: Determine output directory ──
+    # If no explicit --output was given, create a clean subfolder inside source_dir
+    if [ "$explicit_output" = false ]; then
+        # Extract name from AI response to build the subfolder name
+        local card_name
+        card_name=$(python3 -c "
+import json, re
+raw = '''$response'''.strip()
+# Try to extract profile.name from the JSON response
+def find_json(text):
+    fence_matches = re.findall(r'\x60\x60\x60(?:json)?\s*({[\s\S]*?})\s*\x60\x60\x60', text)
+    for fm in fence_matches:
+        try:
+            d = json.loads(fm)
+            if 'profile' in d: return d
+        except: pass
+    for i in range(len(text)-1, -1, -1):
+        if text[i] == '{':
+            stack = 0
+            for j in range(i, len(text)):
+                if text[j] == '{': stack += 1
+                elif text[j] == '}':
+                    stack -= 1
+                    if stack == 0:
+                        try:
+                            d = json.loads(text[i:j+1])
+                            if isinstance(d, dict) and 'profile' in d: return d
+                        except: pass
+                        break
+    return None
+d = find_json(raw)
+if d and 'profile' in d:
+    print(d['profile'].get('name', ''))
+else:
+    print('')
+" 2>/dev/null || echo "")
+        
+        if [ -n "$card_name" ]; then
+            local slug=$(_slugify_name "$card_name")
+            local card_subdir="$source_dir/${slug}-card"
+            
+            # Create the subfolder
+            mkdir -p "$card_subdir/rules"
+            output_dir="$card_subdir"
+            echo -e "  ${BLUE}→${NC} Creating card directory: ${BOLD}${slug}-card/${NC}"
+        else
+            # Fallback: use a generic name
+            local card_subdir="$source_dir/scoutica-card"
+            mkdir -p "$card_subdir/rules"
+            output_dir="$card_subdir"
+            echo -e "  ${BLUE}→${NC} Creating card directory: ${BOLD}scoutica-card/${NC}"
+        fi
+    fi
+    
+    # ── Step 7: Parse response and write files ──
     echo -e "  ${BLUE}→${NC} Writing card files to ${BOLD}$output_dir${NC}..."
     
     mkdir -p "$output_dir/rules"
@@ -1863,6 +2142,13 @@ PARSE_SCRIPT
         echo -e "  ${DIM}Not happy? Edit the JSON files directly or re-run scan.${NC}"
         echo ""
     fi
+    
+    # ── Register card in global registry ──
+    local abs_output_dir
+    abs_output_dir=$(cd "$output_dir" && pwd)
+    local src_abs
+    src_abs=$(cd "$source_dir" && pwd)
+    _register_card "$abs_output_dir" "scan" "{\"provider\": \"$provider\", \"source_dir\": \"$src_abs\"}"
 }
 
 # ─── RESOLVE Command ──────────────────────────────────────────────────────────
@@ -2461,6 +2747,100 @@ print(f"  ✅ Generated scoutica.json")
 GENJSON
 }
 
+# ─── STATUS Command ───────────────────────────────────────────────────────────
+
+cmd_status() {
+    header "Card Status Dashboard"
+    
+    if [ ! -f "$REGISTRY_FILE" ]; then
+        echo -e "  ${DIM}No cards registered yet.${NC}"
+        echo ""
+        echo -e "  ${BOLD}Get started:${NC}"
+        echo -e "  ${CYAN}scoutica scan <docs-folder>${NC}   Generate your first Skill Card"
+        echo ""
+        return 0
+    fi
+    
+    python3 << 'STATUSSCRIPT' - "$REGISTRY_FILE"
+import json, sys, os
+from datetime import datetime
+
+registry_file = sys.argv[1]
+
+try:
+    with open(registry_file) as f:
+        registry = json.load(f)
+except Exception as e:
+    print(f"  ❌ Failed to read registry: {e}", file=sys.stderr)
+    sys.exit(1)
+
+cards = registry.get("cards", {})
+if not cards:
+    print("  No cards registered yet.")
+    print("")
+    print("  Get started:")
+    print("  scoutica scan <docs-folder>   Generate your first Skill Card")
+    sys.exit(0)
+
+# Sort by last_scanned (most recent first)
+sorted_cards = sorted(cards.values(), key=lambda c: c.get("last_scanned") or c.get("created_at") or "", reverse=True)
+
+for card in sorted_cards:
+    card_dir = card.get("card_dir", "?")
+    name = card.get("name", "Unknown")
+    title = card.get("title", "")
+    exists = os.path.isdir(card_dir) if card_dir != "?" else False
+    github_url = card.get("github_url")
+    preview_url = card.get("preview_url")
+    provider = card.get("provider", "?")
+    scan_count = card.get("scan_count", 0)
+    last_scanned = card.get("last_scanned", "")
+    last_published = card.get("last_published")
+    
+    # Status icon
+    if exists:
+        status = "✅ Folder exists"
+        icon = "📁"
+    else:
+        status = "❌ Folder deleted — run scoutica scan to regenerate"
+        icon = "📁"
+    
+    print(f"  {icon} {card_dir}")
+    if not exists:
+        print(f"     \033[33m[MISSING]\033[0m")
+    print(f"     Name:      {name}" + (f" — {title}" if title else ""))
+    
+    if github_url:
+        print(f"     GitHub:    {github_url}")
+    else:
+        print(f"     GitHub:    \033[2mnot published yet\033[0m")
+    
+    if preview_url:
+        print(f"     Preview:   {preview_url}")
+    
+    if last_scanned:
+        scan_date = last_scanned[:10]
+        print(f"     Last scan: {scan_date} ({provider})")
+    
+    if last_published:
+        pub_date = last_published[:10]
+        print(f"     Published: {pub_date}")
+    
+    print(f"     Scans:     {scan_count} total")
+    print(f"     Status:    {status}")
+    print("")
+
+# Summary
+total = len(sorted_cards)
+published = sum(1 for c in sorted_cards if c.get("github_url"))
+missing = sum(1 for c in sorted_cards if not os.path.isdir(c.get("card_dir", "?")))
+
+print(f"  ─────────────────────────────────────")
+print(f"  {total} card(s) total | {published} published | {missing} missing")
+print("")
+STATUSSCRIPT
+}
+
 # ─── Main Router ──────────────────────────────────────────────────────────────
 
 main() {
@@ -2477,6 +2857,7 @@ main() {
         preview)    cmd_preview "$@" ;;
         update)     cmd_update "$@" ;;
         doctor)     cmd_doctor "$@" ;;
+        status)     cmd_status "$@" ;;
         help|--help|-h)  cmd_help ;;
         version|--version|-v) echo "scoutica v$VERSION" ;;
         *)
