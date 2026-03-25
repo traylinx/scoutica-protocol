@@ -1,154 +1,55 @@
 ---
 title: "scoutica scan"
-description: "Auto-generate a Skill Card from your documents using a local AI CLI"
+description: "AI-powered ingestion engine to automatically parse unstructured documents and output rigorous protocol schemas."
 ---
 
-## Syntax
+The `scan` command is the powerhouse of the Scoutica Protocol. It takes any directory of unstructured text, PDFs, or code and compresses it into a high-fidelity, machine-readable professional profile.
 
+<Warning>
+`scan` is incredibly powerful but demands a properly configured local AI provider in your PATH (e.g. `gemini`, `claude`, or `ollama`).
+</Warning>
+
+## Command Syntax
 ```bash
-scoutica scan <docs-folder> [options]
+scoutica scan [options] <source-directory> [output-directory]
 ```
 
 ## Options
 
-<ParamField path="docs-folder" type="string" required>
-  Path to a directory containing your source documents (CV, certificates, portfolio, etc.).
-</ParamField>
+| Option | Behavior |
+|--------|----------|
+| `--clipboard` | Skips executing the local AI CLI call. Instead, it aggressively copies the deeply formatted prompt and embedded documents directly into your system clipboard, allowing you to paste it into ChatGPT, Claude.ai, or Gemini Advanced. |
+| `<source>` | **Required**. The directory containing your unstructured data (PDFs, Markdown, text, code, CVs). |
+| `[output]` | **Optional**. The directory to write the generated JSON/YAML to. Defaults to `./`. |
 
-<ParamField query="--output, -o" type="string">
-  Directory where the generated card files are written. Defaults to the current directory.
-</ParamField>
+---
 
-<ParamField query="--with, -w" type="string">
-  AI provider to use. One of: `gemini`, `claude`, `codex`, `vibe`, `opencode`, `ollama`, `ail`. When omitted, the CLI auto-detects the first installed provider in that order.
-</ParamField>
+## The AI Parsing Pipeline
 
-<ParamField query="--clipboard, -c" type="flag">
-  Instead of calling a local AI CLI, copy the generated prompt (with your documents included) to the clipboard. Use this if you want to paste it manually into an AI chat interface.
-</ParamField>
+**What it does:**
+When you run `scoutica scan ~/CV`, the CLI engine initiates the following operations:
+1. Recurses through the source directory (respecting `.gitignore` boundaries if present).
+2. Uses `pdftotext` to flatten any rich PDFs into rigorous raw plaintext.
+3. Ingests all Markdown (`.md`), Code, and Text files.
+4. Wraps this context tightly inside a massive system prompt (pulled from your `~/.scoutica/templates/scoutica_prompt.txt`).
+5. Hands the payload to your installed LLM CLI.
+6. The AI enforces strict Schema Output mapping to the Scoutica Protocol.
+7. The JSON response is caught, parsed, and decoupled into `profile.json`, `rules.yaml`, `evidence.json`, and `SKILL.md`.
 
-## Usage examples
+**Why use it:**
+- **Zero-effort adoption:** Mapping 10 years of professional experience across 5 different companies into a JSON schema manually takes hours. `scoutica scan` accomplishes it in 15 seconds.
+- **Continuous Maintenance:** You can run `scan` against a folder containing 3 new certifications, and it will automatically update your profile.
 
+### Use Case A: Zero-to-One
+You have a folder called `~/professional/` containing `resume.pdf`, `cover-letter.txt`, and `aws-cert.pdf`. 
 ```bash
-# Auto-detect installed AI CLI
-scoutica scan ~/my-docs/
-
-# Use a specific provider
-scoutica scan ~/my-docs/ --with gemini
-scoutica scan ~/my-docs/ --with claude
-scoutica scan ~/my-docs/ --with ollama
-
-# Write output to a specific directory
-scoutica scan ~/my-docs/ --output ./my-card/
-
-# Combine provider and output flags
-scoutica scan ~/my-docs/ --with codex --output ./my-card/
-
-# Copy prompt to clipboard instead of running an AI CLI
-scoutica scan ~/my-docs/ --clipboard
+scoutica scan ~/professional/ ./my-new-card/
 ```
+The AI reads your Amazon certificate, places it under `evidence.json`, reads your PDF resume, structures it into `profile.json`, infers your location and remote preference into `rules.yaml`. You are completely done and ready to `validate` and `publish`.
 
-## Supported document formats
-
-| Extension | Notes |
-|-----------|-------|
-| `.md` | Read directly |
-| `.txt` | Read directly |
-| `.json` | Read directly |
-| `.yaml` / `.yml` | Read directly |
-| `.csv` | Read directly |
-| `.html` / `.htm` | Read directly |
-| `.pdf` | Extracted via `pdftotext`, `PyPDF2`, or `textutil` |
-| `.docx` | Extracted via `textutil` (macOS) or `python-docx` |
-
-<Tip>
-  Install `pdftotext` for the best PDF extraction results:
-
-  ```bash
-  brew install poppler       # macOS
-  apt install poppler-utils  # Linux
-  ```
-</Tip>
-
-## AI providers
-
-Providers are auto-detected in the following priority order when `--with` is not specified:
-
-| Priority | Provider | CLI command | Install |
-|----------|----------|-------------|--------|
-| 1 | Gemini CLI | `gemini` | [google-gemini/gemini-cli](https://github.com/google-gemini/gemini-cli) |
-| 2 | Claude Code | `claude` | [anthropics/claude-code](https://github.com/anthropics/claude-code) |
-| 3 | OpenAI Codex | `codex` | [openai/codex](https://github.com/openai/codex) |
-| 4 | Mistral Vibe | `vibe` | [mistralai/mistral-vibe](https://github.com/mistralai/mistral-vibe) |
-| 5 | OpenCode | `opencode` | [opencode-ai/opencode](https://github.com/opencode-ai/opencode) |
-| 6 | Ollama | `ollama` | [ollama.com](https://ollama.com) |
-| 7 | switchAILocal | `ail` | [traylinx/switchAILocal](https://github.com/traylinx/switchAILocal) |
-| 8 | OpenClaw | `openclaw` | [openclaw/openclaw](https://github.com/openclaw/openclaw) |
-| — | Clipboard | — | Fallback when no CLI is found |
-
-If no provider is installed and `--clipboard` is not set, the CLI automatically falls back to clipboard mode.
-
-## Expected output
-
-```text
-  → Scanning /Users/you/my-docs/...
-
-    📄 resume.pdf (1420 words, extracted from PDF)
-    📄 certifications.md (340 words)
-    📄 portfolio.json (210 words)
-
-  ✅ Found 3 documents
-
-  → Generating card via gemini (local CLI — your data stays on your machine)...
-
-  ✅ Response received from gemini
-
-  → Writing card files to ./my-card...
-  ✅ Created profile.json
-  ✅ Created rules.yaml
-  ✅ Created evidence.json
-  ✅ Created SKILL.md
-  ✅ Copied evaluation rule templates
-  ✅ Created .gitignore (protects secrets from accidental commits)
-```
-
-## Updating an existing card & backups
-
-If the output directory already contains a generated Skill Card, running `scoutica scan` again is the easiest way to update it. Just add your new documents (like a recent certificate or updated CV) to the folder and run the command.
-
-The `scan` command will automatically back up your old card before overwriting it with the new, freshly-generated version:
-
-```text
-  ⚠️  Existing card files found in ./my-card/:
-    • profile.json
-    • rules.yaml
-
-  ✅ Backed up existing files to .backup/20260323_142501/
-```
-
-<Tip>
-  **Important:** Because `scan` completely regenerates the files based on your documents, any manual text edits you made directly to the `profile.json` or `rules.yaml` files will be overwritten. You can always retrieve them from the `.backup` folder if needed.
-</Tip>
-
-<Note>
-  **Privacy:** Your documents are piped directly to the local AI CLI running on your machine. No data is sent to any cloud API. The raw AI response is saved temporarily as `.scan_response_raw.txt` and deleted immediately after the card files are written.
-</Note>
-
-## Clipboard mode
-
-When `--clipboard` is used (or no AI CLI is installed), the full prompt — including the contents of all your documents — is copied to your clipboard or saved as `scoutica_prompt.txt` in the output directory.
-
+### Use Case B: The Clipboard Hack
+You do not want to install any CLI dependencies, but you DO have an enterprise subscription to ChatGPT. You have a folder of complicated legal documents you wrote proving your legal history.
 ```bash
-scoutica scan ~/my-docs/ --clipboard
+scoutica scan ~/legal-history/ --clipboard
 ```
-
-Paste it into any AI assistant and save the returned JSON files to your card directory.
-
-## Next steps
-
-```bash
-scoutica info ./my-card      # review the generated card
-scoutica validate ./my-card  # check for schema errors
-scoutica preview ./my-card   # deploy a live web preview via here.now
-scoutica publish ./my-card   # push to GitHub
-```
+Your clipboard now contains the master protocol system prompt + all the parsed text. You simply hit `CMD+v` inside ChatGPT, and it spits back exactly the structured files you need to copy into your repository.

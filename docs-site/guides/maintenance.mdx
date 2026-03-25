@@ -1,0 +1,71 @@
+---
+title: "Maintenance Guide"
+description: "How to safely maintain your Scoutica Skill Card and automate lifecycle processes."
+---
+
+Your Skill Card is a persistent digital protocol representing your professional identity. Just like a standard resume, it must be maintained, versioned, and audited over time. Because the Scoutica Protocol operates on raw file storage (JSON, YAML, Markdown), maintenance is entirely under your control.
+
+## 1. Updating the CLI System
+
+The Scoutica development team frequently releases updates to the CLI parser, JSON schemas (`v1 -> v2`), and AI Prompt parsing instructions to handle the latest edge cases from varying LLMs.
+
+**To forcefully update everything:**
+```bash
+scoutica update
+```
+We recommend running this command before evaluating any massive CV overhauls, as the prompt extractors regularly receive buffs to output quality.
+
+## 2. Maintaining your Profile State
+
+Scoutica allows for atomic commits. You shouldn't manually wipe `profile.json` to start over unless absolutely required. If you achieve a new certification or complete a new freelance project:
+
+### Option A: The AI Merge (Recommended)
+You can append continuous documents to an existing card by simply targeting the same directory with `scan`. The intelligent AI engine will perform a diffing strategy and merge your new documents smoothly.
+```bash
+# Add new certificates you just downloaded
+scoutica scan ~/Downloads/New_Certifications/ ./my-card/
+```
+
+### Option B: Hand-coding Data
+Because everything is strictly verified through standard UNIX tools (like Python JSON/YAML parsers), you can manually patch your profile anytime.
+1. Open `profile.json` with an editor:
+   ```bash
+   code profile.json
+   ```
+2. Manually append your new job entry.
+3. Validate locally to ensure you didn't break the JSON structure:
+   ```bash
+   scoutica validate
+   ```
+
+## 3. Automating CI/CD Workflows
+
+Since Scoutica simply checks standardized schemas and outputs static assets, you can heavily automate your professional identity.
+
+**GitHub Actions Use Case:** 
+If you host your card via a public GitHub repo (which is standard practice for the `publish` command), you can configure GitHub Actions to automatically run `scoutica validate` on each Pull Request. This strictly prevents malformed syntax from slipping into your live card URL before employers resolve it.
+
+```yaml
+name: Scoutica Validation
+on: [push, pull_request]
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - name: Install Scoutica
+        run: curl -fsSL https://raw.githubusercontent.com/traylinx/scoutica-protocol/main/install.sh | bash
+      - name: Validate Files
+        run: |
+          export PATH="$HOME/.scoutica/bin:$PATH"
+          scoutica validate ./
+```
+
+## 4. Periodic Evidence Log Flushing
+
+Your `evidence.json` tracks URLs and links simulating your "Portfolio". Links die commonly over a multi-year career. 
+
+**Maintenance routine:**
+1. Once every 6 months, verify the domains listed inside `evidence.json` are still resolving 200 OK.
+2. If an employer completely took down the platform you built, rewrite your evidence log to point toward the WayBack Machine or a locally hosted screenshot.
+3. Commit the changes and invoke `scoutica publish`. 

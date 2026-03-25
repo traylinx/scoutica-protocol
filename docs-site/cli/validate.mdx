@@ -1,95 +1,38 @@
 ---
 title: "scoutica validate"
-description: "Validate your Skill Card against the protocol schemas before publishing"
+description: "Run rigorous JSON-Schema checks against your Skill Card securely offline."
 ---
 
-## Syntax
+Before you ever push your internal profile configuration to a recruiter, API gateway, or public GitHub repo via `scoutica publish`, it **must** rigorously conform to the Scoutica Protocol v1 specifications.
 
+The `validate` command acts as a localized type-checker for your professional identity.
+
+## Command Syntax
 ```bash
 scoutica validate [directory]
 ```
 
-## Options
+## Under the Hood
 
-<ParamField path="directory" type="string">
-  Path to the card directory to validate. Defaults to the current directory (`.`).
-</ParamField>
+When executed, `validate` uses a custom Python module embedded in the CLI to:
+1. Load the official v1 schemas from `~/.scoutica/schemas/`.
+2. Inspect `profile.json`, `evidence.json`, and `rules.yaml` in the target directory.
+3. Verify that all nested structures precisely match expected properties (e.g., ensuring `years_experience` is an Integer, `domains` is an Array of strings, and `rules.remote.policy` matches the Enum `["hybrid", "remote", "onsite", "unknown"]`).
 
-## Usage examples
+If it encounters an error, it will immediately exit with a non-zero exit code (`1`) and meticulously print out the precise nesting path where your data failed.
 
+**Why use it:**
+- Prevents pushing broken representations to the public web.
+- If an AI Hallucinates a new property that doesn't exist during the `scan` command, `validate` catches it.
+- **CI/CD Enforcer:** It's structurally designed to run in automated pipelines.
+
+### Use Case: Catching Typos
+You decided to manually edit your `rules.yaml` because your minimum salary requirement changed. Instead of typing `minimum_base_eur: 120000`, you typed `"120k"`.
 ```bash
-# Validate the current directory
-scoutica validate
-
-# Validate a specific card folder
-scoutica validate ./my-card/
+scoutica validate ./
 ```
-
-## What it checks
-
-The validate command runs the `validate_card.py` Python script against your card directory. It performs five checks:
-
-| # | Check | File | Description |
-|---|-------|------|-------------|
-| 1 | SKILL.md | `SKILL.md` | File exists and starts with valid YAML frontmatter (`---`) |
-| 2 | Candidate Profile | `profile.json` | Validated against `candidate_profile.schema.json` — required fields: `schema_version`, `title`, `seniority`, `skills`, `primary_domains` |
-| 3 | Evidence Registry | `evidence.json` | Validated against `evidence.schema.json` — required fields: `schema_version`, `items` |
-| 4 | Rules of Engagement | `rules.yaml` | Validated against `roe.schema.json` — required fields: `schema_version`, `engagement`, `remote`, `filters`, `privacy` |
-| 5 | Rules directory | `rules/` | Directory exists with all 4 rule files (warning if missing, not a failure) |
-
-## Expected output
-
 ```text
-🔍 Validating Scoutica Card: /path/to/my-card
-
-✅ SKILL.md: Valid (frontmatter present)
-✅ Candidate Profile: Valid
-✅ Evidence Registry: Valid
-✅ Rules of Engagement: Valid
-✅ rules/: All 4 rule files present
-
-Results: 5 passed, 0 failed, 0 warnings
-🎉 Card is valid!
+❌ rules.yaml validation failed:
+   '120k' is not of type 'integer' at path: ['compensation']['minimum_base_eur']['permanent']
 ```
-
-<Note>
-  The `rules/` directory check returns a **warning** (not a failure) if missing. Your card can still be published, but agents may not know how to evaluate fit without rule templates.
-</Note>
-
-## Exit codes
-
-| Code | Meaning |
-|------|---------|
-| `0` | All checks passed — card is valid |
-| `1` | One or more required checks failed — review the output for details |
-
-Because `validate` exits with code `1` on failure, you can chain it safely with `publish`:
-
-```bash
-scoutica validate ./my-card && scoutica publish ./my-card
-```
-
-The publish step only runs if validation passes.
-
-## Prerequisites
-
-- **Python 3** must be installed. The CLI will abort with an error if Python is not found.
-- The `jsonschema` and `pyyaml` Python packages are required. If they are missing, the CLI attempts to install them automatically via `pip install jsonschema pyyaml`.
-
-<Warning>
-  Always run `validate` before `publish`. Publishing an invalid card may cause AI agents to misread or reject it.
-</Warning>
-
-## Troubleshooting
-
-If validation fails with a dependency error:
-
-```bash
-pip install jsonschema pyyaml
-```
-
-If the validation script itself is missing, re-run the installer:
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/traylinx/scoutica-protocol/main/install.sh | bash
-```
+You immediately see the strict typing error, patch it to an integer, and re-run validation successfully.

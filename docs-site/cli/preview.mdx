@@ -1,61 +1,37 @@
 ---
 title: "scoutica preview"
-description: "Build a beautiful HTML preview of your Skill Card and publish it instantly to here.now"
+description: "Build a beautiful, instantly-deployable HTML presentation of your structured Protocol Profile."
 ---
 
-## Syntax
+A strictly machine-readable JSON structure is fantastic for AI algorithms parsing your data, but occasionally, an actual human wants to read your profile seamlessly in a browser. 
 
+The `preview` command solves this by spinning your JSON dictionaries dynamically into a brutalist, typography-heavy HTML deployment.
+
+## Command Syntax
 ```bash
-scoutica preview [directory]
+scoutica preview [directory] [--force]
 ```
 
-## Options
+## Architecture
 
-<ParamField path="directory" type="string">
-  Path to a directory containing your generated Skill Card files (`profile.json`, `rules.yaml`, `evidence.json`). Defaults to the current directory.
-</ParamField>
+This command relies entirely on parsing your `profile.json`, `rules.yaml`, and `evidence.json`. 
+It executes an isolated Python transformation mapping these properties to a CSS-styled HTML template called `index.html`. Finally, it deploys this bundle globally to **`here.now`** seamlessly.
 
-## What it does
+**Why use it:**
+- If you want a quick link to show a human recruiter your exact configured constraints, instead of making them read raw JSON objects.
+- To prove that your protocol data behaves beautifully across all mediums.
 
-`scoutica preview` reads your generated card files, compiles them into a responsive, Neo-Brutalist HTML page, and instantly publishes it to the web via [here.now](https://here.now) — a free, instant web host for AI agents.
+### Global Caching and the `--force` Flag
+To save compute resources and limit excessive deployments, `scoutica preview` internally calculates an aggressive `SHA-256` hash of your cards state. 
 
-The command:
-1. Reads `profile.json`, `rules.yaml`, and `evidence.json` from the target directory
-2. Generates a styled `index.html` in a `.preview/` subdirectory
-3. Publishes the `.preview/` directory to here.now
-4. Prints the live public URL in your terminal
+If you run `scoutica preview` twice without changing anything, it prevents an unnecessary web push and instead yields your currently live web URL.
 
-## Usage examples
-
+If your web deployment expires (the anonymous infrastructure currently sets expiry windows implicitly), or you just want to generate a brand new URL for privacy concerns:
 ```bash
-# Preview the card in the current directory
-scoutica preview
-
-# Preview a card in a specific folder
-scoutica preview ./my-card/
+scoutica preview --force
 ```
 
-## Prerequisites
-
-The `here.now` publisher must be installed. Install it with:
-
-```bash
-curl -fsSL https://here.now/install.sh | bash
-```
-
-## Auto-preview after scan
-
-When `here.now` is installed, `scoutica scan` automatically chains into `scoutica preview` after a successful card generation. You get the live URL without running a second command:
-
-```bash
-scoutica scan ~/CV/ --with gemini
-# → generates card files
-# → automatically builds and publishes preview
-# → prints live URL
-```
-
-## Expected output
-
+### Example Output
 ```text
   → Compiling Neo-Brutalist HTML presentation...
   ✅ Generated Neo-Brutalist HTML
@@ -63,25 +39,8 @@ scoutica scan ~/CV/ --with gemini
 
 ╔═══════════════════════════════════════════════════════╗
 ║                                                       ║
-║   🌍 Your Skill Card is live globally!                ║
-║      https://merry-maple-tgng.here.now                ║
+║   🌍 Your Skill Card is live globally!              ║
+║      https://calm-cedar-bnj9.here.now                 ║
 ║                                                       ║
 ╚═══════════════════════════════════════════════════════╝
-
-  (This is an instant anonymous publish hosted via here.now)
-
-  What to do next:
-
-  • scoutica publish .    Push this generated card to GitHub and share
-```
-
-<Note>
-  Anonymous publishes on here.now expire after 24 hours. To make your preview permanent, sign up at [here.now](https://here.now) and set an API key.
-</Note>
-
-## Next steps
-
-```bash
-scoutica publish .    # push your card to GitHub for permanent hosting
-scoutica validate .   # check for schema errors
 ```
