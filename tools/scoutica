@@ -140,18 +140,16 @@ to_yaml_list() {
 
 _SCAN_LOG_FILE=""
 _SCAN_T0=""
-_SCAN_T_EXTRACT=""
 _SCAN_T_AI_START=""
 _SCAN_T_AI_END=""
-_SCAN_T_PARSE=""
 
 _ts_ms() {
     # Millisecond timestamp (macOS + Linux compatible)
+    # macOS date does NOT support %N — it outputs literal 'N'
     if command -v gdate &>/dev/null; then
         gdate +%s%3N
-    elif date +%s%3N &>/dev/null 2>&1; then
-        date +%s%3N
     else
+        # Seconds-only fallback (multiply by 1000)
         echo $(( $(date +%s) * 1000 ))
     fi
 }
@@ -206,42 +204,51 @@ _cache_get() {
     local file_hash="$1"
     local cache_file="$CACHE_DIR/extracted_texts.json"
     [ -f "$cache_file" ] || return 1
-    python3 -c "
+    python3 - "$file_hash" "$cache_file" <<'CACHE_GET_PY' 2>/dev/null
 import json, sys
 try:
-    with open('$cache_file') as f:
+    fhash = sys.argv[1]
+    with open(sys.argv[2]) as f:
         cache = json.load(f)
-    text = cache.get('$file_hash')
+    text = cache.get(fhash)
     if text:
         print(text, end='')
         sys.exit(0)
     sys.exit(1)
 except:
     sys.exit(1)
-" 2>/dev/null
+CACHE_GET_PY
 }
 
 _cache_set() {
-    local file_hash="$1" text="$2"
+    local file_hash="$1"
+    local text="$2"
     mkdir -p "$CACHE_DIR"
     local cache_file="$CACHE_DIR/extracted_texts.json"
-    python3 -c "
-import json, sys, os
-cache_file = '$cache_file'
+    # Write text to temp file to avoid ARG_MAX and stdin conflicts
+    local tmp_text=$(mktemp /tmp/scoutica_cache.XXXXXX)
+    printf '%s' "$text" > "$tmp_text"
+    python3 - "$file_hash" "$cache_file" "$tmp_text" <<'CACHE_SET_PY' 2>/dev/null || true
+import json, sys
+fhash = sys.argv[1]
+cache_file = sys.argv[2]
+with open(sys.argv[3]) as f:
+    text = f.read()
 try:
     with open(cache_file) as f:
         cache = json.load(f)
 except:
     cache = {}
-cache[sys.argv[1]] = sys.argv[2]
-# Keep cache small: max 100 entries
+cache[fhash] = text
+# Keep cache small: max 100 entries, evict oldest by sorted hash
 if len(cache) > 100:
     keys = sorted(cache.keys())
     for k in keys[:len(cache)-100]:
         del cache[k]
 with open(cache_file, 'w') as f:
     json.dump(cache, f)
-" "$file_hash" "$text" 2>/dev/null || true
+CACHE_SET_PY
+    rm -f "$tmp_text"
 }
 
 _file_sha256() {
@@ -267,8 +274,12 @@ cmd_logs() {
         --clear|clear)
             if [ -d "$LOGS_DIR" ]; then
                 local count=$(ls "$LOGS_DIR"/scan_*.log 2>/dev/null | wc -l | tr -d ' ')
-                rm -f "$LOGS_DIR"/scan_*.log
-                success "Cleared $count scan log(s)"
+                if [ "$count" -gt 0 ] 2>/dev/null; then
+                    rm -f "$LOGS_DIR"/scan_*.log
+                    success "Cleared $count scan log(s)"
+                else
+                    warn "No scan logs to clear"
+                fi
             else
                 warn "No logs directory found"
             fi
