@@ -1,95 +1,41 @@
 ---
 title: "scoutica doctor"
-description: "Run system diagnostics to verify all prerequisites are installed correctly"
+description: "Run diagnostic system checks to ensure Scoutica Protocol is functioning securely and offline."
 ---
 
-## Syntax
+The `doctor` command acts as your infrastructure diagnostic tool. High-fidelity protocols like Scoutica rely heavily on local machine tools (CLI LLMs, Python libraries, standard shell binaries). 
 
+## Command Syntax
 ```bash
 scoutica doctor
 ```
 
-The doctor command takes no arguments or flags.
+## Diagnostic Pipeline
 
-## Usage example
+`scoutica doctor` aggressively scopes your active `$PATH` and underlying host system:
+1. **Core Verification:** Checks if `~/.scoutica/bin`, `schemas`, and `templates` exist and possess exact protocol files.
+2. **Library Constraints:** Scans for `Python 3` and ensures core Unix dependencies (like `git` required for `scoutica publish`) exist. 
+3. **AI Discovery:** Iterates through supported AI CLIs (`gemini`, `claude`, `codex`, `ollama`, `ail`, `openclaw`) to ensure `scoutica scan` has a proper intelligence backplane available.
+4. **Toolchain Modules:** Scans optionally for `pdftotext` required to parse resume PDF blobs.
 
-```bash
-scoutica doctor
-```
+**Why use it:**
+- If an installation completely fails or is throwing `/bin/bash` missing binaries errors.
+- If you change computers and copy your environment but forget why your AI extraction isn't running. You run `scoutica doctor` and it actively flags: `❌ No known AI CLI found!`.
 
-## What it checks
-
-`scoutica doctor` runs a series of system checks and reports the result of each one. Checks are divided into **required** (errors if missing) and **optional** (warnings if missing).
-
-### Required checks
-
-| Check | What is verified |
-|-------|------------------|
-| CLI installation | `~/.scoutica/bin/scoutica` exists and is executable |
-| PATH | `scoutica` is reachable as a command |
-| Templates | `~/.scoutica/templates/rules/` directory exists with `.md` rule files |
-| Schemas | `~/.scoutica/schemas/` directory exists with `.json` schema files |
-| Python 3 | `python3` is installed and accessible in `PATH` |
-| Git | `git` is installed and accessible in `PATH` |
-
-### Optional checks
-
-| Check | What is verified |
-|-------|------------------|
-| `pdftotext` | `poppler-utils` is installed for PDF text extraction |
-
-### AI provider checks
-
-The doctor command also checks for each supported AI provider CLI:
-
-| Provider | CLI |
-|----------|-----|
-| Gemini CLI | `gemini` |
-| Claude Code | `claude` |
-| OpenAI Codex | `codex` |
-| Mistral Vibe | `vibe` |
-| OpenCode | `opencode` |
-| Ollama | `ollama` |
-| switchAILocal | `ail` |
-| OpenClaw | `openclaw` |
-
-At least one provider must be installed to use `scoutica scan` without `--clipboard`.
-
-## Expected output
-
+### Typical Healthy Diagnosis
 ```text
-  ✅ CLI installed at /Users/you/.scoutica/bin/scoutica
-  ✅ scoutica found in PATH
-  ✅ Templates present (4 rule files + card.gitignore)
-  ✅ Schemas present (3 JSON schemas)
-  ✅ Python 3.12.0
-  ✅ git version 2.43.0
-  ⚠️  pdftotext not found (optional — install poppler-utils for better PDF support)
+╔═══════════════════════════════════════════════════════╗
+║   🩺 Scoutica Diagnostics                            ║
+╚═══════════════════════════════════════════════════════╝
 
-AI Providers:
-  ✅ gemini (installed)
-  ❌ claude (not found)
-  ❌ codex (not found)
-  ❌ vibe (not found)
-  ❌ opencode (not found)
-  ❌ ollama (not found)
-  ❌ ail (not found)
+✔ Base Directory    : /home/traylinx/.scoutica
+✔ CLI Executable    : Found (v0.1.0)
+✔ Template Directory: Found (3 files)
+✔ Schema Directory  : Found (5 schema files)
 
-  Result: 1 warnings, 0 errors.
-  ✅ Scoutica Protocol is ready!
+✔ Python Toolkit    : python3 installed
+✔ Git               : git installed
+✔ PDF Extractor     : pdftotext installed
+
+✔ AI Providers      : claude (Claude Code), gemini (Gemini CLI)
 ```
-
-## Exit codes
-
-| Code | Meaning |
-|------|---------|
-| `0` | All required checks passed |
-| `1` | One or more required checks failed |
-
-<Tip>
-  If `doctor` reports missing templates or schemas, re-run the installer to restore them:
-
-  ```bash
-  curl -fsSL https://raw.githubusercontent.com/traylinx/scoutica-protocol/main/install.sh | bash
-  ```
-</Tip>

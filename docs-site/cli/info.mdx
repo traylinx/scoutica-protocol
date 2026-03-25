@@ -1,68 +1,46 @@
 ---
 title: "scoutica info"
-description: "Display a summary of your local Skill Card"
+description: "Display a clean, human-readable summary of the current Skill Card."
 ---
 
-## Syntax
+When you navigate into a directory containing a Scoutica profile, raw JSON arrays can be difficult to read quickly. `scoutica info` is your quick lens into the semantic data locally.
 
+## Command Syntax
 ```bash
 scoutica info [directory]
 ```
 
-## Options
+## How It Works
 
-<ParamField path="directory" type="string">
-  Path to the card directory to inspect. Defaults to the current directory.
-</ParamField>
+This command does not hit the internet, APIs, or GitHub. It executes purely offline.
+It parses `profile.json`, `evidence.json`, and `rules.yaml` in the active scope and visually outputs:
+- Your exact Professional Title and Name.
+- Your Domain vectors.
+- Your Years of Experience vs Seniority Level.
+- Compensation Rules (e.g. Remote Policy constraints).
+- Total aggregated Public Evidence count.
 
-## Usage examples
+**Why use it:**
+- **Sanity Checks:** After running `scoutica scan ~/CV`, you want a rapid glance at what the AI extracted without breaking out `cat profile.json` or launching VS Code.
+- Verifying the local instance before choosing to `publish` to the open internet.
 
-```bash
-# Show info for the current directory
-scoutica info
-
-# Show info for a specific card folder
-scoutica info ./my-card/
-```
-
-## What it shows
-
-`scoutica info` reads `profile.json`, `rules.yaml`, and `evidence.json` from the card directory and prints a formatted summary.
-
-The summary includes:
-
-| Field | Source file |
-|-------|-------------|
-| Name | `profile.json` → `name` |
-| Title | `profile.json` → `title` |
-| Seniority | `profile.json` → `seniority` |
-| Availability | `profile.json` → `availability` |
-| Remote policy | `rules.yaml` → `remote.policy` |
-| Evidence item count | `evidence.json` → count of `items` |
-| Rule file count | `rules/` directory — number of `.md` files |
-
-## Expected output
-
+### Output Example
 ```text
-  Alice Developer
-  Lead Engineering Manager (lead)
-  Availability: immediately
+╔═══════════════════════════════════════════════════════╗
+║  John Doe
+║  Senior Backend Architect
+║  Seniority: senior  |  Experience: 8 years
+║  Domains: distributed_systems, fintech
+╚═══════════════════════════════════════════════════════╝
 
-  Profile:  profile.json
-  Remote:   remote_only
-  Evidence: 3 items
-  Rules:    4 rule files
-```
+  Skills:
+    Languages: Rust, Go, TypeScript
+    Tools: Kubernetes, Kafka, Terraform
 
-<Note>
-  `info` is a quick local inspection tool. It reads from files in the specified directory and does not validate the card against schemas. Run `scoutica validate` to check for schema errors.
-</Note>
+  Rules of Engagement:
+    Minimum salary: 140000 EUR
+    Remote policy: hybrid
+    Engagement: permanent
 
-## Error behavior
-
-If `profile.json` is not found in the target directory, the command exits with code `1` and a message:
-
-```text
-  ❌ No profile.json found in ./my-card
-     Run 'scoutica init' first to create your card.
+  Evidence: 4 public items
 ```
