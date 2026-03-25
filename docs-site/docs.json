@@ -1,6 +1,7 @@
 {
   "$schema": "https://mintlify.com/docs.json",
   "name": "Scoutica Protocol",
+  "theme": "prism",
   "colors": {
     "primary": "#8800ff",
     "light": "#8800ff",
