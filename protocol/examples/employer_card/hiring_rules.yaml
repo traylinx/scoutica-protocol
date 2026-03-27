@@ -1,0 +1,25 @@
+commitments:
+  max_response_time_days: 7
+  salary_transparency_guaranteed: true
+  feedback_provided_on_rejection: true
+  gdpr_compliance: true
+  interview_process_max_rounds: 3
+  response_time_sla_hours: 48
+
+limits:
+  max_unsolicited_pings_per_week: 50
+  max_active_roles: 10
+
+preferences:
+  preferred_seniority:
+    - senior
+    - lead
+    - manager
+  preferred_engagement:
+    - permanent
+    - contract
+    - fractional
+  preferred_regions:
+    - EU
+    - UK
+    - LATAM

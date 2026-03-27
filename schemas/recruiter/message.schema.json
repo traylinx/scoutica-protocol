@@ -1,0 +1,61 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Scoutica Agent Message",
+  "description": "Standard message envelope for agent-to-agent communication.",
+  "type": "object",
+  "required": ["message_id", "type", "sender", "recipient", "timestamp"],
+  "additionalProperties": false,
+  "properties": {
+    "message_id": {
+      "type": "string",
+      "pattern": "^msg_[a-f0-9]{6,}$"
+    },
+    "type": {
+      "type": "string",
+      "enum": [
+        "rules.check",
+        "opportunity.pitch",
+        "opportunity.offer",
+        "response.accept",
+        "response.reject",
+        "response.withdraw",
+        "status.check",
+        "event.ghosting"
+      ]
+    },
+    "sender": {
+      "type": "object",
+      "required": ["card_url"],
+      "additionalProperties": false,
+      "properties": {
+        "card_url": { "type": "string", "format": "uri" },
+        "signature": { "type": "string", "description": "Ed25519 signature (V3)" }
+      }
+    },
+    "recipient": {
+      "type": "string",
+      "format": "uri",
+      "description": "URL of the recipient's card"
+    },
+    "conversation_id": {
+      "type": "string",
+      "pattern": "^conv_[a-f0-9]{6,}$",
+      "description": "Groups messages into a conversation thread"
+    },
+    "in_reply_to": {
+      "type": "string",
+      "description": "message_id of the message being replied to"
+    },
+    "timestamp": { "type": "string", "format": "date-time" },
+    "payload": {
+      "type": "object",
+      "description": "Message-type-specific data (role_url, reasons, calendar link, etc.)"
+    },
+    "ttl_hours": {
+      "type": "integer",
+      "minimum": 1,
+      "default": 168,
+      "description": "Message expiration in hours (default: 7 days)"
+    }
+  }
+}

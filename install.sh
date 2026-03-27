@@ -42,22 +42,32 @@ echo ""
 
 # --- Step 1: Create directories ---
 echo -e "${BLUE}→${NC} Creating directories in ${BOLD}$INSTALL_DIR${NC}..."
-mkdir -p "$BIN_DIR" "$SCHEMAS_DIR" "$TEMPLATES_DIR" "$TEMPLATES_DIR/rules"
+mkdir -p "$BIN_DIR" "$SCHEMAS_DIR" "$SCHEMAS_DIR/recruiter" "$TEMPLATES_DIR" "$TEMPLATES_DIR/rules"
 
 # --- Step 2: Download CLI ---
 echo -e "${BLUE}→${NC} Downloading scoutica CLI..."
 curl -fsSL "$REPO_RAW/tools/scoutica" -o "$BIN_DIR/scoutica"
 chmod +x "$BIN_DIR/scoutica"
 
-# --- Step 3: Download schemas ---
-echo -e "${BLUE}→${NC} Downloading JSON schemas..."
+# --- Step 3: Download candidate schemas ---
+echo -e "${BLUE}→${NC} Downloading candidate schemas..."
 for schema in candidate_profile.schema.json roe.schema.json evidence.schema.json; do
     curl -fsSL "$REPO_RAW/protocol/platform/01_schemas/$schema" -o "$SCHEMAS_DIR/$schema"
 done
 
+# --- Step 3b: Download recruiter schemas ---
+echo -e "${BLUE}→${NC} Downloading recruiter schemas..."
+for schema in recruiter_profile.schema.json hiring_rules.schema.json role.schema.json reputation.schema.json message.schema.json; do
+    curl -fsSL "$REPO_RAW/schemas/recruiter/$schema" -o "$SCHEMAS_DIR/recruiter/$schema"
+done
+
+# --- Step 3c: Download discovery schema ---
+curl -fsSL "$REPO_RAW/schemas/scoutica_discovery.schema.json" -o "$SCHEMAS_DIR/scoutica_discovery.schema.json" 2>/dev/null || true
+
 # --- Step 4: Download templates ---
 echo -e "${BLUE}→${NC} Downloading card templates..."
 curl -fsSL "$REPO_RAW/protocol/templates/SKILL.template.md" -o "$TEMPLATES_DIR/SKILL.template.md"
+curl -fsSL "$REPO_RAW/protocol/templates/EMPLOYER_CARD.template.md" -o "$TEMPLATES_DIR/EMPLOYER_CARD.template.md" 2>/dev/null || true
 for rule in evaluate-fit.md negotiate-terms.md verify-evidence.md request-interview.md; do
     curl -fsSL "$REPO_RAW/protocol/templates/rules/$rule" -o "$TEMPLATES_DIR/rules/$rule"
 done
@@ -139,6 +149,13 @@ echo -e "  ${CYAN}scoutica doctor${NC}                  System diagnostics and h
 echo -e "  ${CYAN}scoutica update${NC}                  Update CLI to the latest version"
 echo -e "  ${CYAN}scoutica help${NC}                    Show all commands with examples"
 echo -e "  ${CYAN}scoutica version${NC}                 Show version"
+echo ""
+echo -e "  ${BOLD}🏢 Employer / Recruiter:${NC}"
+echo ""
+echo -e "  ${CYAN}scoutica org init${NC}                Create Employer Identity Card"
+echo -e "  ${CYAN}scoutica org verify${NC}              Verify domain ownership"
+echo -e "  ${CYAN}scoutica role create${NC}             Create a structured job posting"
+echo -e "  ${CYAN}scoutica role validate${NC}           Validate role(s) against schemas"
 echo ""
 echo -e "  ${BOLD}📚 Learn more:${NC}"
 echo ""

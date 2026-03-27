@@ -1,0 +1,35 @@
+{
+  "scoutica_version": "0.3.0",
+  "job_id": "req_88f9a2",
+  "title": "Senior AI Architect",
+  "status": "active",
+  "posted_at": "2026-03-25T10:00:00Z",
+  "expires_at": "2026-04-24T10:00:00Z",
+  "refreshed_at": "2026-03-27T10:00:00Z",
+  "requirements": {
+    "hard_skills": ["Python", "Agentic AI", "PostgreSQL", "System Design"],
+    "preferred_skills": ["Rust", "NATS", "Next.js", "Kubernetes"],
+    "soft_skills": ["Technical Leadership", "Mentorship", "Architecture Communication"],
+    "minimum_years_experience": 8,
+    "seniority": "senior",
+    "languages_required": ["English"]
+  },
+  "compensation": {
+    "currency": "EUR",
+    "base_min": 120000,
+    "base_max": 150000,
+    "equity_offered": true,
+    "bonus_structure": "Annual performance bonus up to 15% of base salary"
+  },
+  "location": {
+    "type": "remote",
+    "regions_allowed": ["EU", "UK", "US-East"],
+    "timezone_overlap_required": "CET ±2h"
+  },
+  "engagement": {
+    "type": "permanent",
+    "start_date": "2026-05-01"
+  },
+  "description": "Lead the AI architecture for the Traylinx platform, designing agentic systems, autonomous mesh networks, data pipelines, and real-time inference services. You will define the technical direction for our agent-to-agent communication layer, build observability tooling, and mentor a growing engineering team.",
+  "recruiter_card_url": "https://github.com/traylinx/.scoutica/recruiter_profile.json"
+}

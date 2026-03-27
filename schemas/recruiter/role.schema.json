@@ -1,0 +1,129 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Scoutica Role Posting",
+  "description": "A machine-readable job definition for deterministic candidate matching.",
+  "type": "object",
+  "required": ["scoutica_version", "job_id", "title", "status", "requirements", "location"],
+  "additionalProperties": false,
+  "properties": {
+    "scoutica_version": {
+      "type": "string",
+      "pattern": "^\\d+\\.\\d+\\.\\d+$"
+    },
+    "job_id": {
+      "type": "string",
+      "pattern": "^req_[a-f0-9]{6,}$",
+      "description": "Unique role identifier"
+    },
+    "title": { "type": "string", "maxLength": 200 },
+    "status": {
+      "type": "string",
+      "enum": ["draft", "active", "paused", "filled", "expired"],
+      "description": "Current role status"
+    },
+    "posted_at": { "type": "string", "format": "date-time" },
+    "expires_at": { "type": "string", "format": "date-time" },
+    "refreshed_at": {
+      "type": "string",
+      "format": "date-time",
+      "description": "Last time the recruiter confirmed the role is still active (ghost prevention)"
+    },
+    "requirements": {
+      "type": "object",
+      "required": ["hard_skills"],
+      "additionalProperties": false,
+      "properties": {
+        "hard_skills": {
+          "type": "array",
+          "items": { "type": "string" },
+          "minItems": 1,
+          "maxItems": 20
+        },
+        "preferred_skills": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "soft_skills": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Non-technical skills (e.g., System Design, Leadership, Mentorship)"
+        },
+        "minimum_years_experience": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 50
+        },
+        "seniority": {
+          "type": "string",
+          "enum": ["entry", "junior", "mid", "senior", "lead", "manager", "director", "executive"]
+        },
+        "education": {
+          "type": "string",
+          "enum": ["none", "bootcamp", "bachelors", "masters", "phd"]
+        },
+        "languages_required": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Human languages (e.g., 'English', 'German')"
+        }
+      }
+    },
+    "compensation": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "currency": { "type": "string", "pattern": "^[A-Z]{3}$" },
+        "base_min": { "type": "number", "minimum": 0 },
+        "base_max": { "type": "number", "minimum": 0 },
+        "equity_offered": { "type": "boolean" },
+        "bonus_structure": { "type": "string", "maxLength": 500 }
+      }
+    },
+    "location": {
+      "type": "object",
+      "required": ["type"],
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "type": "string",
+          "enum": ["remote", "hybrid", "onsite"]
+        },
+        "regions_allowed": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Allowed candidate regions (e.g., 'EU', 'US-East', 'LATAM')"
+        },
+        "office_location": { "type": "string" },
+        "timezone_overlap_required": {
+          "type": "string",
+          "description": "Minimum timezone overlap (e.g., 'CET ±2h')"
+        }
+      }
+    },
+    "engagement": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "type": "string",
+          "enum": ["permanent", "contract", "fractional", "freelance"]
+        },
+        "duration_months": {
+          "type": "integer",
+          "description": "For contract/fractional: expected duration"
+        },
+        "start_date": { "type": "string", "format": "date" }
+      }
+    },
+    "description": {
+      "type": "string",
+      "maxLength": 5000,
+      "description": "Human-readable role description"
+    },
+    "recruiter_card_url": {
+      "type": "string",
+      "format": "uri",
+      "description": "Link to the posting org's recruiter_profile.json"
+    }
+  }
+}

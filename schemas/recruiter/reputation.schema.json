@@ -1,0 +1,30 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Scoutica Recruiter Reputation",
+  "description": "Computed by the network — NOT self-declared. Measures observable recruiter behavior.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "trust_score": { "type": "number", "minimum": 0, "maximum": 100 },
+    "trust_level": {
+      "type": "string",
+      "enum": ["new", "building", "established", "trusted", "elite"]
+    },
+    "metrics": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "response_rate_pct": { "type": "number", "minimum": 0, "maximum": 100 },
+        "ghosting_rate_pct": { "type": "number", "minimum": 0, "maximum": 100 },
+        "hire_rate_pct": { "type": "number", "minimum": 0, "maximum": 100 },
+        "rejection_rate_pct": { "type": "number", "minimum": 0, "maximum": 100 },
+        "avg_response_time_hours": { "type": "number", "minimum": 0 },
+        "total_conversations_30d": { "type": "integer", "minimum": 0 },
+        "total_hires_90d": { "type": "integer", "minimum": 0 },
+        "spam_flags_30d": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "computed_at": { "type": "string", "format": "date-time" },
+    "member_since": { "type": "string", "format": "date" }
+  }
+}

@@ -1,0 +1,83 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Scoutica Hiring Rules",
+  "description": "Public commitments from a recruiter about their hiring practices.",
+  "type": "object",
+  "required": ["commitments"],
+  "additionalProperties": false,
+  "properties": {
+    "commitments": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "max_response_time_days": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 30,
+          "description": "SLA: maximum days to respond to a candidate's acceptance"
+        },
+        "salary_transparency_guaranteed": {
+          "type": "boolean",
+          "description": "Whether compensation ranges are always disclosed upfront"
+        },
+        "feedback_provided_on_rejection": {
+          "type": "boolean",
+          "description": "Whether candidates receive structured feedback when rejected"
+        },
+        "gdpr_compliance": {
+          "type": "boolean",
+          "description": "Whether the org is GDPR-compliant"
+        },
+        "interview_process_max_rounds": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 10,
+          "description": "Maximum number of interview rounds"
+        },
+        "response_time_sla_hours": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Target response time in hours for initial reply"
+        }
+      }
+    },
+    "limits": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "max_unsolicited_pings_per_week": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 1000,
+          "description": "Self-declared cap on outbound opportunity messages per week"
+        },
+        "max_active_roles": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Maximum concurrent open roles"
+        }
+      }
+    },
+    "preferences": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "preferred_seniority": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": ["entry", "junior", "mid", "senior", "lead", "manager", "director", "executive"]
+          }
+        },
+        "preferred_engagement": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "preferred_regions": {
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      }
+    }
+  }
+}

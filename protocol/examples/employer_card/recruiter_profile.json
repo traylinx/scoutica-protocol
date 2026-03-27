@@ -1,0 +1,30 @@
+{
+  "scoutica_version": "0.3.0",
+  "entity_type": "in-house",
+  "organization": {
+    "name": "Traylinx",
+    "domain": "traylinx.com",
+    "domain_verified": true,
+    "verified_at": "2026-03-20T10:00:00Z",
+    "description": "AI-powered decentralized infrastructure platform. Building autonomous agent mesh networks, observability tools, and developer APIs.",
+    "founded_year": 2024,
+    "team_size": "11-50",
+    "headquarters": "Berlin, Germany"
+  },
+  "industries": ["AI", "Developer Tools", "Enterprise Software"],
+  "engagement_types": ["permanent", "contract", "fractional"],
+  "tech_stack": ["Python", "Next.js", "PostgreSQL", "NATS", "Docker", "Kubernetes", "TypeScript"],
+  "team": {
+    "model": "organization",
+    "members_can_post_roles": true,
+    "require_approval_for_publish": false
+  },
+  "contact": {
+    "agent_endpoint": "https://api.traylinx.com/scoutica/webhooks",
+    "human_fallback": "recruiting@traylinx.com",
+    "careers_page": "https://traylinx.com/careers"
+  },
+  "card_url": "https://github.com/traylinx/.scoutica/recruiter_profile.json",
+  "created_at": "2026-03-20T10:00:00Z",
+  "updated_at": "2026-03-27T12:00:00Z"
+}

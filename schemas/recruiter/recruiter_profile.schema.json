@@ -1,0 +1,99 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Scoutica Recruiter Profile",
+  "description": "Machine-readable identity for a recruiting organization on the Scoutica network.",
+  "type": "object",
+  "required": ["scoutica_version", "entity_type", "organization", "engagement_types"],
+  "additionalProperties": false,
+  "properties": {
+    "scoutica_version": {
+      "type": "string",
+      "pattern": "^\\d+\\.\\d+\\.\\d+$",
+      "description": "Protocol version (e.g., 0.3.0)"
+    },
+    "entity_type": {
+      "type": "string",
+      "enum": ["in-house", "agency", "fractional", "platform"],
+      "description": "Type of recruiting entity"
+    },
+    "organization": {
+      "type": "object",
+      "required": ["name", "domain"],
+      "additionalProperties": false,
+      "properties": {
+        "name": { "type": "string", "maxLength": 200 },
+        "domain": { "type": "string", "format": "hostname" },
+        "domain_verified": { "type": "boolean", "default": false },
+        "verified_at": { "type": "string", "format": "date-time" },
+        "description": { "type": "string", "maxLength": 1000 },
+        "founded_year": { "type": "integer", "minimum": 1900, "maximum": 2100 },
+        "team_size": {
+          "type": "string",
+          "enum": ["1-10", "11-50", "51-200", "201-500", "501-1000", "1000+"]
+        },
+        "headquarters": { "type": "string", "maxLength": 200 }
+      }
+    },
+    "industries": {
+      "type": "array",
+      "items": { "type": "string" },
+      "minItems": 1,
+      "maxItems": 10,
+      "description": "Industries the org operates in"
+    },
+    "engagement_types": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "enum": ["permanent", "contract", "fractional", "advisory", "freelance", "internship"]
+      },
+      "minItems": 1
+    },
+    "tech_stack": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Primary technologies used in the organization"
+    },
+    "team": {
+      "type": "object",
+      "description": "Team management model. Git repo access = team access.",
+      "additionalProperties": false,
+      "properties": {
+        "model": {
+          "type": "string",
+          "enum": ["solo", "organization", "agency"],
+          "description": "solo: 1 person. organization: GitHub org with collaborators. agency: external entity managing client orgs."
+        },
+        "members_can_post_roles": { "type": "boolean", "default": true },
+        "require_approval_for_publish": { "type": "boolean", "default": false }
+      }
+    },
+    "contact": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "agent_endpoint": {
+          "type": "string",
+          "format": "uri",
+          "description": "Webhook URL for agent-to-agent communication"
+        },
+        "human_fallback": {
+          "type": "string",
+          "format": "email",
+          "description": "Human-readable contact for non-automated interactions"
+        },
+        "careers_page": {
+          "type": "string",
+          "format": "uri"
+        }
+      }
+    },
+    "card_url": {
+      "type": "string",
+      "format": "uri",
+      "description": "URL where this recruiter card is hosted"
+    },
+    "created_at": { "type": "string", "format": "date-time" },
+    "updated_at": { "type": "string", "format": "date-time" }
+  }
+}

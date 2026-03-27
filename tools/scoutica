@@ -2,7 +2,7 @@
 # ============================================================================
 # Scoutica Protocol CLI — Your Skills. Your Rules. Your Data.
 #
-# Commands:
+# Candidate Commands:
 #   scoutica scan <folder>  Auto-generate card from your documents (AI-powered)
 #   scoutica init           Interactive wizard to create your Skill Card
 #   scoutica init --ai      Generate card using AI (paste GENERATE_MY_CARD.md)
@@ -11,6 +11,15 @@
 #   scoutica resolve <url>  Fetch and display any card from a URL
 #   scoutica info           Show card summary
 #   scoutica logs           View scan logs and timing data
+#
+# Employer Commands:
+#   scoutica org init       Create a Recruiter/Employer Identity Card
+#   scoutica org verify     Verify domain ownership (DNS TXT)
+#   scoutica org publish    Push employer card to GitHub
+#   scoutica role create    Create a structured job posting (role.json)
+#   scoutica role validate  Validate role against protocol schemas
+#
+# System Commands:
 #   scoutica update         Update the CLI to the latest version
 #   scoutica doctor         System diagnostics and health check
 #   scoutica help           Show this help
@@ -18,7 +27,7 @@
 
 set -euo pipefail
 
-VERSION="0.2.0"
+VERSION="0.3.0"
 SCOUTICA_HOME="${SCOUTICA_HOME:-$HOME/.scoutica}"
 SCHEMAS_DIR="$SCOUTICA_HOME/schemas"
 TEMPLATES_DIR="$SCOUTICA_HOME/templates"
@@ -1218,6 +1227,13 @@ cmd_help() {
     echo -e "  ${CYAN}validate${NC} [dir]       Validate card against protocol schemas"
     echo -e "  ${CYAN}publish${NC}  [dir]       Push card to GitHub"
     echo -e "  ${CYAN}resolve${NC}  <url>       Fetch and display any card from a URL"
+    echo ""
+    echo -e "${BOLD}🏢 Employer commands:${NC}"
+    echo -e "  ${CYAN}org init${NC}             Create a Recruiter/Employer Identity Card"
+    echo -e "  ${CYAN}org verify${NC}           Verify domain ownership (DNS TXT record)"
+    echo -e "  ${CYAN}org publish${NC}          Push employer card to GitHub"
+    echo -e "  ${CYAN}role create${NC}          Create a structured job posting (role.json)"
+    echo -e "  ${CYAN}role validate${NC} [dir]  Validate role(s) against protocol schemas"
     echo ""
     echo -e "${BOLD}⚙️  Advanced:${NC}"
     echo -e "  ${CYAN}doctor${NC}               System diagnostics and health check"
@@ -3181,6 +3197,631 @@ print("")
 STATUSSCRIPT
 }
 
+# ─── ORG Command (Employer Identity) ─────────────────────────────────────────
+
+cmd_org() {
+    local subcommand="${1:-help}"
+    shift 2>/dev/null || true
+    
+    case "$subcommand" in
+        init)    cmd_org_init "$@" ;;
+        verify)  cmd_org_verify "$@" ;;
+        publish) cmd_org_publish "$@" ;;
+        *)
+            echo ""
+            echo -e "${BOLD}scoutica org${NC} — Employer Identity Management"
+            echo ""
+            echo -e "  ${CYAN}org init${NC}             Create a Recruiter/Employer Identity Card"
+            echo -e "  ${CYAN}org verify${NC}           Verify domain ownership (DNS TXT record)"
+            echo -e "  ${CYAN}org publish${NC}          Push employer card to GitHub"
+            echo ""
+            ;;
+    esac
+}
+
+cmd_org_init() {
+    local target_dir="${1:-.}"
+    
+    header "Create Employer Identity Card"
+    
+    echo -e "  ${DIM}Answer the questions below to generate your Scoutica Recruiter Card.${NC}"
+    echo -e "  ${DIM}Press Enter to accept defaults.${NC}"
+    echo ""
+    
+    # ── Organization Identity ──
+    echo -e "  ${MAGENTA}━━━ 🏢 Organization Identity ━━━${NC}"
+    echo ""
+    local org_name=$(ask "Organization name")
+    local org_domain=$(ask "Organization domain" "example.com")
+    local org_description=$(ask "Short description")
+    local org_team_size=$(ask_choice "Team size" \
+        "1-10" "11-50" "51-200" "201-500" "501-1000" "1000+")
+    local org_hq=$(ask "Headquarters (city, country)" "")
+    local org_founded=$(ask "Founded year" "")
+    
+    echo ""
+    
+    # ── Entity Type & Team Model ──
+    echo -e "  ${MAGENTA}━━━ 🧩 Entity Type ━━━${NC}"
+    echo ""
+    local entity_type=$(ask_choice "Entity type" \
+        "in-house" "agency" "fractional" "platform")
+    local team_model=$(ask_choice "Team model" \
+        "solo" "organization" "agency")
+    
+    echo ""
+    
+    # ── Industries & Tech ──
+    echo -e "  ${MAGENTA}━━━ 🔧 Industries & Tech ━━━${NC}"
+    echo ""
+    local industries=$(ask_list "Industries" "e.g. AI, SaaS, FinTech")
+    local tech_stack=$(ask_list "Tech stack" "e.g. Python, Next.js, PostgreSQL")
+    local engagement_types=""
+    local eng_items=("permanent" "contract" "fractional" "advisory" "freelance" "internship")
+    echo -e "  ${BOLD}Which engagement types do you offer?${NC}"
+    for etype in "${eng_items[@]}"; do
+        if confirm "  Offer $etype?"; then
+            if [ -n "$engagement_types" ]; then engagement_types+=",$etype"; else engagement_types="$etype"; fi
+        fi
+    done
+    
+    echo ""
+    
+    # ── Contact ──
+    echo -e "  ${MAGENTA}━━━ 📞 Contact ━━━${NC}"
+    echo ""
+    local agent_endpoint=$(ask "Agent webhook endpoint (optional)" "")
+    local human_email=$(ask "Recruiting email" "recruiting@${org_domain}")
+    local careers_page=$(ask "Careers page URL" "https://${org_domain}/careers")
+    
+    echo ""
+    
+    # ── Hiring Rules ──
+    echo -e "  ${MAGENTA}━━━ 📋 Hiring Rules & Commitments ━━━${NC}"
+    echo ""
+    local max_response_days=$(ask "Max response time (days)" "7")
+    local salary_transparent=$(confirm "Guarantee salary transparency?" && echo "true" || echo "false")
+    local feedback_on_reject=$(confirm "Provide feedback on rejection?" && echo "true" || echo "false")
+    local gdpr_compliance=$(confirm "GDPR compliant?" && echo "true" || echo "false")
+    local max_interview_rounds=$(ask "Max interview rounds" "3")
+    local response_sla_hours=$(ask "Response SLA (hours)" "48")
+    local max_pings_week=$(ask "Max outbound pings/week" "50")
+    local max_active_roles=$(ask "Max active roles" "10")
+    
+    echo ""
+    
+    # ── Preferences ──
+    echo -e "  ${MAGENTA}━━━ 🎯 Preferences ━━━${NC}"
+    echo ""
+    local pref_seniority=$(ask_list "Preferred seniority levels" "e.g. senior, lead, manager")
+    local pref_regions=$(ask_list "Preferred regions" "e.g. EU, UK, LATAM")
+    
+    echo ""
+    
+    # ── Generate Files ──
+    header "Generating Employer Identity Card"
+    
+    mkdir -p "$target_dir/roles"
+    
+    # Generate recruiter_profile.json and hiring_rules.yaml via Python
+    python3 << 'ORG_GENERATE_SCRIPT' - \
+        "$target_dir" \
+        "$org_name" "$org_domain" "$org_description" "$org_team_size" "$org_hq" "$org_founded" \
+        "$entity_type" "$team_model" \
+        "$industries" "$tech_stack" "$engagement_types" \
+        "$agent_endpoint" "$human_email" "$careers_page" \
+        "$max_response_days" "$salary_transparent" "$feedback_on_reject" "$gdpr_compliance" \
+        "$max_interview_rounds" "$response_sla_hours" "$max_pings_week" "$max_active_roles" \
+        "$pref_seniority" "$pref_regions"
+import json, sys, os
+from datetime import datetime, timezone
+
+args = sys.argv[1:]
+target_dir = args[0]
+org_name, org_domain, org_desc, org_team_size, org_hq, org_founded = args[1:7]
+entity_type, team_model = args[7:9]
+industries_csv, tech_csv, engagement_csv = args[9:12]
+agent_endpoint, human_email, careers_page = args[12:15]
+max_resp_days, salary_trans, feedback_rej, gdpr = args[15:19]
+max_rounds, resp_sla, max_pings, max_roles = args[19:23]
+pref_seniority_csv, pref_regions_csv = args[23:25]
+
+def csv_to_list(s):
+    return [x.strip() for x in s.split(',') if x.strip()] if s else []
+
+def safe_int(s, default=0):
+    try: return int(s)
+    except: return default
+
+now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+# ── recruiter_profile.json ──
+profile = {
+    "scoutica_version": "0.3.0",
+    "entity_type": entity_type,
+    "organization": {
+        "name": org_name,
+        "domain": org_domain,
+        "domain_verified": False,
+        "description": org_desc,
+        "team_size": org_team_size,
+    },
+    "industries": csv_to_list(industries_csv),
+    "engagement_types": csv_to_list(engagement_csv),
+    "tech_stack": csv_to_list(tech_csv),
+    "team": {
+        "model": team_model,
+        "members_can_post_roles": True,
+        "require_approval_for_publish": False,
+    },
+    "contact": {},
+    "created_at": now,
+    "updated_at": now,
+}
+
+if org_hq:
+    profile["organization"]["headquarters"] = org_hq
+if org_founded:
+    profile["organization"]["founded_year"] = safe_int(org_founded, 2020)
+if agent_endpoint:
+    profile["contact"]["agent_endpoint"] = agent_endpoint
+if human_email:
+    profile["contact"]["human_fallback"] = human_email
+if careers_page:
+    profile["contact"]["careers_page"] = careers_page
+
+with open(os.path.join(target_dir, "recruiter_profile.json"), "w") as f:
+    json.dump(profile, f, indent=2, ensure_ascii=False)
+    f.write("\n")
+print("  ✅ Created recruiter_profile.json")
+
+# ── hiring_rules.yaml ──
+rules = {
+    "commitments": {
+        "max_response_time_days": safe_int(max_resp_days, 7),
+        "salary_transparency_guaranteed": salary_trans == "true",
+        "feedback_provided_on_rejection": feedback_rej == "true",
+        "gdpr_compliance": gdpr == "true",
+        "interview_process_max_rounds": safe_int(max_rounds, 3),
+        "response_time_sla_hours": safe_int(resp_sla, 48),
+    },
+    "limits": {
+        "max_unsolicited_pings_per_week": safe_int(max_pings, 50),
+        "max_active_roles": safe_int(max_roles, 10),
+    },
+    "preferences": {
+        "preferred_seniority": csv_to_list(pref_seniority_csv),
+        "preferred_engagement": csv_to_list(engagement_csv),
+        "preferred_regions": csv_to_list(pref_regions_csv),
+    },
+}
+
+try:
+    import yaml
+    with open(os.path.join(target_dir, "hiring_rules.yaml"), "w") as f:
+        yaml.dump(rules, f, default_flow_style=False, allow_unicode=True, sort_keys=False)
+    print("  ✅ Created hiring_rules.yaml")
+except ImportError:
+    with open(os.path.join(target_dir, "hiring_rules.yaml"), "w") as f:
+        json.dump(rules, f, indent=2, ensure_ascii=False)
+        f.write("\n")
+    print("  ✅ Created hiring_rules.yaml (as JSON — install pyyaml for proper YAML)")
+
+# ── Empty roles/ directory message ──
+print("  ✅ Created roles/ directory")
+print(f"     Use 'scoutica role create' to add job postings.")
+ORG_GENERATE_SCRIPT
+    
+    echo ""
+    echo -e "${GREEN}╔═══════════════════════════════════════════════════════╗${NC}"
+    echo -e "${GREEN}║                                                       ║${NC}"
+    echo -e "${GREEN}║   🏢 Your Employer Identity Card is ready!            ║${NC}"
+    echo -e "${GREEN}║                                                       ║${NC}"
+    echo -e "${GREEN}╚═══════════════════════════════════════════════════════╝${NC}"
+    echo ""
+    echo -e "  ${BOLD}Files created in:${NC} $target_dir/"
+    echo ""
+    echo -e "  ${BOLD}Next steps:${NC}"
+    echo -e "  ${CYAN}scoutica org verify --domain ${org_domain}${NC}   Verify domain ownership"
+    echo -e "  ${CYAN}scoutica role create${NC}                       Create a job posting"
+    echo -e "  ${CYAN}scoutica org publish${NC}                       Push to GitHub"
+    echo ""
+}
+
+cmd_org_verify() {
+    local domain=""
+    
+    # Parse --domain flag
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --domain) domain="$2"; shift 2 ;;
+            *) domain="$1"; shift ;;
+        esac
+    done
+    
+    if [ -z "$domain" ]; then
+        # Try to read from recruiter_profile.json
+        if [ -f "recruiter_profile.json" ]; then
+            domain=$(python3 -c "import json; print(json.load(open('recruiter_profile.json'))['organization']['domain'])" 2>/dev/null)
+        fi
+    fi
+    
+    if [ -z "$domain" ]; then
+        error "No domain specified. Usage: scoutica org verify --domain example.com"
+        exit 1
+    fi
+    
+    header "Verify Domain Ownership"
+    
+    # Generate verification hash
+    local org_name=""
+    if [ -f "recruiter_profile.json" ]; then
+        org_name=$(python3 -c "import json; print(json.load(open('recruiter_profile.json'))['organization']['name'])" 2>/dev/null || echo "")
+    fi
+    
+    local verify_input="${org_name}.${domain}.0.3.0"
+    local verify_hash=$(printf '%s' "$verify_input" | shasum -a 256 | awk '{print $1}' | cut -c1-32)
+    local record_value="scoutica-verify=v1:${verify_hash}"
+    
+    echo -e "  ${BOLD}Step 1:${NC} Add this DNS TXT record to your domain:"
+    echo ""
+    echo -e "    ${BOLD}Name:${NC}   _scoutica.${domain}"
+    echo -e "    ${BOLD}Type:${NC}   TXT"
+    echo -e "    ${BOLD}Value:${NC}  ${CYAN}${record_value}${NC}"
+    echo ""
+    echo -e "  ${BOLD}Step 2:${NC} Wait for DNS propagation (usually 1-5 minutes)."
+    echo ""
+    
+    if confirm "Check DNS now?"; then
+        echo -e "  ${DIM}Checking _scoutica.${domain}...${NC}"
+        
+        local dns_result
+        dns_result=$(dig +short TXT "_scoutica.${domain}" 2>/dev/null | tr -d '"' || echo "")
+        
+        if echo "$dns_result" | grep -q "$record_value"; then
+            success "Domain verified! ✅"
+            
+            # Update recruiter_profile.json
+            if [ -f "recruiter_profile.json" ]; then
+                python3 -c "
+import json
+from datetime import datetime, timezone
+with open('recruiter_profile.json') as f:
+    data = json.load(f)
+data['organization']['domain_verified'] = True
+data['organization']['verified_at'] = datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')
+data['updated_at'] = datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')
+with open('recruiter_profile.json', 'w') as f:
+    json.dump(data, f, indent=2, ensure_ascii=False)
+    f.write('\n')
+" 2>/dev/null && success "Updated recruiter_profile.json with verification timestamp"
+            fi
+        else
+            warn "TXT record not found yet."
+            echo -e "  ${DIM}DNS propagation can take up to 48 hours.${NC}"
+            echo -e "  ${DIM}Run this command again later: scoutica org verify --domain ${domain}${NC}"
+        fi
+    else
+        echo -e "  ${DIM}When ready, run: scoutica org verify --domain ${domain}${NC}"
+    fi
+    echo ""
+}
+
+cmd_org_publish() {
+    local card_dir="${1:-.}"
+    
+    header "Publish Employer Card to GitHub"
+    
+    # Check for recruiter_profile.json
+    if [ ! -f "$card_dir/recruiter_profile.json" ]; then
+        error "No Employer Card found in $card_dir"
+        echo -e "  ${DIM}Run 'scoutica org init' first.${NC}"
+        exit 1
+    fi
+    
+    if ! command -v git &>/dev/null; then
+        error "Git is not installed."
+        exit 1
+    fi
+    
+    if [ -d "$card_dir/.git" ]; then
+        (
+            cd "$card_dir"
+            # Stage known employer card files
+            local card_files=(recruiter_profile.json hiring_rules.yaml)
+            for cf in "${card_files[@]}"; do
+                [ -f "$cf" ] && git add "$cf" 2>/dev/null
+            done
+            [ -d "roles" ] && git add roles/ 2>/dev/null
+            
+            local changes
+            changes=$(git status -s 2>/dev/null | grep -E 'recruiter_profile|hiring_rules|roles/') || true
+            
+            if [ -z "$changes" ]; then
+                echo -e "  ${GREEN}✅${NC} Employer Card is already up to date!"
+                local origin_url=$(git remote get-url origin 2>/dev/null || echo "")
+                if [ -n "$origin_url" ]; then
+                    echo -e "  ${DIM}Live at:${NC} $(echo "$origin_url" | sed 's/\.git$//')"
+                fi
+                return 0
+            fi
+            
+            echo -e "  ${BOLD}Publishing these changes:${NC}"
+            echo "$changes" | while read -r line; do
+                echo -e "    ${CYAN}$line${NC}"
+            done
+            echo ""
+            
+            local msg="Update Scoutica Employer Card — $(date +%Y-%m-%d)"
+            git commit -m "$msg" >/dev/null 2>&1
+            
+            if git remote -v | grep -q "origin"; then
+                echo -e "  ${DIM}Pushing to GitHub...${NC}"
+                if git push origin "$(git branch --show-current)" >/dev/null 2>&1; then
+                    success "Successfully published to GitHub!"
+                    local origin_url=$(git remote get-url origin)
+                    local clean_url=$(echo "$origin_url" | sed 's/\.git$//')
+                    echo -e "  ${BOLD}View:${NC} $clean_url"
+                else
+                    error "Push failed. Check your remote or permissions."
+                fi
+            else
+                warn "No remote 'origin' configured."
+                echo -e "  ${DIM}Run: git remote add origin https://github.com/ORG/.scoutica.git${NC}"
+            fi
+        )
+    else
+        warn "Not a git repository."
+        echo -e "  ${DIM}Initialize with: git init && git remote add origin ...${NC}"
+    fi
+    echo ""
+}
+
+# ─── ROLE Command (Job Postings) ──────────────────────────────────────────────
+
+cmd_role() {
+    local subcommand="${1:-help}"
+    shift 2>/dev/null || true
+    
+    case "$subcommand" in
+        create)   cmd_role_create "$@" ;;
+        validate) cmd_role_validate "$@" ;;
+        *)
+            echo ""
+            echo -e "${BOLD}scoutica role${NC} — Job Posting Management"
+            echo ""
+            echo -e "  ${CYAN}role create${NC}           Create a structured job posting (role.json)"
+            echo -e "  ${CYAN}role validate${NC} [dir]   Validate role(s) against protocol schemas"
+            echo ""
+            ;;
+    esac
+}
+
+cmd_role_create() {
+    local target_dir="${1:-.}"
+    
+    header "Create Structured Job Posting"
+    
+    echo -e "  ${DIM}Define the role using the Scoutica Protocol format.${NC}"
+    echo -e "  ${DIM}This creates a machine-readable role.json for deterministic matching.${NC}"
+    echo ""
+    
+    # ── Role Identity ──
+    echo -e "  ${MAGENTA}━━━ 📋 Role Details ━━━${NC}"
+    echo ""
+    local role_title=$(ask "Role title" "Senior Software Engineer")
+    local role_description=$(ask "Short role description")
+    local role_seniority=$(ask_choice "Seniority" \
+        "entry" "junior" "mid" "senior" "lead" "manager" "director" "executive")
+    local min_years=$(ask "Minimum years of experience" "5")
+    
+    echo ""
+    
+    # ── Skills ──
+    echo -e "  ${MAGENTA}━━━ 🛠️  Skills ━━━${NC}"
+    echo ""
+    local hard_skills=$(ask_list "Required skills (hard)" "e.g. Python, Kubernetes, SQL")
+    local preferred_skills=$(ask_list "Preferred skills (nice-to-have)" "e.g. Rust, NATS")
+    local soft_skills=$(ask_list "Soft skills" "e.g. Leadership, Mentorship")
+    local languages_required=$(ask_list "Languages required" "e.g. English, German")
+    
+    echo ""
+    
+    # ── Compensation ──
+    echo -e "  ${MAGENTA}━━━ 💰 Compensation ━━━${NC}"
+    echo ""
+    local currency=$(ask "Currency (3-letter code)" "EUR")
+    local base_min=$(ask "Minimum base salary" "80000")
+    local base_max=$(ask "Maximum base salary" "120000")
+    local equity=$(confirm "Equity offered?" && echo "true" || echo "false")
+    
+    echo ""
+    
+    # ── Location ──
+    echo -e "  ${MAGENTA}━━━ 🌍 Location ━━━${NC}"
+    echo ""
+    local location_type=$(ask_choice "Work model" "remote" "hybrid" "onsite")
+    local regions=$(ask_list "Regions allowed" "e.g. EU, UK, US-East")
+    local tz_overlap=$(ask "Timezone overlap required" "CET ±2h")
+    local office_location=""
+    if [ "$location_type" != "remote" ]; then
+        office_location=$(ask "Office location")
+    fi
+    
+    echo ""
+    
+    # ── Engagement ──
+    echo -e "  ${MAGENTA}━━━ 📅 Engagement ━━━${NC}"
+    echo ""
+    local engagement_type=$(ask_choice "Engagement type" "permanent" "contract" "fractional" "freelance")
+    local start_date=$(ask "Start date (YYYY-MM-DD)" "")
+    local duration_months=""
+    if [ "$engagement_type" != "permanent" ]; then
+        duration_months=$(ask "Duration (months)" "")
+    fi
+    
+    echo ""
+    
+    # ── Recruiter Card URL ──
+    local recruiter_card_url=""
+    if [ -f "$target_dir/recruiter_profile.json" ]; then
+        recruiter_card_url=$(python3 -c "import json; d=json.load(open('$target_dir/recruiter_profile.json')); print(d.get('card_url',''))" 2>/dev/null || echo "")
+    fi
+    if [ -z "$recruiter_card_url" ]; then
+        recruiter_card_url=$(ask "Recruiter card URL (optional)" "")
+    fi
+    
+    # ── Generate ──
+    header "Generating Role Posting"
+    
+    mkdir -p "$target_dir/roles"
+    
+    python3 << 'ROLE_GENERATE_SCRIPT' - \
+        "$target_dir" \
+        "$role_title" "$role_description" "$role_seniority" "$min_years" \
+        "$hard_skills" "$preferred_skills" "$soft_skills" "$languages_required" \
+        "$currency" "$base_min" "$base_max" "$equity" \
+        "$location_type" "$regions" "$tz_overlap" "$office_location" \
+        "$engagement_type" "$start_date" "$duration_months" \
+        "$recruiter_card_url"
+import json, sys, os, re, hashlib
+from datetime import datetime, timezone, timedelta
+
+args = sys.argv[1:]
+target_dir = args[0]
+role_title, role_desc, seniority, min_years_str = args[1:5]
+hard_csv, preferred_csv, soft_csv, languages_csv = args[5:9]
+currency, base_min_str, base_max_str, equity_str = args[9:13]
+location_type, regions_csv, tz_overlap, office_loc = args[13:17]
+engagement_type, start_date, duration_str = args[17:20]
+recruiter_card_url = args[20] if len(args) > 20 else ""
+
+def csv_to_list(s):
+    return [x.strip() for x in s.split(',') if x.strip()] if s else []
+
+def safe_int(s, default=0):
+    try: return int(s)
+    except: return default
+
+now = datetime.now(timezone.utc)
+expiry = now + timedelta(days=30)
+
+# Generate a deterministic job_id from title
+title_hash = hashlib.sha256(f"{role_title}:{now.isoformat()}".encode()).hexdigest()[:6]
+job_id = f"req_{title_hash}"
+
+role = {
+    "scoutica_version": "0.3.0",
+    "job_id": job_id,
+    "title": role_title,
+    "status": "active",
+    "posted_at": now.strftime("%Y-%m-%dT%H:%M:%SZ"),
+    "expires_at": expiry.strftime("%Y-%m-%dT%H:%M:%SZ"),
+    "refreshed_at": now.strftime("%Y-%m-%dT%H:%M:%SZ"),
+    "requirements": {
+        "hard_skills": csv_to_list(hard_csv),
+        "seniority": seniority,
+        "minimum_years_experience": safe_int(min_years_str, 5),
+    },
+    "compensation": {
+        "currency": currency.upper(),
+        "base_min": safe_int(base_min_str, 80000),
+        "base_max": safe_int(base_max_str, 120000),
+        "equity_offered": equity_str == "true",
+    },
+    "location": {
+        "type": location_type,
+    },
+    "engagement": {
+        "type": engagement_type,
+    },
+    "description": role_desc,
+}
+
+# Optional fields
+if csv_to_list(preferred_csv):
+    role["requirements"]["preferred_skills"] = csv_to_list(preferred_csv)
+if csv_to_list(soft_csv):
+    role["requirements"]["soft_skills"] = csv_to_list(soft_csv)
+if csv_to_list(languages_csv):
+    role["requirements"]["languages_required"] = csv_to_list(languages_csv)
+if csv_to_list(regions_csv):
+    role["location"]["regions_allowed"] = csv_to_list(regions_csv)
+if tz_overlap:
+    role["location"]["timezone_overlap_required"] = tz_overlap
+if office_loc:
+    role["location"]["office_location"] = office_loc
+if start_date:
+    role["engagement"]["start_date"] = start_date
+if duration_str:
+    role["engagement"]["duration_months"] = safe_int(duration_str)
+if recruiter_card_url:
+    role["recruiter_card_url"] = recruiter_card_url
+
+# Generate filename from title
+filename = re.sub(r'[^a-z0-9]+', '-', role_title.lower()).strip('-') + '.json'
+filepath = os.path.join(target_dir, 'roles', filename)
+
+with open(filepath, 'w') as f:
+    json.dump(role, f, indent=2, ensure_ascii=False)
+    f.write('\n')
+print(f"  ✅ Created roles/{filename}")
+print(f"     Job ID: {job_id}")
+print(f"     Expires: {expiry.strftime('%Y-%m-%d')} (30 days — refresh to prevent ghost-job decay)")
+ROLE_GENERATE_SCRIPT
+    
+    echo ""
+    echo -e "  ${BOLD}Next steps:${NC}"
+    echo -e "  ${CYAN}scoutica role validate${NC}    Validate against protocol schemas"
+    echo -e "  ${CYAN}scoutica org publish${NC}      Push to GitHub"
+    echo ""
+}
+
+cmd_role_validate() {
+    local card_dir="${1:-.}"
+    
+    header "Validate Role Postings"
+    
+    # Find Python
+    local python_cmd=""
+    if command -v python3 &>/dev/null; then
+        python_cmd="python3"
+    elif command -v python &>/dev/null; then
+        python_cmd="python"
+    else
+        error "Python is required for schema validation"
+        exit 1
+    fi
+    
+    # Find validator script
+    local validator=""
+    local script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+    
+    if [ -f "$SCOUTICA_HOME/bin/validate_card.py" ]; then
+        validator="$SCOUTICA_HOME/bin/validate_card.py"
+    elif [ -f "$script_dir/validate_card.py" ]; then
+        validator="$script_dir/validate_card.py"
+    elif [ -f "$SCOUTICA_HOME/tools/validate_card.py" ]; then
+        validator="$SCOUTICA_HOME/tools/validate_card.py"
+    fi
+    
+    if [ -z "$validator" ]; then
+        error "Validation script not found."
+        exit 1
+    fi
+    
+    # Check for dependencies
+    if ! $python_cmd -c "import jsonschema, yaml" 2>/dev/null; then
+        warn "Missing Python dependencies. Installing..."
+        $python_cmd -m pip install jsonschema pyyaml --quiet 2>/dev/null || {
+            error "Failed to install dependencies"
+            exit 1
+        }
+    fi
+    
+    $python_cmd "$validator" "$card_dir" --type employer
+}
+
 # ─── Main Router ──────────────────────────────────────────────────────────────
 
 main() {
@@ -3199,6 +3840,8 @@ main() {
         doctor)     cmd_doctor "$@" ;;
         status)     cmd_status "$@" ;;
         logs)       cmd_logs "$@" ;;
+        org)        cmd_org "$@" ;;
+        role)       cmd_role "$@" ;;
         help|--help|-h)  cmd_help ;;
         version|--version|-v) echo "scoutica v$VERSION" ;;
         *)
