@@ -94,9 +94,9 @@ scoutica-protocol/
 
 Choose the method that works best for you:
 
-### Option 1: Agent-First Install (Zero Friction)
+### Option 1: Candidates (AI Zero-Effort Mode)
 
-The easiest way to generate your card is to give these instructions directly to an AI agent (like Claude Code, Cursor, or OpenClaw):
+The easiest way to generate a Candidate Card is to give these instructions directly to an AI agent (like Claude Code, Cursor, or OpenClaw):
 
 ```text
 Agent: Please install the Scoutica Protocol CLI and generate a Skill Card for my CVs in this folder.
@@ -191,8 +191,11 @@ Examples:
   # Validate, preview, and publish
   scoutica validate && scoutica preview && scoutica publish
 
-  # Auto-generate card from your CV folder
+  # Auto-generate candidate card from your CV folder
   scoutica scan ~/CV/
+
+  # Scaffold an employer identity 
+  scoutica org init
 ```
 
 ### AI Zero-Effort Mode
@@ -223,7 +226,28 @@ Your data never leaves your machine — everything runs through your local AI CL
 
 📗 **Learn More:** Check out the [Complete Documentation](https://docs.scoutica.com) for full commands, guides, and architecture.
 
-### Option 2: Paste Into Any AI (Easiest — No Install Needed)
+### Option 2: Employers / Recruiters (Hire passively or actively)
+
+Are you an organization looking to hire from the network? Set up your Recruiter Card:
+
+```bash
+# 1. Initialize your organization identity
+scoutica org init
+
+# 2. Verify your domain (DNS TXT record)
+scoutica org verify --domain company.com
+
+# 3. Create a structured job posting
+scoutica role create
+
+# 4. Validate and publish to GitHub
+scoutica role validate roles/
+scoutica org publish
+```
+
+Your roles are now live on the mesh network. Candidate agents will automatically evaluate and pitch you candidates that match your requirements.
+
+### Option 3: Manual CLI Install (Recommended for Devs)
 
 1. Open [`GENERATE_MY_CARD.md`](GENERATE_MY_CARD.md) on GitHub
 2. Copy the entire file contents

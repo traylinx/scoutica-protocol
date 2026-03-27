@@ -169,16 +169,28 @@ If the opportunity passes all checks:
 ## CLI Commands Reference
 
 ```bash
+# Candidates
 scoutica init                    # Interactive card creation wizard
 scoutica init --ai               # AI-assisted card creation
 scoutica scan ./docs/            # Auto-generate card from documents into a subfolder
 scoutica scan . --clipboard      # Generate via clipboard (no AI CLI needed)
 scoutica scan . --with gemini    # Use a specific AI provider
-scoutica validate [dir]          # Validate card against schemas
 scoutica status                  # View dashboard of all your Skill Cards
 scoutica preview [dir]           # Build HTML and publish to here.now
 scoutica publish [dir]           # Push card to GitHub
 scoutica info [dir]              # Display card summary
+
+# Employers & Recruiters
+scoutica org init                # Create Employer Identity Card
+scoutica org verify              # Verify domain ownership
+scoutica org publish             # Push employer card to GitHub
+scoutica role create             # Create a structured job posting
+scoutica role validate           # Validate role(s) against schemas
+
+# Global
+scoutica validate [dir]          # Validate candidate card against schemas
+scoutica validate [dir] --type employer # Validate employer card against schemas
+scoutica resolve <url>           # Fetch and display any card from a URL
 ```
 
 ## Supported AI Providers

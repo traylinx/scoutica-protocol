@@ -49,11 +49,13 @@ This generates a structured `role.json` file inside the `roles/` directory conta
 ### Step 4 — Validate and Publish
 
 ```bash
-scoutica role validate roles/senior-ai-architect.json
+# Or test the whole directory:
+scoutica role validate ./ --type employer
+# Publish your org card
 scoutica org publish
 ```
 
-This pushes the `.scoutica` folder to the company's GitHub repository, effectively publishing the org identity and the active roles to the decentralized mesh network.
+This pushes the `.scoutica` folder to the company's GitHub repository (or creates it if you have the `gh` CLI installed), effectively publishing the org identity and the active roles to the decentralized mesh network.
 
 ---
 

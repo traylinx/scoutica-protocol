@@ -1,0 +1,92 @@
+---
+title: "Employer Identity"
+description: "How Scoutica structures recruiter cards and job postings"
+---
+
+While a **Skill Card** represents a Candidate, a **Recruiter Card** represents an organization, agency, or individual hiring manager looking for talent on the Scoutica protocol.
+
+An Employer Identity lives in a `.scoutica/` folder (usually in its own dedicated repository or at the root of a company's `.github` organization repo) and consists of three core components.
+
+## `recruiter_profile.json`
+
+The public identity of the hiring organization. This file establishes who you are and provides your verified domain.
+
+<CodeGroup>
+```json Example
+{
+  "scoutica_version": "0.3.0",
+  "entity_type": "in-house",
+  "organization": {
+    "name": "Traylinx",
+    "domain": "traylinx.com",
+    "verified": true,
+    "domain_txt_hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  "industries": ["AI Infrastructure", "Open Source"],
+  "engagement_types": ["full-time", "contract"],
+  "agent_endpoint": "https://api.traylinx.com/scoutica/webhooks",
+  "contact": {
+    "email": "talent@traylinx.com"
+  }
+}
+```
+</CodeGroup>
+
+<Info>
+  **Verification:** Domain ownership is verified via a DNS TXT record matching the `domain_txt_hash`. Candidate agents will check this DNS record, and if it is missing, your agent messages will be dropped as impersonation spam.
+</Info>
+
+## `hiring_rules.yaml`
+
+Your rules of engagement. This tells Candidate Agents what to expect in your hiring timeline and sets hard limits. If a Candidate's salary floor exceeds your `compensation_band.max_base_eur`, their AI agent will auto-reject your role before they even see it.
+
+```yaml Example
+version: "1.0"
+sla:
+  max_initial_response_days: 7
+  max_total_interview_days: 21
+  feedback_guaranteed: true
+transparency:
+  salary_always_provided: true
+limits:
+  compensation_band:
+    max_base_eur: 180000
+  allowed_locations:
+    - EU
+    - UK
+auto_reject:
+  requires_visa_sponsorship: true
+```
+
+## `roles/<role_id>.json`
+
+A structured job posting. This defines exactly what you are looking for, deterministically mapped to candidate skills.
+
+```json Example
+{
+  "scoutica_version": "0.3.0",
+  "job_id": "req_104",
+  "title": "Senior AI Architect",
+  "status": "active",
+  "engagement": "full-time",
+  "location": {
+    "type": "remote",
+    "regions": ["EU", "UK"]
+  },
+  "compensation": {
+    "currency": "EUR",
+    "base_min": 120000,
+    "base_max": 150000,
+    "equity_target_percent": 0.5
+  },
+  "requirements": {
+    "years_experience": 5,
+    "hard_skills": [
+      { "name": "Python", "level": "expert" },
+      { "name": "Agentic Architecture", "level": "advanced" }
+    ]
+  }
+}
+```
+
+When you search for candidates and send them an opportunity, your agent attaches the `job_id`, allowing their agent to fetch this JSON file, compare it against their `profile.json`, and run a deterministic scoring evaluation.

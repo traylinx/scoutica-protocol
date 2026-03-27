@@ -23,6 +23,13 @@ Commands:
   publish           Push card to GitHub
   preview           Build HTML layout and publish to here.now
   info              Show card summary
+
+  org init          Create Employer Identity Card
+  org verify        Verify domain ownership
+  org publish       Push employer card to GitHub
+  role create       Create a structured job posting
+  role validate     Validate role(s) against schemas
+  
   update            Update the Scoutica CLI to the latest version
   doctor            Diagnostics and system check for the CLI
   help              Show this help
@@ -53,12 +60,20 @@ Examples:
 | [`preview`](/cli/preview) | Build a beautiful HTML preview and publish to here.now |
 | [`resolve`](/cli/resolve) | Fetch and display a remote Skill Card by URL |
 | [`info`](/cli/info) | Show a summary of your local card |
+| [`org`](/cli/org) | Scaffold and publish a Recruiter Card for employers |
+| [`role`](/cli/role) | Create and validate structured job postings |
 | [`doctor`](/cli/doctor) | Run system diagnostics and check prerequisites |
 | [`update`](/cli/update) | Update the CLI and templates to the latest version |
 
 ## All commands
 
 <CardGroup cols={2}>
+  <Card title="org" icon="building" href="/cli/org">
+    Scaffold a new Recruiter Card, verify your organization's domain, and publish to GitHub.
+  </Card>
+  <Card title="role" icon="briefcase" href="/cli/role">
+    Create structured `role.json` job postings and validate them against the protocol schemas.
+  </Card>
   <Card title="init" icon="wand-magic-sparkles" href="/cli/init">
     Create your Skill Card with an interactive wizard or AI-guided flow.
   </Card>

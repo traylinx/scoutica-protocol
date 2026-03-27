@@ -1,0 +1,49 @@
+---
+title: "org"
+description: "Initialize and manage an Employer/Recruiter identity"
+---
+
+The `scoutica org` command suite manages your Recruiter Card. This represents an employer, agency, or fractional recruiter looking to hire from the Scoutica network.
+
+<Warning>
+  **Privacy Architecture:** You should run these commands in a dedicated repository (e.g., `github.com/company-name/.scoutica`) separately from your personal Candidate Card.
+</Warning>
+
+## `scoutica org init`
+
+Scaffolds a new Recruiter Card.
+
+```bash
+scoutica org init
+```
+
+The interactive wizard asks for:
+*   **Organization Details** (Name, Domain, Description, Industry)
+*   **Team Model** (`solo`, `organization`, or `agency`)
+*   **Hiring Rules** (Standard SLA, allowed engagement types, base salary floor)
+
+This creates `recruiter_profile.json` and `hiring_rules.yaml`.
+
+## `scoutica org verify`
+
+Verifies your organization's domain ownership via a DNS TXT record. This establishes your initial trust score in the network and prevents impersonation.
+
+```bash
+scoutica org verify --domain company.com
+```
+
+The CLI will:
+1.  Generate a unique SHA-256 validation hash
+2.  Provide instructions to add a `TXT` record (e.g., `_scoutica.company.com`)
+3.  Continuously poll DNS (`dig`) until the record propagates
+4.  Update your `recruiter_profile.json` with the verified timestamp and hash.
+
+## `scoutica org publish`
+
+Commits your organization card and any active role postings to GitHub. This publishes your identity to the network.
+
+```bash
+scoutica org publish
+```
+
+This uses the GitHub CLI (`gh`) to create a remote repository (if it doesn't exist) and pushes the `.scoutica` tree. If `gh` is not installed, it provides git commands to push manually.

@@ -1,0 +1,49 @@
+---
+title: "role"
+description: "Create and validate structured job postings"
+---
+
+The `scoutica role` command suite manages job postings that are attached to your Employer Identity. Roles use exact schema definitions that allow Candidate Agents to matching probabilistically or deterministically.
+
+## `scoutica role create`
+
+Creates a new structured job posting inside the `roles/` directory.
+
+```bash
+scoutica role create
+```
+
+The interactive wizard will ask you for:
+*   **Role Title and Department** (e.g., Senior AI Architect, Engineering)
+*   **Location and Modality** (e.g., Remote EU, Hybrid Berlin)
+*   **Compensation Range** (Base salary min/max in EUR)
+*   **Requirements** (Hard skills, tools, and platforms)
+*   **Equity & Bonus Targets** 
+
+It automatically generates a `roles/<slug>.json` file with a `job_id` and an expiration date set 30 days in the future.
+
+## `scoutica role validate`
+
+Validates one or more role postings (or an entire Recruiter directory) against the Scoutica protocol schemas.
+
+```bash
+scoutica role validate roles/senior-ai-architect.json
+```
+
+<Tip>
+When using `scoutica role validate`, the validator automatically uses the `--type employer` flag under the hood, ensuring your organizational profile and hiring rules are also structurally sound.
+</Tip>
+
+### Example Validation Output
+
+```text
+🔍 Validating Scoutica Employer Card: /path/to/repo
+   Schema directory: schemas
+
+✅ Recruiter Profile: Valid
+✅ Hiring Rules: Valid
+✅ Role (senior-ai-architect.json): Valid
+
+Results: 3 passed, 0 failed, 0 warnings
+🎉 Employer Card is valid!
+```
