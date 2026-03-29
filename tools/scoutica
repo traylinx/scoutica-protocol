@@ -1352,7 +1352,8 @@ try:
     for k in keys:
         d = d[k]
     print(d)
-except: pass
+except Exception as e:
+    print('', file=sys.stderr)
 " 2>/dev/null
     fi
 }
@@ -1716,6 +1717,14 @@ cmd_scan() {
         echo "" >&2
     fi
     
+    # ── Symlink protection ──
+    for f in profile.json rules.yaml evidence.json SKILL.md; do
+        if [ -L "$output_dir/$f" ]; then
+            error "Refusing to overwrite symlink: $output_dir/$f"
+            exit 1
+        fi
+    done
+    
     # ── Step 0: Check if source docs have changed ──
     # ── Initialize logging ──
     _scan_log_init
@@ -1815,7 +1824,7 @@ except ImportError:
         result = subprocess.run(['textutil', '-convert', 'txt', '-stdout', filepath], 
                               capture_output=True, text=True)
         print(result.stdout)
-    except: pass
+    except Exception: pass
 " "$file" 2>/dev/null)
                         extractor="python3"
                     elif command -v textutil &>/dev/null; then
@@ -1853,7 +1862,7 @@ try:
     import docx
     doc = docx.Document(sys.argv[1])
     for p in doc.paragraphs: print(p.text)
-except: pass
+except Exception: pass
 " "$file" 2>/dev/null)
                 fi
                 
@@ -2239,14 +2248,13 @@ Read my documents and generate my Scoutica Protocol Skill Card. Return ONLY raw 
         card_name=$(python3 -c "
 import json, re
 raw = '''$response'''.strip()
-# Try to extract profile.name from the JSON response
 def find_json(text):
     fence_matches = re.findall(r'\x60\x60\x60(?:json)?\s*({[\s\S]*?})\s*\x60\x60\x60', text)
     for fm in fence_matches:
         try:
             d = json.loads(fm)
             if 'profile' in d: return d
-        except: pass
+        except Exception: pass
     for i in range(len(text)-1, -1, -1):
         if text[i] == '{':
             stack = 0
@@ -2258,7 +2266,7 @@ def find_json(text):
                         try:
                             d = json.loads(text[i:j+1])
                             if isinstance(d, dict) and 'profile' in d: return d
-                        except: pass
+                        except Exception: pass
                         break
     return None
 d = find_json(raw)
@@ -2307,7 +2315,7 @@ def find_scoutica_json(text):
         try:
             d = json.loads(fm)
             if 'profile' in d or 'rules' in d: return d
-        except: pass
+        except Exception: pass
         
     # 2. Bracket counting from the end (to skip early stderr logs / crash traces)
     start_indices = [i for i, c in enumerate(text) if c == '{']
@@ -2325,8 +2333,7 @@ def find_scoutica_json(text):
                         parsed = json.loads(text[start:i+1])
                         if isinstance(parsed, dict) and ('profile' in parsed or 'rules' in parsed or 'evidence' in parsed):
                             return parsed
-                    except:
-                        pass
+                    except Exception: pass
     return None
 
 data = find_scoutica_json(raw)
@@ -2536,9 +2543,65 @@ cmd_resolve() {
         exit 1
     fi
     
-    # Block localhost / private IPs
-    if echo "$url" | grep -qiE '(localhost|127\.|10\.|192\.168\.|172\.(1[6-9]|2[0-9]|3[01])\.)'; then
-        error "Cannot resolve from localhost or private networks"
+    # Block localhost / private IPs / cloud metadata
+    local blocked=false
+    blocked=$(python3 -c "
+import sys
+try:
+    from urllib.parse import urlparse
+    import ipaddress
+    
+    url = sys.argv[1]
+    parsed = urlparse(url)
+    host = parsed.hostname or ''
+    
+    # Check for localhost, IPv4, IPv6
+    private_blocks = [
+        ipaddress.ip_network('127.0.0.0/8'),
+        ipaddress.ip_network('::1/128'),
+        ipaddress.ip_network('fc00::/7'),
+        ipaddress.ip_network('fe80::/10'),
+        ipaddress.ip_network('10.0.0.0/8'),
+        ipaddress.ip_network('172.16.0.0/12'),
+        ipaddress.ip_network('192.168.0.0/16'),
+        ipaddress.ip_network('169.254.0.0/16'),
+        ipaddress.ip_network('0.0.0.0/32'),
+    ]
+    
+    try:
+        # Try resolving hostname to IP
+        import socket
+        addrs = socket.getaddrinfo(host, None)
+        for family, _, _, _, sockaddr in addrs:
+            ip = ipaddress.ip_address(sockaddr[0])
+            for block in private_blocks:
+                if ip in block:
+                    print('BLOCKED')
+                    sys.exit(0)
+    except (socket.gaierror, ValueError):
+        pass
+    
+    # Also block if hostname itself is problematic
+    host_lower = host.lower()
+    if host_lower in ('localhost', 'ip6-localhost', 'ip6-loopback'):
+        print('BLOCKED')
+        sys.exit(0)
+    
+    # Block literal IPs in URL
+    try:
+        ip = ipaddress.ip_address(host)
+        for block in private_blocks:
+            if ip in block:
+                print('BLOCKED')
+                sys.exit(0)
+    except ValueError:
+        pass
+except Exception:
+    pass
+" "$url" 2>/dev/null)
+    
+    if [ "$blocked" = "BLOCKED" ]; then
+        error "Cannot resolve from localhost, private networks, or cloud metadata endpoints"
         exit 1
     fi
     
@@ -2684,7 +2747,7 @@ try:
     blocked = r.get('auto_reject',{}).get('blocked_industries',[])
     if blocked:
         print(f\"  Blocked industries: {', '.join(blocked)}\")
-except: pass
+except Exception: pass
 " 2>/dev/null)
         
         if [ -n "$rules_summary" ]; then
@@ -2704,6 +2767,13 @@ except: pass
     
     # ── Save to local directory if requested ──
     if [ -n "$save_dir" ]; then
+        # ── Symlink protection ──
+        for f in profile.json rules.yaml evidence.json SKILL.md scoutica.json; do
+            if [ -L "$save_dir/$f" ]; then
+                error "Refusing to overwrite symlink: $save_dir/$f"
+                exit 1
+            fi
+        done
         mkdir -p "$save_dir"
         [ -n "$profile" ] && echo "$profile" > "$save_dir/profile.json"
         [ -n "$rules" ] && echo "$rules" > "$save_dir/rules.yaml"
@@ -2715,7 +2785,7 @@ except: pass
         
         # Write state tracking
         local source_file_list=""
-        for file in "$source_dir"/*; do
+        for file in "$save_dir"/*; do
             [ -f "$file" ] || continue
             local bn=$(basename "$file")
             case "$bn" in
@@ -3075,13 +3145,12 @@ try:
                           capture_output=True, text=True)
     if result.returncode == 0:
         remote = result.stdout.strip()
-        # Convert git URL to raw
         remote = remote.replace(".git", "")
         if "github.com" in remote:
             parts = remote.replace("https://github.com/", "").split("/")
             if len(parts) >= 2:
                 card_url = f"https://raw.githubusercontent.com/{parts[0]}/{parts[1]}/main"
-except: pass
+except Exception: pass
 
 discovery = {
     "scoutica": "0.1.0",
