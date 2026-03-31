@@ -1,38 +1,50 @@
-# 📋 Scoutica Network — Recruiter-Side Specification Index
+# 📋 Scoutica Network — Specification Index
 
-> The complete blueprint for transforming Scoutica from a candidate-only format into a **two-sided talent protocol**.
+> The complete blueprint for the Scoutica Protocol's **two-sided talent network** — from identity to discovery to negotiation.
 
-## Context
-The Scoutica Protocol v0.2.0 has a fully operational candidate-side pipeline:
-- **CLI:** `scoutica scan`, `scoutica validate`, `scoutica publish`, `scoutica preview`
-- **Card Format:** `profile.json`, `rules.yaml`, `evidence.json`, `SKILL.md`
-- **Infrastructure:** Logging, SHA-256 text caching, timing, GitHub sync
+## Status: v0.4.0
 
-**What's missing:** The entire recruiter/employer side — identity, job postings, discovery, communication, trust, and privacy.
+The protocol now has a fully operational **bidirectional pipeline** with live scoring, messaging, and registry discovery:
+
+- **Candidate Side:** `scan`, `validate`, `publish`, `preview`, `inbox`, `reply`, `evaluate`
+- **Employer Side:** `org init`, `role create`, `send`, `jobs search`, `register`
+- **Network:** Git-native messaging, Nostr identity (placeholder), deterministic scoring engine
+- **Registry:** Candidates + Roles index schemas, seed data, search with filtering
 
 ---
 
 ## Document Map
 
-| Doc | Title | Focus |
-|-----|-------|-------|
-| [01_AUDIT](./01_AUDIT.md) | Gap Analysis | What's missing from the candidate-only protocol |
-| [02_RECRUITER_CARD](./02_RECRUITER_CARD.md) | Recruiter Identity | `recruiter_profile.json`, `hiring_rules.yaml`, `reputation.json` |
-| [03_JOB_POSTING_CARD](./03_JOB_POSTING_CARD.md) | Structured Job Postings | `role.json` schema, deterministic matching algorithm |
-| [04_SEARCH_API](./04_SEARCH_API.md) | Discovery Infrastructure | 3-layer architecture (GitHub → REST → Federated) |
-| [05_AGENT_COMMUNICATION](./05_AGENT_COMMUNICATION.md) | Agent-to-Agent Protocol | 6 message types, Mermaid conversation flows, auth tiers |
-| [06_IMPLEMENTATION_ROADMAP](./06_IMPLEMENTATION_ROADMAP.md) | Phased Build Plan | 4 phases, priority matrix, dependency graph |
-| [07_SCENARIOS](./07_SCENARIOS.md) | End-to-End Scenarios | 11 real-world walkthroughs with sequence diagrams |
-| [08_TRUST_REPUTATION](./08_TRUST_REPUTATION.md) | Trust & Reputation Engine | Scoring algorithms, decay functions, anti-gaming |
-| [09_PRIVACY_GDPR](./09_PRIVACY_GDPR.md) | Privacy & GDPR Compliance | Zone model, data classification, consent flows |
-| [10_SCHEMAS](./10_SCHEMAS.md) | Complete JSON Schemas | All recruiter-side schema definitions |
-| [11_STARGATE_INTEGRATION](./11_STARGATE_INTEGRATION.md) | Traylinx Infrastructure | Maps Scoutica to Stargate, Sentinel, Agent Registry |
+| Doc | Title | Status |
+|-----|-------|--------|
+| [01_AUDIT](./01_AUDIT.md) | Gap Analysis | ✅ Complete |
+| [02_RECRUITER_CARD](./02_RECRUITER_CARD.md) | Recruiter Identity | ✅ Implemented |
+| [03_JOB_POSTING_CARD](./03_JOB_POSTING_CARD.md) | Structured Job Postings | ✅ Implemented |
+| [04_SEARCH_API](./04_SEARCH_API.md) | Discovery Infrastructure | ✅ Registry + CLI search live |
+| [05_AGENT_COMMUNICATION](./05_AGENT_COMMUNICATION.md) | Agent-to-Agent Protocol | ✅ 8 msg types, send/inbox/reply live |
+| [06_IMPLEMENTATION_ROADMAP](./06_IMPLEMENTATION_ROADMAP.md) | Phased Build Plan | 🔧 Phase 1-2 done, Phase 3-4 next |
+| [07_SCENARIOS](./07_SCENARIOS.md) | End-to-End Scenarios | ✅ Tested end-to-end |
+| [08_TRUST_REPUTATION](./08_TRUST_REPUTATION.md) | Trust & Reputation Engine | 📋 Spec only |
+| [09_PRIVACY_GDPR](./09_PRIVACY_GDPR.md) | Privacy & GDPR Compliance | ✅ Privacy log live |
+| [10_SCHEMAS](./10_SCHEMAS.md) | Complete JSON Schemas | ✅ All schemas live |
+| [11_STARGATE_INTEGRATION](./11_STARGATE_INTEGRATION.md) | ⚠️ ARCHIVED | Replaced by open transport |
+| [12_ARCHITECTURE_DEEP_DIVE](./12_ARCHITECTURE_DEEP_DIVE.md) | Execution Audit | ✅ Updated |
+| [13_TRANSPORT_ARCHITECTURE](./13_TRANSPORT_ARCHITECTURE.md) | Transport ADR | ✅ Git + Nostr identity live |
+
+## New in v0.4.0
+
+| Component | File | Description |
+|-----------|------|-------------|
+| Scoring Engine | `tools/scoring.py` | Deterministic 4-step fit pipeline (zero deps) |
+| Registry Schemas | `schemas/registry/` | `candidates_index.schema.json`, `roles_index.schema.json` |
+| Seed Data | `protocol/registry/` | 5 candidates + 4 roles (network bootstrap) |
+| 10 CLI Commands | `tools/scoutica` | evaluate, jobs, send, inbox, reply, deliver, register, identity |
 
 ---
 
 ## Core Thesis
 
-> The winning product is not an AI resume builder.  
+> The winning product is not an AI resume builder.
 > The winning product is the **trust and negotiation layer** between candidate agents and hiring agents.
 
 — *From [01_THESIS_AND_CATEGORY_SHIFT](../.specs/strategy_docs/research_audits/01_THESIS_AND_CATEGORY_SHIFT.md)*
@@ -42,6 +54,7 @@ The Scoutica Protocol v0.2.0 has a fully operational candidate-side pipeline:
 1. **Symmetry:** If candidates have structured cards, recruiters must too.
 2. **Accountability:** Recruiter behavior is tracked and scored (not just candidate behavior).
 3. **Privacy-First:** PII is never exposed until mutual interest is established.
-4. **Progressive Complexity:** Ship V1 with GitHub-only, evolve to REST API, then Federated.
+4. **Open Transport:** Ship V1 with Git-native, evolve to Nostr relays. No proprietary dependencies.
 5. **Anti-Spam by Default:** Every recruiter interaction costs reputation; ghosting degrades trust.
 6. **Deterministic Matching:** Fit scoring is algorithmic and reproducible, not AI-hallucinated.
+

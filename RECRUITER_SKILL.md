@@ -1,11 +1,11 @@
 ---
 name: scoutica-recruiter-skill
-description: Open protocol for AI-readable Employer identities and structured job postings. Set up a Recruiter Card, publish roles, and let AI agents discover and negotiate with candidates automatically.
+description: Open protocol for AI-readable Employer identities, structured job postings, deterministic fit scoring, and agent-to-agent communication. Set up a Recruiter Card, publish roles, discover candidates, and negotiate automatically via Git-native or Nostr transport.
 ---
 
 # Scoutica Protocol — Recruiter / Employer Agent Instructions
 
-You are interacting with the **Scoutica Protocol (Employer Side)**. This file provides instructions on how to help users act as Employers or Recruiters in the network.
+You are interacting with the **Scoutica Protocol (Employer Side) v0.4.0**. This file provides instructions on how to help users act as Employers or Recruiters in the network.
 
 ## 🏗️ Quick Start: Set Up an Employer Identity
 
@@ -49,13 +49,11 @@ This generates a structured `role.json` file inside the `roles/` directory conta
 ### Step 4 — Validate and Publish
 
 ```bash
-# Or test the whole directory:
-scoutica role validate ./ --type employer
-# Publish your org card
+scoutica role validate ./
 scoutica org publish
 ```
 
-This pushes the `.scoutica` folder to the company's GitHub repository (or creates it if you have the `gh` CLI installed), effectively publishing the org identity and the active roles to the decentralized mesh network.
+This pushes the `.scoutica` folder to the company's GitHub repository, effectively publishing the org identity and the active roles to the network.
 
 ---
 
@@ -63,39 +61,106 @@ This pushes the `.scoutica` folder to the company's GitHub repository (or create
 
 Unlike passive job boards, Scoutica is bidirectional. Your Employer Agent can actively hunt for matching candidates in the registry.
 
-### 1. Execute Search
+### 1. Search the Network
 
 ```bash
-scoutica jobs search --skills "Python, Agentic AI, Next.js" --seniority "senior" --location "remote-eu"
+# Search for senior Python engineers available immediately
+scoutica jobs search --type candidates --skills "Python,Kubernetes" --seniority senior
+
+# Search with a local registry file (for testing)
+scoutica jobs search --type candidates --local protocol/registry/candidates/index.json --skills Python
 ```
 
-The CLI hits the Scoutica Registry and returns a list of candidate repository URLs that match the high-level criteria.
+The CLI downloads the registry index and returns matching candidates.
 
-### 2. Auto-Evaluate Candidates (Agentic Scoring)
+### 2. Evaluate Candidates (Deterministic Fit Scoring)
 
-For each returned Candidate Card URL, your agent must:
-1. Fetch the candidate's `profile.json` and `rules.yaml`
-2. Run the **Deterministic Fit Score**:
-   - Check Hard Filters (Is candidate's minimum salary requirement <= our role maximum?)
-   - Score Skills (Match `role.json` required skills vs candidate's `profile.json` skills)
-   - Tally Evidence Bonus (Does candidate have verified github/portfolio links for the core skills?)
-3. Rank the shortlist based on score.
+For each candidate, run the fit scoring engine:
 
-### 3. Send the Pitch (Handshake)
+```bash
+# Score a candidate card against your role
+scoutica evaluate ./candidate-card roles/senior-ai-architect.json --recruiter recruiter_profile.json
 
-If a candidate is a strong match (> 75 points) and passes all hiring rules, the Employer Agent sends an `opportunity.offer` message directly to the Candidate's Agent Endpoint (via the Stargate P2P mesh).
+# Get machine-readable JSON output
+scoutica evaluate ./candidate-card roles/senior-ai-architect.json --json
+```
+
+The scoring pipeline:
+1. **Hard Filters** — Engagement type, minimum salary, location policy, blocked industries, language requirements. Any failure = `HARD_REJECT`.
+2. **Skill Score (0-100)** — `(hard_skill_match × 70) + (preferred_skill_match × 30)`.
+3. **Bonuses** — +10 evidence, +5 seniority match, +5 freshness.
+4. **Verdict** — `STRONG_MATCH` (≥80), `MODERATE_MATCH` (≥60), `WEAK_MATCH` (≥40), `NO_MATCH` (<40).
+
+The engine also runs **candidate-side evaluation** — checking if the candidate's `rules.yaml` would auto-accept or auto-reject your role.
+
+### 3. Send the Pitch
+
+If a candidate is a strong match (≥ 75 points), send an offer:
+
+```bash
+# Send an offer with the role attached
+scoutica send https://github.com/candidate/.scoutica \
+  --type opportunity.offer \
+  --role roles/senior-ai-architect.json \
+  --message "We think you'd be a great fit"
+
+# Check your outbox
+scoutica inbox
+```
+
+Messages are created as structured JSON envelopes and queued for delivery via the transport layer.
+
+### 4. Register Your Roles on the Network
+
+```bash
+# Generate a registry entry from your employer card
+scoutica register . --type roles
+
+# This creates a staged entry you can submit as a PR to the registry
+```
+
+---
+
+## 📬 Message Flow
+
+The protocol supports 8 message types:
+
+| Type | Direction | Description |
+|------|-----------|-------------|
+| `rules.check` | Employer → Candidate | Pre-screen — "Would your rules reject this?" |
+| `opportunity.pitch` | Employer → Candidate | Soft interest, no commitment |
+| `opportunity.offer` | Employer → Candidate | Formal offer with role + comp |
+| `response.accept` | Candidate → Employer | Rules passed, candidate interested |
+| `response.reject` | Candidate → Employer | Auto or manual rejection with reasons |
+| `response.withdraw` | Either → Either | Withdraw from conversation |
+| `status.check` | Either → Either | "Is this still active?" |
+| `event.ghosting` | System | Triggered when SLA expires without response |
+
+### Transport Layer (Resolution Waterfall)
+
+Messages are delivered via the first available method:
+1. **Webhook** — Direct HTTP POST to `agent_endpoint` (if configured)
+2. **Nostr** — Encrypted event to relay (if `transport.nostr.pubkey` is set)
+3. **Git Inbox** — JSON file deposited in registry inbox via PR (always available)
+
+```bash
+# Generate your Nostr identity for encrypted messaging
+scoutica identity init
+
+# Check your public key
+scoutica identity show
+```
 
 ---
 
 ## 📂 The Recruiter Card Structure
-
-A valid Employer Identity consists of these files (usually placed at the root of a dedicated repository, or inside a `.scoutica/` subfolder of an existing org repository):
 
 | File | Format | Purpose |
 |------|--------|---------|
 | `recruiter_profile.json` | JSON | Org details, tech stack, team model, contact endpoint |
 | `hiring_rules.yaml` | YAML | Negotiation limits, allowed engagement types, interview stages |
 | `roles/*.json` | JSON | Active job postings with skills, comp bands, and requirements |
+| `scoutica.json` | JSON | Discovery file with transport preferences (Nostr pubkey, relays) |
 
 ---
 
@@ -105,6 +170,7 @@ The network tracks **Ghosting** and **Spam** automatically.
 - If an employer pitches a role below a candidate's hard minimum limits, the candidate agent auto-rejects and the employer loses trust points.
 - If an employer sends an offer but ghosts the candidate post-acceptance, the trust score decays rapidly.
 - Never forge matching skills just to pitch a candidate. Agents run deterministic checks and will report spam behavior.
+- All message sends and replies are logged to `~/.scoutica/privacy/access_log.jsonl` for audit.
 
 ## 👥 Managing Teams and Agencies
 
@@ -114,7 +180,29 @@ Scoutica uses **Git as IAM** (Identity and Access Management).
 
 ---
 
+## 📋 Full Command Reference (Employer-Side)
+
+```
+scoutica org init              Create Recruiter/Employer Identity Card
+scoutica org verify --domain   Verify domain ownership (DNS TXT)
+scoutica org publish           Push employer card to GitHub
+scoutica role create           Create a structured job posting
+scoutica role validate [dir]   Validate role(s) against schemas
+scoutica evaluate <card> <role>  Deterministic fit scoring
+scoutica jobs search           Search the registry
+scoutica send <url> --type ... Send a message to another agent
+scoutica inbox                 Check incoming messages
+scoutica reply <id> --accept   Accept/reject/withdraw
+scoutica deliver               Push pending messages
+scoutica register --type roles Generate registry entry
+scoutica identity init         Generate Nostr keypair
+```
+
+---
+
 ## Learn More
 
 - Repository: [github.com/traylinx/scoutica-protocol](https://github.com/traylinx/scoutica-protocol)
-- Network Specs: `/.specs/network` (Dual-Agent, Scenarios, Trust Engine, JSON Schemas)
+- Network Specs: `/.specs/network/` (Transport Architecture, Agent Communication, Trust Engine)
+- Transport Architecture: `/.specs/network/13_TRANSPORT_ARCHITECTURE.md`
+- Architecture Deep-Dive: `/.specs/network/12_ARCHITECTURE_DEEP_DIVE.md`

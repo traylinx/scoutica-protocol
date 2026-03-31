@@ -1,0 +1,71 @@
+{
+  "version": "0.1.0",
+  "updated": "2026-03-31T15:30:00Z",
+  "entries": [
+    {
+      "card_url": "https://raw.githubusercontent.com/alexchen/.scoutica/main",
+      "name": "Alex Chen",
+      "title": "Senior Full-Stack Engineer",
+      "seniority": "senior",
+      "skills": ["Python", "TypeScript", "Go", "REST API Design", "Microservices Architecture", "Database Design", "CI/CD Pipelines", "Technical Leadership"],
+      "domains": ["Backend Engineering", "Cloud Infrastructure", "API Design"],
+      "availability": "immediately",
+      "entity_type": "human",
+      "transport": "git",
+      "updated": "2026-03-25",
+      "registered_at": "2026-03-25T10:00:00Z"
+    },
+    {
+      "card_url": "https://raw.githubusercontent.com/mariadev/.scoutica/main",
+      "name": "María García",
+      "title": "Staff ML Engineer",
+      "seniority": "lead",
+      "skills": ["Python", "PyTorch", "TensorFlow", "MLOps", "Kubernetes", "Agentic AI", "Data Engineering", "System Design"],
+      "domains": ["Machine Learning", "AI Infrastructure", "Data Engineering"],
+      "availability": "in_4_weeks",
+      "entity_type": "human",
+      "transport": "nostr",
+      "updated": "2026-03-28",
+      "registered_at": "2026-03-28T14:00:00Z"
+    },
+    {
+      "card_url": "https://raw.githubusercontent.com/tomwright/.scoutica/main",
+      "name": "Tom Wright",
+      "title": "DevOps Architect",
+      "seniority": "senior",
+      "skills": ["Kubernetes", "Terraform", "AWS", "Docker", "Go", "Prometheus", "ArgoCD", "NATS"],
+      "domains": ["Cloud Infrastructure", "Platform Engineering", "Site Reliability"],
+      "availability": "immediately",
+      "entity_type": "human",
+      "transport": "git",
+      "updated": "2026-03-30",
+      "registered_at": "2026-03-30T09:00:00Z"
+    },
+    {
+      "card_url": "https://raw.githubusercontent.com/yuki-sato/.scoutica/main",
+      "name": "Yuki Sato",
+      "title": "Senior Frontend Engineer",
+      "seniority": "senior",
+      "skills": ["TypeScript", "React", "Next.js", "Vue.js", "Tailwind CSS", "GraphQL", "Playwright", "Figma"],
+      "domains": ["Frontend Engineering", "Design Systems", "Web Performance"],
+      "availability": "in_2_weeks",
+      "entity_type": "human",
+      "transport": "git",
+      "updated": "2026-03-29",
+      "registered_at": "2026-03-29T11:00:00Z"
+    },
+    {
+      "card_url": "https://raw.githubusercontent.com/agent-codex/.scoutica/main",
+      "name": "Codex Agent v2",
+      "title": "Autonomous Code Review Agent",
+      "seniority": "senior",
+      "skills": ["Code Review", "Python", "TypeScript", "Security Analysis", "Test Generation", "CI/CD"],
+      "domains": ["Code Quality", "Security", "Developer Tooling"],
+      "availability": "immediately",
+      "entity_type": "ai_agent",
+      "transport": "webhook",
+      "updated": "2026-03-31",
+      "registered_at": "2026-03-31T08:00:00Z"
+    }
+  ]
+}

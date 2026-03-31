@@ -45,6 +45,55 @@
       "type": "string",
       "enum": ["human", "ai_agent", "service", "robot", "team", "organization"],
       "default": "human"
+    },
+    "contact": {
+      "type": "object",
+      "description": "Contact methods for agent-to-agent communication",
+      "properties": {
+        "agent_endpoint": {
+          "type": "string",
+          "format": "uri",
+          "description": "HTTP webhook URL for direct message delivery"
+        }
+      }
+    },
+    "transport": {
+      "type": "object",
+      "description": "Declares how this agent receives messages. Senders use the resolution waterfall: webhook → nostr → git inbox.",
+      "properties": {
+        "preferred": {
+          "type": "string",
+          "enum": ["nostr", "webhook", "git"],
+          "default": "git",
+          "description": "Preferred transport method"
+        },
+        "nostr": {
+          "type": "object",
+          "description": "Nostr relay-based messaging (decentralized, encrypted)",
+          "properties": {
+            "pubkey": {
+              "type": "string",
+              "description": "Nostr public key (npub or hex format)"
+            },
+            "relays": {
+              "type": "array",
+              "items": { "type": "string", "format": "uri" },
+              "description": "WebSocket relay URLs (e.g., wss://relay.damus.io)"
+            }
+          },
+          "required": ["pubkey", "relays"]
+        },
+        "git": {
+          "type": "object",
+          "description": "Git-native inbox (messages as JSON files in a repo)",
+          "properties": {
+            "inbox_repo": {
+              "type": "string",
+              "description": "GitHub repo URL for the inbox (e.g., github.com/user/scoutica-inbox)"
+            }
+          }
+        }
+      }
     }
   }
 }

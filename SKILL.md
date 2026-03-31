@@ -1,6 +1,6 @@
 ---
 name: scoutica-protocol
-description: Open protocol for AI-readable, candidate-owned professional profiles. Install the CLI, generate Skill Cards from CVs, and let AI agents discover and evaluate candidates on their own terms.
+description: Open protocol for AI-readable, candidate-owned professional profiles. Install the CLI, generate Skill Cards from CVs, search for jobs, evaluate fit scores, and let AI agents discover and negotiate with candidates on their own terms.
 ---
 
 # Scoutica Protocol — Agent Instructions
@@ -139,18 +139,45 @@ If the opportunity violates any rule → **auto-REJECT**. Do NOT present to the 
 GET evidence.json → items[].url → verify each URL is reachable and matches claimed skills
 ```
 
-### 4. Evaluate Fit
+### 4. Evaluate Fit (Deterministic Scoring Engine)
 
-Read `rules/evaluate-fit.md` for the scoring algorithm:
-- Match skills against job requirements
-- Score = (matched_skills / required_skills) × 100
-- If score < `soft_reject.weak_stack_overlap_below` → SOFT_REJECT
+The protocol includes a built-in scoring engine. Run it from the CLI:
+
+```bash
+# Score a candidate against a role
+scoutica evaluate ./my-card roles/senior-engineer.json
+
+# With recruiter context (for blocked industry checks)
+scoutica evaluate ./my-card roles/senior-engineer.json --recruiter recruiter_profile.json
+
+# Machine-readable output
+scoutica evaluate ./my-card roles/senior-engineer.json --json
+```
+
+Scoring pipeline:
+1. **Hard Filters** — engagement type, salary floor, location, blocked industries, languages. Any fail = `HARD_REJECT`.
+2. **Skill Score** — `(hard_match × 70) + (preferred_match × 30)`.
+3. **Bonuses** — +10 evidence, +5 seniority match, +5 freshness.
+4. **Verdict** — `STRONG_MATCH` (≥80), `MODERATE_MATCH` (≥60), `WEAK_MATCH` (≥40), `NO_MATCH` (<40).
+
+The engine also checks candidate-side rules automatically.
 
 ### 5. Negotiate or Request Interview
 
-If the opportunity passes all checks:
-- Read `rules/negotiate-terms.md` → verify terms compliance
-- Read `rules/request-interview.md` → follow the handoff protocol
+If the opportunity passes all checks, agents communicate via the transport waterfall:
+
+```bash
+# Check your inbox for offers
+scoutica inbox
+
+# Accept an offer
+scoutica reply msg_abc123 --accept --message "Interested — let's schedule a call"
+
+# Reject with reason
+scoutica reply msg_abc123 --reject --message "Salary below minimum"
+```
+
+Transport options: **Git-native** (default, zero infra) → **Nostr** (encrypted, decentralized) → **HTTP webhook**.
 
 ---
 
@@ -187,9 +214,20 @@ scoutica org publish             # Push employer card to GitHub
 scoutica role create             # Create a structured job posting
 scoutica role validate           # Validate role(s) against schemas
 
+# Network
+scoutica evaluate <card> <role>  # Deterministic fit scoring
+scoutica jobs search             # Search registry for candidates or roles
+scoutica send <url> --type ...   # Send a message to another agent
+scoutica inbox                   # Check incoming messages
+scoutica reply <id> --accept     # Accept/reject/withdraw
+scoutica deliver                 # Push pending messages to recipients
+scoutica register <dir> --type   # Generate registry entry for PR submission
+scoutica identity init           # Generate Nostr keypair (secp256k1)
+scoutica identity show           # Display your public key
+
 # Global
 scoutica validate [dir]          # Validate candidate card against schemas
-scoutica validate [dir] --type employer # Validate employer card against schemas
+scoutica validate [dir] --type employer # Validate employer card
 scoutica resolve <url>           # Fetch and display any card from a URL
 ```
 

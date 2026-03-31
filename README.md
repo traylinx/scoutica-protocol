@@ -38,53 +38,58 @@ They do NOT get your private data. Your card lives in your own private directory
 ```text
 scoutica-protocol/
 ├── README.md                       ← You are here
-├── SKILL.md                        ← Agent instructions for this repo
-├── docs-site/                      ← 📚 DOCUMENTATION (Mintlify site → docs.scoutica.com)
+├── SKILL.md                        ← Agent instructions (candidate side)
+├── RECRUITER_SKILL.md              ← Agent instructions (employer side)
+├── docs-site/                      ← 📚 DOCUMENTATION (Mintlify → docs.scoutica.com)
 │   ├── docs.json                   ← Mintlify configuration
-│   ├── introduction.mdx            ← Protocol overview
 │   ├── cli/                        ← CLI command reference
 │   ├── guides/                     ← User guides & use cases
-│   ├── developer/                  ← Build integrations (Python/JS/Go)
-│   ├── architecture/               ← 6 pillars, data model, compliance
-│   └── skill-card/                 ← Card file format reference
+│   └── architecture/               ← 6 pillars, data model, compliance
 ├── .specs/                         ← 🔬 SPECIFICATIONS
-│   ├── ROADMAP.md                  ← 5-phase roadmap (blockchain, SDKs)
-│   ├── protocol_flows.md           ← 6 mermaid sequence diagrams
-│   └── protocol_ecosystem.md       ← Ecosystem analysis
+│   ├── ROADMAP.md                  ← 5-phase roadmap
+│   └── network/                    ← Network architecture specs
+│       ├── 05_AGENT_COMMUNICATION  ← Message types, transport, SLAs
+│       ├── 12_ARCHITECTURE_DEEP    ← Critical path, milestones
+│       └── 13_TRANSPORT_ARCH       ← Git/Nostr/Webhook waterfall
 ├── .agents/skills/                 ← 🤖 AGENT SKILLS
 │   ├── create-skill-card/          ← Generate a card from documents
 │   ├── evaluate-candidate/         ← Score candidates against jobs
 │   ├── build-integration/          ← Build apps consuming cards
 │   └── extend-protocol/            ← Add features to the protocol
 ├── schemas/                        ← JSON Schema definitions
-├── tools/                          ← CLI tools (scoutica, validate)
+│   └── registry/                   ← Registry index schemas
+├── tools/                          ← CLI tools
+│   ├── scoutica                    ← Main CLI (bash + embedded Python)
+│   └── scoring.py                  ← Deterministic fit scoring engine
 ├── templates/                      ← Card and rule templates
-└── protocol/                       ← Protocol specs and examples
+└── protocol/
+    ├── examples/                   ← Sample candidate + employer cards
+    └── registry/                   ← Seed registry data (candidates + roles)
 ```
 
 ---
 
 ## How the Network Works
 
-**Today (V1 — Live):**
+**Today (v0.4.0 — Live):**
 
 ```text
-1. Candidate installs the CLI or uses any AI assistant
-2. Generates their Skill Card (profile + evidence + rules)
-3. Pushes their card to their own GitHub repo
-4. Employer's AI agent discovers and scores the card locally
-5. Match confirmed → candidate shares contact info directly
+1. Candidate installs the CLI → generates Skill Card (profile + evidence + rules)
+2. Pushes card to GitHub → registers in the decentralized registry
+3. Employer creates Recruiter Card → publishes structured job postings
+4. Employer's agent searches registry → runs deterministic fit scoring
+5. Agent sends offer (Git-native or Nostr) → candidate agent auto-evaluates
+6. If rules pass → accept. If rules fail → auto-reject with reasons.
+7. All interactions logged for trust scoring + anti-ghosting.
 ```
 
-**Future Vision (V2+ — Roadmap):**
+**Transport Evolution:**
 
-```text
-1. Candidate registers on the decentralized network
-2. Employer's agent finds them: npx skills find "Senior AI Engineer"
-3. Agent scores fit using Zone 1 (free) data
-4. Employer pays ~$0.05 to unlock Zone 2 (full profile) → goes to candidate
-5. Match confirmed → candidate approves Zone 3 handoff (contact info)
-```
+| Phase | Transport | Status |
+|-------|-----------|--------|
+| V1 | Git-native inbox (PRs as messages) | ✅ Live |
+| V2 | Nostr relays (encrypted, decentralized) | 🔧 Identity ready |
+| V3 | HTTP webhooks (for always-on agents) | 📋 Spec ready |
 
 **Target cost to hire:** ~$4 total · **LinkedIn Recruiter:** ~$10,000/year · **Agency:** ~$15,000–$30,000/hire
 

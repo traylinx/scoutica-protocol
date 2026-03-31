@@ -29,7 +29,8 @@
       "additionalProperties": false,
       "properties": {
         "card_url": { "type": "string", "format": "uri" },
-        "signature": { "type": "string", "description": "Ed25519 signature (V3)" }
+        "pubkey": { "type": "string", "description": "Nostr public key (npub or hex) for identity verification" },
+        "signature": { "type": "string", "description": "Cryptographic signature of the message payload" }
       }
     },
     "recipient": {
@@ -56,6 +57,11 @@
       "minimum": 1,
       "default": 168,
       "description": "Message expiration in hours (default: 7 days)"
+    },
+    "transport_used": {
+      "type": "string",
+      "enum": ["git", "nostr", "webhook"],
+      "description": "Which transport delivered this message (for audit trail)"
     }
   }
 }

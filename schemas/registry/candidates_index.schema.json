@@ -1,0 +1,72 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Scoutica Registry — Candidates Index",
+  "description": "A flat JSON index of all published candidate cards. Downloaded by agents to search the network.",
+  "type": "object",
+  "required": ["version", "updated", "entries"],
+  "properties": {
+    "version": {
+      "type": "string",
+      "pattern": "^\\d+\\.\\d+\\.\\d+$"
+    },
+    "updated": {
+      "type": "string",
+      "format": "date-time",
+      "description": "Last time this index was regenerated"
+    },
+    "entries": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["card_url", "name", "seniority"],
+        "properties": {
+          "card_url": {
+            "type": "string",
+            "format": "uri",
+            "description": "Raw URL to fetch the candidate's scoutica.json"
+          },
+          "name": { "type": "string" },
+          "title": { "type": "string" },
+          "seniority": {
+            "type": "string",
+            "enum": ["entry", "junior", "mid", "senior", "lead", "manager", "director", "executive"]
+          },
+          "skills": {
+            "type": "array",
+            "items": { "type": "string" },
+            "maxItems": 10,
+            "description": "Top 10 skills (from profile.json)"
+          },
+          "domains": {
+            "type": "array",
+            "items": { "type": "string" },
+            "description": "Primary domains (from profile.json)"
+          },
+          "availability": {
+            "type": "string",
+            "enum": ["immediately", "in_2_weeks", "in_4_weeks", "in_8_weeks", "not_looking"]
+          },
+          "entity_type": {
+            "type": "string",
+            "enum": ["human", "ai_agent", "service", "robot", "team", "organization"],
+            "default": "human"
+          },
+          "transport": {
+            "type": "string",
+            "enum": ["git", "nostr", "webhook"],
+            "description": "Preferred transport method"
+          },
+          "updated": {
+            "type": "string",
+            "format": "date"
+          },
+          "registered_at": {
+            "type": "string",
+            "format": "date-time",
+            "description": "When this entry was added to the registry"
+          }
+        }
+      }
+    }
+  }
+}

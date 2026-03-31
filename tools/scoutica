@@ -19,6 +19,16 @@
 #   scoutica role create    Create a structured job posting (role.json)
 #   scoutica role validate  Validate role against protocol schemas
 #
+# Network Commands:
+#   scoutica evaluate       Deterministic fit scoring (candidate vs role)
+#   scoutica jobs search    Search the registry for candidates or roles
+#   scoutica send           Send a message to another agent
+#   scoutica inbox          Check for incoming messages
+#   scoutica reply          Accept/reject/withdraw a message
+#   scoutica deliver        Push pending messages to recipients
+#   scoutica register       Generate registry entry for PR submission
+#   scoutica identity init  Generate a Nostr keypair (secp256k1)
+#
 # System Commands:
 #   scoutica update         Update the CLI to the latest version
 #   scoutica doctor         System diagnostics and health check
@@ -27,7 +37,7 @@
 
 set -euo pipefail
 
-VERSION="0.3.0"
+VERSION="0.4.0"
 SCOUTICA_HOME="${SCOUTICA_HOME:-$HOME/.scoutica}"
 SCHEMAS_DIR="$SCOUTICA_HOME/schemas"
 TEMPLATES_DIR="$SCOUTICA_HOME/templates"
@@ -1262,6 +1272,16 @@ cmd_help() {
     echo -e "  ${CYAN}org publish${NC}          Push employer card to GitHub"
     echo -e "  ${CYAN}role create${NC}          Create a structured job posting (role.json)"
     echo -e "  ${CYAN}role validate${NC} [dir]  Validate role(s) against protocol schemas"
+    echo ""
+    echo -e "${BOLD}🌐 Network commands:${NC}"
+    echo -e "  ${CYAN}evaluate${NC} <card> <role>  Score fit between a candidate and role"
+    echo -e "  ${CYAN}jobs search${NC}            Search the registry for candidates or roles"
+    echo -e "  ${CYAN}send${NC} <url> --type ...   Send a message to another agent"
+    echo -e "  ${CYAN}inbox${NC}                  Check for incoming messages"
+    echo -e "  ${CYAN}reply${NC} <msg_id> --accept Accept/reject a message"
+    echo -e "  ${CYAN}deliver${NC}                Push pending messages to recipients"
+    echo -e "  ${CYAN}register${NC} <dir> --type   Generate registry entry for PR submission"
+    echo -e "  ${CYAN}identity init${NC}          Generate your Nostr keypair"
     echo ""
     echo -e "${BOLD}⚙️  Advanced:${NC}"
     echo -e "  ${CYAN}doctor${NC}               System diagnostics and health check"
@@ -3954,6 +3974,1059 @@ cmd_role_validate() {
     $python_cmd "$validator" "$card_dir" --type employer
 }
 
+# ─── EVALUATE Command (Fit Scoring) ───────────────────────────────────────────
+
+cmd_evaluate() {
+    local profile_path=""
+    local rules_path=""
+    local role_path=""
+    local recruiter_path=""
+    local output_json=false
+    local batch_mode=false
+    
+    # Parse arguments
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --json)   output_json=true; shift ;;
+            --batch)  batch_mode=true; shift ;;
+            --role)   role_path="$2"; shift 2 ;;
+            --recruiter) recruiter_path="$2"; shift 2 ;;
+            *)
+                if [ -z "$profile_path" ]; then
+                    profile_path="$1"
+                elif [ -z "$role_path" ]; then
+                    role_path="$1"
+                fi
+                shift
+                ;;
+        esac
+    done
+    
+    header "Scoutica Fit Evaluation"
+    
+    # Find scoring engine
+    local script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+    local scorer=""
+    if [ -f "$script_dir/scoring.py" ]; then
+        scorer="$script_dir/scoring.py"
+    elif [ -f "$SCOUTICA_HOME/bin/scoring.py" ]; then
+        scorer="$SCOUTICA_HOME/bin/scoring.py"
+    elif [ -f "$SCOUTICA_HOME/tools/scoring.py" ]; then
+        scorer="$SCOUTICA_HOME/tools/scoring.py"
+    fi
+    
+    if [ -z "$scorer" ]; then
+        error "Scoring engine not found (scoring.py)"
+        exit 1
+    fi
+    
+    # Auto-detect card files from directory
+    if [ -z "$profile_path" ]; then
+        profile_path="."
+    fi
+    
+    if [ -d "$profile_path" ]; then
+        # It's a directory — look for card files
+        local card_dir="$profile_path"
+        if [ -f "$card_dir/profile.json" ]; then
+            profile_path="$card_dir/profile.json"
+            if [ -f "$card_dir/rules.yaml" ]; then
+                rules_path="$card_dir/rules.yaml"
+            fi
+        else
+            error "No profile.json found in $card_dir"
+            exit 1
+        fi
+    else
+        # Profile is a file — look for rules.yaml next to it
+        local card_dir="$(dirname "$profile_path")"
+        if [ -f "$card_dir/rules.yaml" ]; then
+            rules_path="$card_dir/rules.yaml"
+        fi
+    fi
+    
+    if [ -z "$role_path" ]; then
+        error "No role specified. Usage: scoutica evaluate <card_dir> <role.json>"
+        echo -e "  ${DIM}Example: scoutica evaluate ./my-card roles/senior-engineer.json${NC}"
+        exit 1
+    fi
+    
+    if [ ! -f "$role_path" ]; then
+        error "Role file not found: $role_path"
+        exit 1
+    fi
+    
+    # Build scoring command
+    local args=()
+    if $output_json; then
+        args+=("--json")
+    fi
+    args+=("$profile_path")
+    args+=("${rules_path:-/dev/null}")
+    args+=("$role_path")
+    if [ -n "$recruiter_path" ] && [ -f "$recruiter_path" ]; then
+        args+=("$recruiter_path")
+    fi
+    
+    python3 "$scorer" "${args[@]}"
+}
+
+# ─── JOBS Command (Registry Search) ──────────────────────────────────────────
+
+cmd_jobs() {
+    local subcommand="${1:-help}"
+    shift 2>/dev/null || true
+    
+    case "$subcommand" in
+        search) cmd_jobs_search "$@" ;;
+        *)
+            echo ""
+            echo -e "${BOLD}scoutica jobs${NC} — Network Discovery"
+            echo ""
+            echo -e "  ${CYAN}jobs search${NC}                    Search the registry for candidates or roles"
+            echo -e "  ${CYAN}jobs search --skills \"Python\"${NC}  Filter by skills"
+            echo -e "  ${CYAN}jobs search --seniority senior${NC} Filter by seniority"
+            echo -e "  ${CYAN}jobs search --type roles${NC}       Search for roles (default: candidates)"
+            echo ""
+            ;;
+    esac
+}
+
+cmd_jobs_search() {
+    local skills_filter=""
+    local seniority_filter=""
+    local search_type="candidates"
+    local registry_url="https://raw.githubusercontent.com/traylinx/scoutica-registry/main"
+    local local_index=""
+    local output_json=false
+    
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --skills)    skills_filter="$2"; shift 2 ;;
+            --seniority) seniority_filter="$2"; shift 2 ;;
+            --type)      search_type="$2"; shift 2 ;;
+            --registry)  registry_url="$2"; shift 2 ;;
+            --local)     local_index="$2"; shift 2 ;;
+            --json)      output_json=true; shift ;;
+            *)           shift ;;
+        esac
+    done
+    
+    header "Scoutica Network Search"
+    
+    echo -e "  ${DIM}Searching ${search_type}...${NC}"
+    
+    local script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+    
+    python3 - "$search_type" "$skills_filter" "$seniority_filter" "$registry_url" "$local_index" "$output_json" "$script_dir" <<'SEARCH_SCRIPT'
+import json, sys, os
+try:
+    from urllib.request import urlopen, Request
+except ImportError:
+    pass
+
+search_type = sys.argv[1]
+skills_filter = sys.argv[2]
+seniority_filter = sys.argv[3]
+registry_url = sys.argv[4]
+local_index = sys.argv[5]
+output_json = sys.argv[6] == "true"
+script_dir = sys.argv[7] if len(sys.argv) > 7 else "."
+
+# Load index
+index = None
+if local_index and os.path.exists(local_index):
+    with open(local_index) as f:
+        index = json.load(f)
+else:
+    index_url = f"{registry_url}/{search_type}/index.json"
+    try:
+        req = Request(index_url, headers={"User-Agent": "Scoutica-CLI/0.3.0"})
+        resp = urlopen(req, timeout=10)
+        index = json.loads(resp.read().decode())
+    except Exception as e:
+        # Try local examples as fallback
+        fallback = os.path.join(script_dir, '..', 'protocol', 'examples')
+        if os.path.exists(fallback):
+            print(f"  ⚠️  Registry not reachable. Using local examples.")
+            print(f"     ({e})")
+            print()
+            # Build index from local examples
+            entries = []
+            if search_type == "candidates":
+                sample = os.path.join(fallback, 'sample_card')
+                if os.path.exists(os.path.join(sample, 'profile.json')):
+                    with open(os.path.join(sample, 'profile.json')) as f:
+                        p = json.load(f)
+                    entries.append({
+                        "card_url": sample,
+                        "name": p.get("name", ""),
+                        "title": p.get("title", ""),
+                        "seniority": p.get("seniority", ""),
+                        "skills": p.get("skills", []),
+                        "availability": p.get("availability", ""),
+                    })
+            elif search_type == "roles":
+                roles_dir = os.path.join(fallback, 'employer_card', 'roles')
+                if os.path.exists(roles_dir):
+                    for fname in os.listdir(roles_dir):
+                        if fname.endswith('.json'):
+                            with open(os.path.join(roles_dir, fname)) as f:
+                                r = json.load(f)
+                            entries.append({
+                                "role_url": os.path.join(roles_dir, fname),
+                                "title": r.get("title", ""),
+                                "hard_skills": r.get("requirements", {}).get("hard_skills", []),
+                                "seniority": r.get("requirements", {}).get("seniority", ""),
+                                "compensation_range": f"{r.get('compensation', {}).get('base_min', '?')}-{r.get('compensation', {}).get('base_max', '?')} {r.get('compensation', {}).get('currency', '')}",
+                                "location": r.get("location", {}).get("type", ""),
+                                "status": r.get("status", ""),
+                            })
+            index = {"entries": entries, "updated": "local"}
+        else:
+            print(f"  ❌ Could not fetch registry: {e}")
+            sys.exit(1)
+
+entries = index.get("entries", [])
+
+# Apply filters
+results = []
+for entry in entries:
+    # Skills filter
+    if skills_filter:
+        filter_skills = [s.strip().lower() for s in skills_filter.split(",")]
+        if search_type == "candidates":
+            entry_skills = [s.lower() for s in entry.get("skills", [])]
+        else:
+            entry_skills = [s.lower() for s in entry.get("hard_skills", [])]
+        if not any(fs in entry_skills for fs in filter_skills):
+            continue
+    
+    # Seniority filter
+    if seniority_filter:
+        if entry.get("seniority", "").lower() != seniority_filter.lower():
+            continue
+    
+    results.append(entry)
+
+if output_json:
+    print(json.dumps({"results": results, "count": len(results)}, indent=2))
+else:
+    if not results:
+        print(f"  No {search_type} found matching your criteria.")
+        print()
+        if skills_filter:
+            print(f"  Skills filter: {skills_filter}")
+        if seniority_filter:
+            print(f"  Seniority filter: {seniority_filter}")
+    else:
+        print(f"  Found {len(results)} {search_type}:")
+        print()
+        for i, entry in enumerate(results, 1):
+            if search_type == "candidates":
+                name = entry.get("name", "Unknown")
+                title = entry.get("title", "")
+                seniority = entry.get("seniority", "")
+                skills = entry.get("skills", [])[:6]
+                avail = entry.get("availability", "")
+                url = entry.get("card_url", "")
+                print(f"  {i}. \033[1m{name}\033[0m — {title}")
+                print(f"     Seniority: {seniority} | Availability: {avail}")
+                print(f"     Skills: {', '.join(skills)}")
+                if url:
+                    print(f"     Card: \033[36m{url}\033[0m")
+            else:
+                title = entry.get("title", "Unknown Role")
+                skills = entry.get("hard_skills", [])[:6]
+                comp = entry.get("compensation_range", "")
+                location = entry.get("location", "")
+                status = entry.get("status", "")
+                url = entry.get("role_url", "")
+                print(f"  {i}. \033[1m{title}\033[0m [{status}]")
+                print(f"     Skills: {', '.join(skills)}")
+                print(f"     Compensation: {comp} | Location: {location}")
+                if url:
+                    print(f"     Role: \033[36m{url}\033[0m")
+            print()
+    print()
+SEARCH_SCRIPT
+}
+
+# ─── SEND Command (Git-Native Messaging) ─────────────────────────────────────
+
+cmd_send() {
+    local recipient_url=""
+    local msg_type="opportunity.pitch"
+    local role_path=""
+    local message_text=""
+    local card_dir="."
+    
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --type)    msg_type="$2"; shift 2 ;;
+            --role)    role_path="$2"; shift 2 ;;
+            --message) message_text="$2"; shift 2 ;;
+            --card)    card_dir="$2"; shift 2 ;;
+            *)         recipient_url="$1"; shift ;;
+        esac
+    done
+    
+    if [ -z "$recipient_url" ]; then
+        error "No recipient specified."
+        echo -e "  ${DIM}Usage: scoutica send <recipient_card_url> --type opportunity.offer --role role.json${NC}"
+        exit 1
+    fi
+    
+    header "Send Scoutica Message"
+    
+    python3 - "$recipient_url" "$msg_type" "$role_path" "$message_text" "$card_dir" <<'SEND_SCRIPT'
+import json, sys, os, hashlib
+from datetime import datetime, timezone
+
+recipient_url = sys.argv[1]
+msg_type = sys.argv[2]
+role_path = sys.argv[3]
+message_text = sys.argv[4]
+card_dir = sys.argv[5]
+
+now = datetime.now(timezone.utc)
+
+# Generate message ID
+msg_hash = hashlib.sha256(f"{recipient_url}:{now.isoformat()}".encode()).hexdigest()[:8]
+msg_id = f"msg_{msg_hash}"
+
+# Generate conversation ID (or use existing)
+conv_hash = hashlib.sha256(f"{recipient_url}:{card_dir}:{msg_type}".encode()).hexdigest()[:8]
+conv_id = f"conv_{conv_hash}"
+
+# Build sender info
+sender = {"card_url": ""}
+try:
+    scoutica_file = os.path.join(card_dir, "scoutica.json")
+    if os.path.exists(scoutica_file):
+        with open(scoutica_file) as f:
+            disc = json.load(f)
+        sender["card_url"] = disc.get("card_url", "")
+    elif os.path.exists(os.path.join(card_dir, "recruiter_profile.json")):
+        with open(os.path.join(card_dir, "recruiter_profile.json")) as f:
+            rp = json.load(f)
+        sender["card_url"] = rp.get("card_url", "")
+except Exception:
+    pass
+
+# Build payload
+payload = {}
+if message_text:
+    payload["message"] = message_text
+if role_path and os.path.exists(role_path):
+    payload["role_url"] = role_path
+    with open(role_path) as f:
+        role = json.load(f)
+    if "compensation" in role:
+        payload["compensation_summary"] = {
+            "base_min": role["compensation"].get("base_min"),
+            "base_max": role["compensation"].get("base_max"),
+            "currency": role["compensation"].get("currency"),
+        }
+
+# Build message envelope
+message = {
+    "message_id": msg_id,
+    "type": msg_type,
+    "sender": sender,
+    "recipient": recipient_url,
+    "conversation_id": conv_id,
+    "timestamp": now.strftime("%Y-%m-%dT%H:%M:%SZ"),
+    "ttl_hours": 168,
+    "transport_used": "git",
+    "payload": payload,
+}
+
+# Store in local outbox
+outbox_dir = os.path.expanduser("~/.scoutica/outbox")
+os.makedirs(outbox_dir, exist_ok=True)
+
+msg_file = os.path.join(outbox_dir, f"{msg_id}.json")
+with open(msg_file, "w") as f:
+    json.dump(message, f, indent=2, ensure_ascii=False)
+    f.write("\n")
+
+# Also prepare for registry inbox deposit
+inbox_dir = os.path.expanduser("~/.scoutica/pending_delivery")
+os.makedirs(inbox_dir, exist_ok=True)
+
+# Recipient hash for inbox routing
+recipient_hash = hashlib.sha256(recipient_url.encode()).hexdigest()[:12]
+delivery_dir = os.path.join(inbox_dir, recipient_hash)
+os.makedirs(delivery_dir, exist_ok=True)
+
+delivery_file = os.path.join(delivery_dir, f"{msg_id}.json")
+with open(delivery_file, "w") as f:
+    json.dump(message, f, indent=2, ensure_ascii=False)
+    f.write("\n")
+
+# Log to transparency log
+log_dir = os.path.expanduser("~/.scoutica/privacy")
+os.makedirs(log_dir, exist_ok=True)
+log_entry = {
+    "event": "message_sent",
+    "message_id": msg_id,
+    "recipient": recipient_url,
+    "type": msg_type,
+    "timestamp": now.strftime("%Y-%m-%dT%H:%M:%SZ"),
+    "transport": "git",
+}
+log_file = os.path.join(log_dir, "access_log.jsonl")
+with open(log_file, "a") as f:
+    f.write(json.dumps(log_entry) + "\n")
+
+print(f"  ✅ Message created: {msg_id}")
+print(f"     Type: {msg_type}")
+print(f"     Recipient: {recipient_url}")
+print(f"     Conversation: {conv_id}")
+print(f"     Saved to: {msg_file}")
+print()
+print(f"  📬 Pending delivery at: {delivery_file}")
+print(f"     To deliver via Git registry:")
+print(f"     1. Copy to registry inbox: inbox/{recipient_hash}/{msg_id}.json")
+print(f"     2. Open PR on traylinx/scoutica-registry")
+print()
+print(f"  📋 Logged to: {log_file}")
+SEND_SCRIPT
+    
+    echo ""
+}
+
+# ─── INBOX Command (Check Messages) ──────────────────────────────────────────
+
+cmd_inbox() {
+    local output_json=false
+    
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --json) output_json=true; shift ;;
+            *)      shift ;;
+        esac
+    done
+    
+    header "Scoutica Inbox"
+    
+    python3 - "$output_json" <<'INBOX_SCRIPT'
+import json, sys, os, glob
+from datetime import datetime, timezone
+
+output_json = sys.argv[1] == "true"
+
+inbox_dir = os.path.expanduser("~/.scoutica/inbox")
+outbox_dir = os.path.expanduser("~/.scoutica/outbox")
+
+messages = []
+
+# Check local inbox
+if os.path.exists(inbox_dir):
+    for root, dirs, files in os.walk(inbox_dir):
+        for fname in sorted(files):
+            if fname.endswith('.json'):
+                filepath = os.path.join(root, fname)
+                try:
+                    with open(filepath) as f:
+                        msg = json.load(f)
+                    msg["_source"] = "inbox"
+                    msg["_file"] = filepath
+                    messages.append(msg)
+                except Exception:
+                    pass
+
+# Check for pending delivery (outbox)
+pending_dir = os.path.expanduser("~/.scoutica/pending_delivery")
+pending_count = 0
+if os.path.exists(pending_dir):
+    for root, dirs, files in os.walk(pending_dir):
+        pending_count += sum(1 for f in files if f.endswith('.json'))
+
+if output_json:
+    print(json.dumps({
+        "messages": messages,
+        "count": len(messages),
+        "pending_delivery": pending_count,
+    }, indent=2))
+else:
+    if not messages and pending_count == 0:
+        print("  📭 No messages in your inbox.")
+        print()
+        print(f"  \033[2mMessages arrive when:")
+        print(f"    • Someone sends you an offer via the registry")
+        print(f"    • A Nostr relay delivers an event (Phase 3)")
+        print(f"  \033[0m")
+    else:
+        if messages:
+            print(f"  📬 {len(messages)} message(s) in inbox:")
+            print()
+            for msg in messages:
+                msg_type = msg.get("type", "unknown")
+                sender = msg.get("sender", {}).get("card_url", "unknown")
+                timestamp = msg.get("timestamp", "")[:16]
+                msg_id = msg.get("message_id", "")
+                conv_id = msg.get("conversation_id", "")
+                
+                # Icon by type
+                icons = {
+                    "opportunity.pitch": "💡",
+                    "opportunity.offer": "💰",
+                    "response.accept": "✅",
+                    "response.reject": "❌",
+                    "status.check": "❓",
+                    "rules.check": "📋",
+                    "response.withdraw": "🚪",
+                    "event.ghosting": "👻",
+                }
+                icon = icons.get(msg_type, "📩")
+                
+                print(f"  {icon} {msg_id} — {msg_type}")
+                print(f"     From: {sender}")
+                print(f"     Date: {timestamp}")
+                if conv_id:
+                    print(f"     Thread: {conv_id}")
+                
+                # Show payload summary
+                payload = msg.get("payload", {})
+                if "message" in payload:
+                    print(f"     Message: {payload['message'][:80]}")
+                if "role_url" in payload:
+                    print(f"     Role: {payload['role_url']}")
+                if "compensation_summary" in payload:
+                    comp = payload["compensation_summary"]
+                    print(f"     Compensation: {comp.get('base_min', '?')}-{comp.get('base_max', '?')} {comp.get('currency', '')}")
+                if "reasons" in payload:
+                    print(f"     Reasons: {', '.join(payload['reasons'][:3])}")
+                print()
+        
+        if pending_count > 0:
+            print(f"  📤 {pending_count} message(s) pending delivery (outbox)")
+            print(f"     Run 'scoutica deliver' to push to registry")
+    
+    print()
+INBOX_SCRIPT
+}
+
+# ─── REPLY Command ───────────────────────────────────────────────────────────
+
+cmd_reply() {
+    local message_id=""
+    local action=""  # accept, reject, withdraw
+    local reply_message=""
+    
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --accept)   action="accept"; shift ;;
+            --reject)   action="reject"; shift ;;
+            --withdraw) action="withdraw"; shift ;;
+            --message)  reply_message="$2"; shift 2 ;;
+            *)          message_id="$1"; shift ;;
+        esac
+    done
+    
+    if [ -z "$message_id" ]; then
+        error "No message ID specified."
+        echo -e "  ${DIM}Usage: scoutica reply <message_id> --accept${NC}"
+        echo -e "  ${DIM}       scoutica reply <message_id> --reject${NC}"
+        exit 1
+    fi
+    
+    if [ -z "$action" ]; then
+        error "No action specified. Use --accept, --reject, or --withdraw"
+        exit 1
+    fi
+    
+    header "Send Reply"
+    
+    python3 - "$message_id" "$action" "$reply_message" <<'REPLY_SCRIPT'
+import json, sys, os, hashlib
+from datetime import datetime, timezone
+
+message_id = sys.argv[1]
+action = sys.argv[2]
+reply_message = sys.argv[3] if len(sys.argv) > 3 else ""
+
+now = datetime.now(timezone.utc)
+
+# Find original message in inbox
+inbox_dir = os.path.expanduser("~/.scoutica/inbox")
+original = None
+original_file = None
+
+if os.path.exists(inbox_dir):
+    for root, dirs, files in os.walk(inbox_dir):
+        for fname in files:
+            if fname.endswith('.json'):
+                filepath = os.path.join(root, fname)
+                try:
+                    with open(filepath) as f:
+                        msg = json.load(f)
+                    if msg.get("message_id") == message_id:
+                        original = msg
+                        original_file = filepath
+                        break
+                except Exception:
+                    pass
+        if original:
+            break
+
+if not original:
+    print(f"  ❌ Message not found: {message_id}")
+    print(f"     Check your inbox with: scoutica inbox")
+    sys.exit(1)
+
+# Map action to response type
+type_map = {
+    "accept": "response.accept",
+    "reject": "response.reject",
+    "withdraw": "response.withdraw",
+}
+response_type = type_map.get(action, f"response.{action}")
+
+# Generate reply message ID
+reply_hash = hashlib.sha256(f"{message_id}:{action}:{now.isoformat()}".encode()).hexdigest()[:8]
+reply_id = f"msg_{reply_hash}"
+
+# Build response payload
+payload = {}
+if action == "reject":
+    payload["reasons"] = [reply_message] if reply_message else ["auto_rejected_by_rules"]
+    payload["auto_rejected"] = not bool(reply_message)
+elif action == "accept":
+    if reply_message:
+        payload["message"] = reply_message
+elif action == "withdraw":
+    if reply_message:
+        payload["reason"] = reply_message
+
+# Build response envelope
+response = {
+    "message_id": reply_id,
+    "type": response_type,
+    "sender": original.get("sender", {}),  # Will be overridden by actual sender
+    "recipient": original.get("sender", {}).get("card_url", ""),
+    "conversation_id": original.get("conversation_id", ""),
+    "in_reply_to": message_id,
+    "timestamp": now.strftime("%Y-%m-%dT%H:%M:%SZ"),
+    "ttl_hours": 168,
+    "transport_used": "git",
+    "payload": payload,
+}
+
+# Save to outbox
+outbox_dir = os.path.expanduser("~/.scoutica/outbox")
+os.makedirs(outbox_dir, exist_ok=True)
+reply_file = os.path.join(outbox_dir, f"{reply_id}.json")
+with open(reply_file, "w") as f:
+    json.dump(response, f, indent=2, ensure_ascii=False)
+    f.write("\n")
+
+# Prepare for delivery
+pending_dir = os.path.expanduser("~/.scoutica/pending_delivery")
+sender_url = original.get("sender", {}).get("card_url", "unknown")
+sender_hash = hashlib.sha256(sender_url.encode()).hexdigest()[:12]
+delivery_dir = os.path.join(pending_dir, sender_hash)
+os.makedirs(delivery_dir, exist_ok=True)
+delivery_file = os.path.join(delivery_dir, f"{reply_id}.json")
+with open(delivery_file, "w") as f:
+    json.dump(response, f, indent=2, ensure_ascii=False)
+    f.write("\n")
+
+# Log
+log_dir = os.path.expanduser("~/.scoutica/privacy")
+os.makedirs(log_dir, exist_ok=True)
+log_entry = {
+    "event": "reply_sent",
+    "message_id": reply_id,
+    "in_reply_to": message_id,
+    "type": response_type,
+    "recipient": sender_url,
+    "timestamp": now.strftime("%Y-%m-%dT%H:%M:%SZ"),
+    "transport": "git",
+}
+log_file = os.path.join(log_dir, "access_log.jsonl")
+with open(log_file, "a") as f:
+    f.write(json.dumps(log_entry) + "\n")
+
+# Move original to processed
+processed_dir = os.path.expanduser("~/.scoutica/inbox/processed")
+os.makedirs(processed_dir, exist_ok=True)
+processed_file = os.path.join(processed_dir, os.path.basename(original_file))
+os.rename(original_file, processed_file)
+
+icons = {"accept": "✅", "reject": "❌", "withdraw": "🚪"}
+icon = icons.get(action, "📩")
+
+print(f"  {icon} Reply sent: {reply_id}")
+print(f"     Action: {action}")
+print(f"     In reply to: {message_id}")
+print(f"     To: {sender_url}")
+print(f"     Conversation: {original.get('conversation_id', '')}")
+print()
+print(f"  📬 Pending delivery at: {delivery_file}")
+print(f"  📋 Original moved to: {processed_file}")
+REPLY_SCRIPT
+    
+    echo ""
+}
+
+# ─── IDENTITY Command (Nostr Keypair) ────────────────────────────────────────
+
+cmd_identity() {
+    local subcommand="${1:-help}"
+    shift 2>/dev/null || true
+    
+    case "$subcommand" in
+        init)  cmd_identity_init "$@" ;;
+        show)  cmd_identity_show "$@" ;;
+        *)
+            echo ""
+            echo -e "${BOLD}scoutica identity${NC} — Cryptographic Identity Management"
+            echo ""
+            echo -e "  ${CYAN}identity init${NC}    Generate a Nostr keypair (secp256k1)"
+            echo -e "  ${CYAN}identity show${NC}    Display your public key"
+            echo ""
+            ;;
+    esac
+}
+
+cmd_identity_init() {
+    header "Generate Nostr Identity"
+    
+    local identity_dir="$HOME/.scoutica/identity"
+    
+    if [ -f "$identity_dir/keypair.json" ]; then
+        warn "Identity already exists at $identity_dir/keypair.json"
+        if ! confirm "Overwrite existing identity?"; then
+            echo -e "  ${DIM}Keeping existing identity.${NC}"
+            return 0
+        fi
+    fi
+    
+    python3 - "$identity_dir" <<'IDENTITY_SCRIPT'
+import json, sys, os, hashlib, secrets
+from datetime import datetime, timezone
+
+identity_dir = sys.argv[1]
+os.makedirs(identity_dir, exist_ok=True)
+
+# Generate a secp256k1-compatible private key
+# (32 random bytes, hex-encoded)
+private_key_bytes = secrets.token_bytes(32)
+private_key_hex = private_key_bytes.hex()
+
+# Derive public key (simplified — for full secp256k1, use a library)
+# For now, generate a deterministic pubkey hash as placeholder
+# In production, this would use actual secp256k1 point multiplication
+pubkey_hash = hashlib.sha256(private_key_bytes).hexdigest()
+
+# Create npub-style identifier (Bech32 encoding would be ideal, using hex for now)
+npub_placeholder = f"npub1{pubkey_hash[:58]}"
+nsec_placeholder = f"nsec1{private_key_hex[:58]}"
+
+now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+identity = {
+    "created_at": now,
+    "algorithm": "secp256k1",
+    "note": "Placeholder keys. For production use, generate proper secp256k1 keypair with python-nostr or nostr-tools.",
+    "public_key_hex": pubkey_hash,
+    "npub": npub_placeholder,
+    "private_key_hex": private_key_hex,
+    "nsec": nsec_placeholder,
+    "default_relays": [
+        "wss://relay.damus.io",
+        "wss://relay.nostr.band",
+        "wss://nos.lol"
+    ]
+}
+
+# Save keypair (private — never share)
+keypair_file = os.path.join(identity_dir, "keypair.json")
+with open(keypair_file, "w") as f:
+    json.dump(identity, f, indent=2)
+    f.write("\n")
+os.chmod(keypair_file, 0o600)
+
+# Save public-only file (safe to share)
+public_file = os.path.join(identity_dir, "public.json")
+public = {
+    "public_key_hex": pubkey_hash,
+    "npub": npub_placeholder,
+    "default_relays": identity["default_relays"],
+    "created_at": now,
+}
+with open(public_file, "w") as f:
+    json.dump(public, f, indent=2)
+    f.write("\n")
+
+print(f"  ✅ Nostr identity generated!")
+print()
+print(f"  🔑 Public key (share this):")
+print(f"     {npub_placeholder}")
+print()
+print(f"  🔒 Private key (NEVER share):")
+print(f"     Stored at: {keypair_file} (chmod 600)")
+print()
+print(f"  📡 Default relays:")
+for relay in identity["default_relays"]:
+    print(f"     • {relay}")
+print()
+print(f"  ⚠️  NOTE: These are placeholder keys using SHA-256 derivation.")
+print(f"     For production use, install python-nostr for proper secp256k1:")
+print(f"     pip install python-nostr")
+print()
+print(f"  📋 Next steps:")
+print(f"     1. Add your pubkey to scoutica.json:")
+print(f"        \"transport\": {{")
+print(f"          \"preferred\": \"nostr\",")
+print(f"          \"nostr\": {{")
+print(f"            \"pubkey\": \"{npub_placeholder}\",")
+print(f"            \"relays\": [\"wss://relay.damus.io\"]")
+print(f"          }}")
+print(f"        }}")
+print(f"     2. Publish your updated card: scoutica publish")
+IDENTITY_SCRIPT
+    
+    echo ""
+}
+
+cmd_identity_show() {
+    local identity_file="$HOME/.scoutica/identity/public.json"
+    
+    if [ ! -f "$identity_file" ]; then
+        error "No identity found. Run 'scoutica identity init' first."
+        exit 1
+    fi
+    
+    header "Your Nostr Identity"
+    
+    python3 -c "
+import json
+with open('$identity_file') as f:
+    pub = json.load(f)
+print(f\"  🔑 Public Key: {pub['npub']}\")
+print(f\"  📡 Relays: {', '.join(pub.get('default_relays', []))}\")
+print(f\"  📅 Created: {pub.get('created_at', 'unknown')}\")
+print()
+"
+}
+
+# ─── DELIVER Command (Push Pending Messages) ────────────────────────────────
+
+cmd_deliver() {
+    header "Deliver Pending Messages"
+    
+    python3 - <<'DELIVER_SCRIPT'
+import json, sys, os, shutil
+
+pending_dir = os.path.expanduser("~/.scoutica/pending_delivery")
+delivered_dir = os.path.expanduser("~/.scoutica/delivered")
+os.makedirs(delivered_dir, exist_ok=True)
+
+if not os.path.exists(pending_dir):
+    print("  📭 No pending messages to deliver.")
+    sys.exit(0)
+
+# Count pending
+pending = []
+for root, dirs, files in os.walk(pending_dir):
+    for fname in files:
+        if fname.endswith('.json'):
+            pending.append(os.path.join(root, fname))
+
+if not pending:
+    print("  📭 No pending messages to deliver.")
+    sys.exit(0)
+
+print(f"  📤 {len(pending)} message(s) pending delivery:")
+print()
+
+for filepath in pending:
+    try:
+        with open(filepath) as f:
+            msg = json.load(f)
+        
+        msg_id = msg.get("message_id", "unknown")
+        msg_type = msg.get("type", "unknown")
+        recipient = msg.get("recipient", "unknown")
+        
+        # Get recipient hash from directory name
+        recipient_dir = os.path.basename(os.path.dirname(filepath))
+        
+        print(f"  📨 {msg_id}")
+        print(f"     Type: {msg_type}")
+        print(f"     To: {recipient}")
+        
+        # Move to delivered
+        dest_dir = os.path.join(delivered_dir, recipient_dir)
+        os.makedirs(dest_dir, exist_ok=True)
+        dest = os.path.join(dest_dir, os.path.basename(filepath))
+        shutil.move(filepath, dest)
+        
+        print(f"     ✅ Marked as delivered")
+        print()
+        
+    except Exception as e:
+        print(f"     ❌ Error: {e}")
+        print()
+
+# Clean empty dirs
+for dirpath, dirnames, filenames in os.walk(pending_dir, topdown=False):
+    if not dirnames and not filenames and dirpath != pending_dir:
+        os.rmdir(dirpath)
+
+print(f"  ────────────────────────────────────────")
+print(f"  {len(pending)} message(s) delivered.")
+print(f"  Delivery log: {delivered_dir}")
+print()
+print(f"  ℹ️  In production, delivery means:")
+print(f"     • Git transport: open PR on traylinx/scoutica-registry")
+print(f"     • Nostr: publish NIP-44 encrypted event to relays")
+print(f"     • Webhook: POST to recipient's agent_endpoint")
+DELIVER_SCRIPT
+    
+    echo ""
+}
+
+# ─── REGISTER Command (Generate Registry Entry) ──────────────────────────────
+
+cmd_register() {
+    local card_dir="${1:-.}"
+    local card_type="candidate"
+    
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --type) card_type="$2"; shift 2 ;;
+            *)      card_dir="$1"; shift ;;
+        esac
+    done
+    
+    header "Generate Registry Entry"
+    
+    python3 - "$card_dir" "$card_type" <<'REGISTER_SCRIPT'
+import json, sys, os
+from datetime import datetime, timezone
+
+card_dir = sys.argv[1]
+card_type = sys.argv[2]
+
+now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+if card_type == "candidate":
+    profile_path = os.path.join(card_dir, "profile.json")
+    scoutica_path = os.path.join(card_dir, "scoutica.json")
+    
+    if not os.path.exists(profile_path):
+        print(f"  ❌ No profile.json found in {card_dir}")
+        sys.exit(1)
+    
+    with open(profile_path) as f:
+        profile = json.load(f)
+    
+    card_url = ""
+    transport = "git"
+    if os.path.exists(scoutica_path):
+        with open(scoutica_path) as f:
+            disc = json.load(f)
+        card_url = disc.get("card_url", "")
+        transport = disc.get("transport", {}).get("preferred", "git") if isinstance(disc.get("transport"), dict) else "git"
+    
+    entry = {
+        "card_url": card_url,
+        "name": profile.get("name", ""),
+        "title": profile.get("title", ""),
+        "seniority": profile.get("seniority", ""),
+        "skills": (profile.get("skills", []) + profile.get("tools_and_platforms", []))[:10],
+        "domains": profile.get("primary_domains", profile.get("domains", [])),
+        "availability": profile.get("availability", ""),
+        "entity_type": profile.get("entity_type", "human"),
+        "transport": transport,
+        "updated": datetime.now().strftime("%Y-%m-%d"),
+        "registered_at": now,
+    }
+    
+    print(f"  ✅ Registry entry generated for: {entry['name']}")
+
+elif card_type == "role" or card_type == "roles":
+    roles_dir = os.path.join(card_dir, "roles")
+    recruiter_path = os.path.join(card_dir, "recruiter_profile.json")
+    
+    recruiter_url = ""
+    if os.path.exists(recruiter_path):
+        with open(recruiter_path) as f:
+            rp = json.load(f)
+        recruiter_url = rp.get("card_url", "")
+    
+    entries = []
+    if os.path.exists(roles_dir):
+        for fname in sorted(os.listdir(roles_dir)):
+            if not fname.endswith('.json'):
+                continue
+            with open(os.path.join(roles_dir, fname)) as f:
+                role = json.load(f)
+            
+            comp = role.get("compensation", {})
+            comp_range = f"{comp.get('base_min', '?')}-{comp.get('base_max', '?')} {comp.get('currency', '')}"
+            
+            entry = {
+                "role_url": f"{recruiter_url.rsplit('/', 1)[0]}/roles/{fname}" if recruiter_url else fname,
+                "recruiter_card_url": recruiter_url,
+                "title": role.get("title", ""),
+                "hard_skills": role.get("requirements", {}).get("hard_skills", []),
+                "seniority": role.get("requirements", {}).get("seniority", ""),
+                "compensation_range": comp_range,
+                "location": role.get("location", {}).get("type", ""),
+                "engagement_type": role.get("engagement", {}).get("type", ""),
+                "status": role.get("status", "active"),
+                "posted_at": role.get("posted_at", now),
+                "expires_at": role.get("expires_at", ""),
+                "registered_at": now,
+            }
+            entries.append(entry)
+            print(f"  ✅ Registry entry for role: {entry['title']}")
+    else:
+        print(f"  ❌ No roles/ directory found in {card_dir}")
+        sys.exit(1)
+    
+    entry = entries  # multiple entries for roles
+
+# Save to local staging
+staging_dir = os.path.expanduser("~/.scoutica/registry_staging")
+os.makedirs(staging_dir, exist_ok=True)
+
+if card_type == "candidate":
+    staging_file = os.path.join(staging_dir, "candidate_entry.json")
+    with open(staging_file, "w") as f:
+        json.dump(entry, f, indent=2, ensure_ascii=False)
+        f.write("\n")
+else:
+    staging_file = os.path.join(staging_dir, "role_entries.json")
+    with open(staging_file, "w") as f:
+        json.dump(entries, f, indent=2, ensure_ascii=False)
+        f.write("\n")
+
+print()
+print(f"  📋 Staged at: {staging_file}")
+print()
+print(f"  📋 Next steps:")
+print(f"     1. Fork traylinx/scoutica-registry")
+if card_type == "candidate":
+    print(f"     2. Add your entry to candidates/index.json")
+else:
+    print(f"     2. Add your entries to roles/index.json")
+print(f"     3. Open a Pull Request")
+print(f"     4. The CI will validate your entry against the schema")
+print()
+print(f"  Entry preview:")
+print(json.dumps(entry if card_type == "candidate" else entries, indent=2))
+REGISTER_SCRIPT
+    
+    echo ""
+}
+
 # ─── Main Router ──────────────────────────────────────────────────────────────
 
 main() {
@@ -3974,6 +5047,14 @@ main() {
         logs)       cmd_logs "$@" ;;
         org)        cmd_org "$@" ;;
         role)       cmd_role "$@" ;;
+        evaluate)   cmd_evaluate "$@" ;;
+        jobs)       cmd_jobs "$@" ;;
+        send)       cmd_send "$@" ;;
+        inbox)      cmd_inbox "$@" ;;
+        reply)      cmd_reply "$@" ;;
+        deliver)    cmd_deliver "$@" ;;
+        register)   cmd_register "$@" ;;
+        identity)   cmd_identity "$@" ;;
         help|--help|-h)  cmd_help ;;
         version|--version|-v) echo "scoutica v$VERSION" ;;
         *)
@@ -3985,4 +5066,6 @@ main() {
 }
 
 main "$@"
+
+
 

@@ -1,0 +1,72 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Scoutica Registry — Roles Index",
+  "description": "A flat JSON index of all published job postings. Downloaded by candidate agents to search for opportunities.",
+  "type": "object",
+  "required": ["version", "updated", "entries"],
+  "properties": {
+    "version": {
+      "type": "string",
+      "pattern": "^\\d+\\.\\d+\\.\\d+$"
+    },
+    "updated": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "entries": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["role_url", "title", "hard_skills", "status"],
+        "properties": {
+          "role_url": {
+            "type": "string",
+            "format": "uri",
+            "description": "Raw URL to fetch the full role.json"
+          },
+          "recruiter_card_url": {
+            "type": "string",
+            "format": "uri"
+          },
+          "title": { "type": "string" },
+          "hard_skills": {
+            "type": "array",
+            "items": { "type": "string" }
+          },
+          "seniority": {
+            "type": "string",
+            "enum": ["entry", "junior", "mid", "senior", "lead", "manager", "director", "executive"]
+          },
+          "compensation_range": {
+            "type": "string",
+            "description": "Human-readable range e.g. '120000-150000 EUR'"
+          },
+          "location": {
+            "type": "string",
+            "enum": ["remote", "hybrid", "onsite"]
+          },
+          "engagement_type": {
+            "type": "string",
+            "enum": ["permanent", "contract", "fractional", "freelance"]
+          },
+          "status": {
+            "type": "string",
+            "enum": ["active", "paused", "filled", "expired"]
+          },
+          "posted_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "expires_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "registered_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      }
+    }
+  }
+}
