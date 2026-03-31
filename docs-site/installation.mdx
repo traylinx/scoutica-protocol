@@ -32,31 +32,33 @@ Before installing, make sure you have:
 
 You can also use `--clipboard` mode to copy the scan prompt to any AI chat without installing a local provider.
 
-## Option 1: Agent-First Install (Zero Friction)
+---
 
-The easiest way to generate your card is to give these instructions directly to an AI agent (like Claude Code, Cursor, or OpenClaw):
+## Option 1: Native Agent Install (Primary & Recommended)
+
+The Scoutica Protocol is designed to be fully operated by autonomous AI agents (like Claude Code, Cursor, OpenCode, or OpenClaw). The easiest and fastest way to install the CLI and configure the protocol is natively via your agent's terminal. 
+
+Choose your persona below and copy the exact prompt into your AI agent:
+
+### 🧑‍💻 For Candidates (Job Seekers)
+If you want to generate a Skill Card to find a job on your own terms:
 
 ```text
-Agent: Please install the Scoutica Protocol CLI and generate a Skill Card for my CVs in this folder.
-
-Important constraints:
-1. Ensure you are currently in the folder that contains my CV/resume files. If not, ask me which folder contains them before proceeding.
-2. If the user doesn't have local AI tools (gemini, claude, ollama), run `scoutica scan . --clipboard` instead.
-3. If I have PDFs, you may need `brew install poppler` for extraction.
-
-Supported formats: .md, .txt, .pdf, .docx, .json, .yaml, .csv, .html
-TTL: The preview URL generated at the end will expire in 24 hours.
-
-Installation:
-curl -fsSL https://raw.githubusercontent.com/traylinx/scoutica-protocol/main/install.sh | bash
-
-Generation:
-scoutica scan .
+Read https://raw.githubusercontent.com/traylinx/scoutica-protocol/main/SKILL.md and follow the instructions to set up Scoutica Protocol natively.
 ```
+> **What the agent will do:** It reads the protocol specs, installs the CLI, finds your CV documents, extracts your skills into a Skill Card, validates the JSON schemas, and registers you on the Live Network for discovery.
+
+### 🏢 For Recruiters & Employers
+If you want to establish an organizational identity to hire and discover candidates autonomously:
+
+```text
+Read https://raw.githubusercontent.com/traylinx/scoutica-protocol/main/RECRUITER_SKILL.md and follow the instructions to set up the Scoutica Employer Network natively.
+```
+> **What the agent will do:** It reads the employer specs, installs the CLI, scaffolds your Recruiter Card, creates structured job roles, verifies your domain, and starts searching the registry to evaluate and message matching candidates securely.
 
 ---
 
-## Option 2: Manual Install (Recommended for Devs)
+## Option 2: Script Install (Manual)
 
 <Steps>
   <Step title="Run the installer">

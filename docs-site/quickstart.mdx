@@ -4,15 +4,63 @@ description: "Create your Scoutica Skill Card in 5 minutes. Your skills, your ru
 ---
 
 <Steps>
-  <Step title="Install the CLI">
+<Steps>
+  <Step title="Native Agent Install (Most Recommended)">
+    The quickest way to install and configure everything is to give your AI agent (like Claude Code, Cursor, OpenCode, or OpenClaw) a single instruction. The agent will read the protocol and execute the entire setup autonomously in the background.
+
+    <Tabs>
+      <Tab title="For Candidates">
+        Copy this prompt and paste it into your AI Agent:
+        ```text
+        Read https://raw.githubusercontent.com/traylinx/scoutica-protocol/main/SKILL.md and follow the instructions to set up Scoutica Protocol natively.
+        ```
+        
+        ### 🤖 AI Agent Simulation Log
+
+        **1. Step 1: Install CLI**
+        *   **AI executes bash:** `curl -fsSL https://raw.githubusercontent.com/traylinx/scoutica-protocol/main/install.sh | bash`
+        *   *Terminal Output:* `✅ Scoutica installed successfully.`
+
+        **2. Step 2: Locate files & Scan**
+        *   **AI executes bash:** `cd ~/CV && scoutica scan .`
+        *   *Terminal Output:* `Creating dedicated card folder: ~/CV/john-doe-card`
+
+        **3. Step 3: Schema Validation**
+        *   **AI executes bash:** `scoutica validate`
+        *   *Terminal Output:* `✅ All files passed.`
+
+        **4. Step 4: Network Registration & Publishing**
+        *   **AI executes bash:** `scoutica register` and `scoutica publish`
+        *   *Terminal Output:* `✅ Successfully published to GitHub! Registered on the Scoutica Network.`
+      </Tab>
+      <Tab title="For Recruiters">
+        Copy this prompt and paste it into your AI Agent:
+        ```text
+        Read https://raw.githubusercontent.com/traylinx/scoutica-protocol/main/RECRUITER_SKILL.md and follow the instructions to set up the Scoutica Employer Network natively.
+        ```
+
+        ### 🤖 AI Agent Simulation Log
+
+        **1. Step 1: Install CLI**
+        *   **AI executes bash:** `curl -fsSL https://raw.githubusercontent.com/traylinx/scoutica-protocol/main/install.sh | bash`
+        
+        **2. Step 2: Scaffold Organization**
+        *   **AI executes bash:** `scoutica org init`
+        *   *Terminal Output:* `✅ Created recruiter_profile.json and hiring_rules.yaml.`
+
+        **3. Step 3: Register and Search**
+        *   **AI executes bash:** `scoutica org publish` and `scoutica jobs search`
+        *   *Terminal Output:* `✅ Successfully published to GitHub! Found 14 matching candidates.`
+      </Tab>
+    </Tabs>
+  </Step>
+
+  <Step title="Manual CLI Install">
+    If you prefer to install it yourself, run the installer:
     <Tabs>
       <Tab title="macOS / Linux">
         ```bash
         curl -fsSL https://raw.githubusercontent.com/traylinx/scoutica-protocol/main/install.sh | bash
-        ```
-
-        Then reload your shell:
-        ```bash
         source ~/.zshrc   # or source ~/.bashrc
         ```
       </Tab>
@@ -23,166 +71,40 @@ description: "Create your Scoutica Skill Card in 5 minutes. Your skills, your ru
       </Tab>
     </Tabs>
 
-    Verify the install:
-    ```bash
-    scoutica version
-    ```
-
-    <Tip>
-      Run `scoutica doctor` to confirm all prerequisites (Git, Python 3, AI providers) are installed correctly.
-    </Tip>
-  </Step>
-
-  <Step title="Create your Skill Card">
-    Choose the method that fits you best:
-
+    Then, build your card manually using one of these methods:
     <Tabs>
-      <Tab title="AI Scan (Recommended)">
-        Put your CV, certifications, and portfolio files in a folder and let AI generate your card automatically. Your documents never leave your machine.
-
+      <Tab title="AI Scan">
+        Let AI generate your card automatically from your local documents.
         ```bash
         scoutica scan ~/my-docs/
         ```
-
-        Use a specific AI provider:
+        Use a specific AI provider explicitly:
         ```bash
         scoutica scan ~/my-docs/ --with gemini      # Gemini CLI
         scoutica scan ~/my-docs/ --with claude      # Claude Code
-        scoutica scan ~/my-docs/ --with ollama      # Ollama (fully offline)
-        scoutica scan ~/my-docs/ --output ./my-card/  # Custom output directory
+        scoutica scan ~/my-docs/ --with ollama      # Ollama (offline privacy)
         ```
-
-        No AI CLI installed? Copy the prompt to your clipboard and paste it into any web-based AI:
-        ```bash
-        scoutica scan ~/my-docs/ --clipboard
-        ```
-
-        **Supported document formats:** `.md` `.txt` `.pdf` `.docx` `.json` `.yaml` `.csv` `.html`
-
-        **Supported AI providers (auto-detected in this order):**
-
-        | Provider | CLI Command |
-        |----------|-------------|
-        | Gemini CLI | `gemini` |
-        | Claude Code | `claude` |
-        | OpenAI Codex | `codex` |
-        | Mistral Vibe | `vibe` |
-        | OpenCode | `opencode` |
-        | Ollama | `ollama` |
-        | switchAILocal | `ail` |
-        | OpenClaw | `openclaw` |
       </Tab>
       <Tab title="Interactive Wizard">
         Answer questions step-by-step to build your card:
-
         ```bash
         scoutica init ./my-card/
-        ```
-
-        Or get AI-guided instructions:
-        ```bash
+        # Or get AI-guided instructions
         scoutica init --ai
         ```
       </Tab>
-      <Tab title="AI Agent (Zero-Touch)">
-        The most magical method — fully autonomous setup using Cursor, Claude Desktop, or your favorite AI IDE/agent terminal.
-
-        <Steps>
-          <Step title="Copy the universal prompt">
-            ```text
-            Read https://raw.githubusercontent.com/traylinx/scoutica-protocol/main/SKILL.md and follow the instructions to set up Scoutica Protocol natively.
-            ```
-          </Step>
-          <Step title="Paste into your AI Agent">
-            The agent will read the protocol and execute the entire setup autonomously in the background. 
-            
-            ### 🤖 AI Agent Simulation Log
-
-            **1. The Fetch**
-            *   **AI:** "I am reading `SKILL.md` from the raw GitHub URL..."
-            *   **AI:** "I understand the 5-step Quick Start guide. Proceeding with execution."
-
-            **2. Step 1: Install CLI**
-            *   **AI executes bash:** `curl -fsSL https://raw.githubusercontent.com/traylinx/scoutica-protocol/main/install.sh | bash`
-            *   *Terminal Output:* `✅ Scoutica installed successfully.`
-
-            **3. Step 2 & 3: Locate files & Scan**
-            *   **AI executes bash:** `cd ~/CV && scoutica scan .`
-            *   *Terminal Output:* 
-                *   `Extracting candidate name... -> John Doe`
-                *   `Creating dedicated card folder: ~/CV/john-doe-card`
-                *   `✅ Success! Card saved to registry.`
-
-            **4. Step 4: Schema Validation**
-            *   **AI executes bash:** `scoutica validate`
-            *   *Terminal Output:* `⚡ Smart Context: Using last generated card at ~/CV/john-doe-card... ✅ All files passed.`
-
-            **5. Step 5: Publishing**
-            *   **AI executes bash:** `scoutica publish`
-            *   *Terminal Output:* 
-                *   `✅ GitHub CLI detected. Auto-deriving repo name: john-doe-card`
-                *   `Creating repository johndoe/john-doe-card on GitHub...`
-                *   `✅ Successfully published to GitHub!`
-
-            **6. Final Output to User**
-            *   **AI replies to you:** "I have successfully installed the Scoutica Protocol, scanned your CV, validated your data, and published your brand new Skill Card directly to GitHub. Your live card is available at `https://github.com/johndoe/john-doe-card`."
-          </Step>
-        </Steps>
-
-        <Note>
-          This is the recommended path for developers and agents. Zero manual CLI input required.
-        </Note>
-      </Tab>
-      <Tab title="AI Chat (No Install)">
-        The easiest method — no CLI required. Perfect for ChatGPT, Claude web, or Gemini web.
-
-        <Steps>
-          <Step title="Open GENERATE_MY_CARD.md on GitHub">
-            Go to the [Scoutica Protocol repo](https://github.com/traylinx/scoutica-protocol) and open `GENERATE_MY_CARD.md`.
-          </Step>
-          <Step title="Copy and paste into any AI">
-            Copy the entire file contents and paste it into chat.
-          </Step>
-          <Step title="Follow the conversation">
-            The AI will interview you and generate your 4 card files in markdown blocks.
-          </Step>
-          <Step title="Save to GitHub">
-            Save the generated files to a new GitHub repo manually.
-          </Step>
-        </Steps>
-      </Tab>
-      <Tab title="GitHub Template">
-        <Steps>
-          <Step title="Use the template">
-            Click **"Use this template"** on the [Scoutica Protocol repo](https://github.com/traylinx/scoutica-protocol).
-          </Step>
-          <Step title="Name your repo">
-            Name it something like `my-scoutica-card`.
-          </Step>
-          <Step title="Edit the files">
-            Edit the files in `protocol/templates/` with your data.
-          </Step>
-          <Step title="Push">
-            Push — your card is live.
-          </Step>
-        </Steps>
+      <Tab title="Browser (No CLI)">
+        Go to the [Scoutica Protocol repo](https://github.com/traylinx/scoutica-protocol) and copy `GENERATE_MY_CARD.md`. Paste it into ChatGPT or Claude web.
       </Tab>
     </Tabs>
 
     After creation, your card folder looks like this:
-
     ```
     my-card/
     ├── profile.json        # Your skills, experience, tools
     ├── rules.yaml          # Your rules of engagement
     ├── evidence.json       # Links to your public work
-    ├── SKILL.md            # Agent entry point
-    ├── scoutica.json       # Discovery file (auto-generated)
-    └── rules/              # Evaluation rule templates
-        ├── evaluate-fit.md
-        ├── negotiate-terms.md
-        ├── verify-evidence.md
-        └── request-interview.md
+    └── SKILL.md            # Agent entry point
     ```
   </Step>
 
