@@ -131,19 +131,7 @@ print(json.dumps(items))
 " "$input"
 }
 
-# Convert comma-separated string to YAML list
-to_yaml_list() {
-    local input="$1"
-    local indent="${2:-    }"
-    
-    IFS=',' read -ra items <<< "$input"
-    for item in "${items[@]}"; do
-        item=$(echo "$item" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
-        if [ -n "$item" ]; then
-            echo "${indent}- \"$item\""
-        fi
-    done
-}
+# (to_yaml_list removed — unused dead code; all YAML is generated via Python yaml.dump)
 
 # ─── Logging Infrastructure ───────────────────────────────────────────────────
 
@@ -680,7 +668,7 @@ GENERATE_SCRIPT
     echo ""
     echo -e "${GREEN}╔═══════════════════════════════════════════════════════╗${NC}"
     echo -e "${GREEN}║                                                       ║${NC}"
-    echo -e "${GREEN}║   🎉 Your Scoutica Protocol Skill Card is ready!              ║${NC}"
+    echo -e "${GREEN}║   🎉 Your Scoutica Protocol Skill Card is ready!     ║${NC}"
     echo -e "${GREEN}║                                                       ║${NC}"
     echo -e "${GREEN}╚═══════════════════════════════════════════════════════╝${NC}"
     echo ""
@@ -843,7 +831,7 @@ cmd_publish() {
         (
             cd "$card_dir"
             # Only stage known card files — never stage secrets or .env
-            local card_files=(profile.json rules.yaml evidence.json SKILL.md scoutica.json)
+            local card_files=(profile.json rules.yaml evidence.json SKILL.md scoutica.json README.md)
             for cf in "${card_files[@]}"; do
                 [ -f "$cf" ] && git add "$cf" 2>/dev/null
             done
@@ -932,7 +920,7 @@ cmd_publish() {
                         git init >/dev/null 2>&1
                         
                         # Only stage known card files
-                        local card_files=(profile.json rules.yaml evidence.json SKILL.md scoutica.json)
+                        local card_files=(profile.json rules.yaml evidence.json SKILL.md scoutica.json README.md)
                         for cf in "${card_files[@]}"; do
                             [ -f "$cf" ] && git add "$cf" 2>/dev/null
                         done
@@ -980,7 +968,7 @@ cmd_publish() {
             (
                 cd "$card_dir"
                 git init >/dev/null 2>&1
-                local card_files=(profile.json rules.yaml evidence.json SKILL.md scoutica.json)
+                local card_files=(profile.json rules.yaml evidence.json SKILL.md scoutica.json README.md)
                 for cf in "${card_files[@]}"; do
                     [ -f "$cf" ] && git add "$cf" 2>/dev/null
                 done
@@ -1025,7 +1013,7 @@ cmd_publish() {
             echo ""
             echo -e "  ${BOLD}Option B — Manual:${NC}"
             echo -e "    1. Create a repo at ${CYAN}https://github.com/new${NC}"
-            echo -e "    2. Run: ${CYAN}cd $card_dir && git init && git add . && git commit -m 'init'${NC}"
+            echo -e "    2. Run: ${CYAN}cd $card_dir && git init && git add profile.json rules.yaml evidence.json SKILL.md && git commit -m 'init'${NC}"
             echo -e "    3. Run: ${CYAN}git remote add origin https://github.com/YOU/$default_repo.git${NC}"
             echo -e "    4. Run: ${CYAN}git push -u origin main${NC}"
             echo ""
@@ -1061,36 +1049,76 @@ cmd_info() {
         exit 1
     fi
     
-    # Parse profile.json with basic tools
-    local name=$(grep -o '"name": *"[^"]*"' "$card_dir/profile.json" | head -1 | sed 's/"name": *"\(.*\)"/\1/')
-    local title=$(grep -o '"title": *"[^"]*"' "$card_dir/profile.json" | head -1 | sed 's/"title": *"\(.*\)"/\1/')
-    local seniority=$(grep -o '"seniority": *"[^"]*"' "$card_dir/profile.json" | head -1 | sed 's/"seniority": *"\(.*\)"/\1/')
-    local availability=$(grep -o '"availability": *"[^"]*"' "$card_dir/profile.json" | head -1 | sed 's/"availability": *"\(.*\)"/\1/')
+    # Parse profile.json reliably via Python
+    local info_output
+    info_output=$(python3 - "$card_dir" <<'INFOSCRIPT'
+import json, sys, os
+card_dir = sys.argv[1]
+try:
+    with open(os.path.join(card_dir, 'profile.json')) as f:
+        p = json.load(f)
+except Exception as e:
+    print(f"  Error reading profile.json: {e}", file=sys.stderr)
+    sys.exit(1)
+
+print(p.get('name', 'Unknown'))
+print(p.get('title', ''))
+print(p.get('seniority', ''))
+print(p.get('availability', 'unknown'))
+
+# Remote policy
+remote = ''
+try:
+    import yaml
+    rules_path = os.path.join(card_dir, 'rules.yaml')
+    if os.path.exists(rules_path):
+        with open(rules_path) as f:
+            r = yaml.safe_load(f) or {}
+        remote = r.get('remote', {}).get('policy', '')
+except ImportError:
+    pass
+print(remote)
+
+# Evidence count
+ev_count = 0
+ev_path = os.path.join(card_dir, 'evidence.json')
+if os.path.exists(ev_path):
+    try:
+        with open(ev_path) as f:
+            ev = json.load(f)
+        ev_count = len(ev.get('items', []))
+    except Exception:
+        pass
+print(ev_count)
+
+# Rules dir count
+rules_dir = os.path.join(card_dir, 'rules')
+rule_count = 0
+if os.path.isdir(rules_dir):
+    rule_count = len([f for f in os.listdir(rules_dir) if f.endswith('.md')])
+print(rule_count)
+INFOSCRIPT
+    )
+    
+    local name title seniority availability remote ev_count rule_count
+    IFS=$'\n' read -r name title seniority availability remote ev_count rule_count <<< "$info_output"
     
     echo -e "  ${BOLD}$name${NC}"
     echo -e "  $title ${DIM}($seniority)${NC}"
     echo -e "  Availability: $availability"
     echo ""
     
-    # Count skills
-    local skill_count=$(grep -c '"[^"]*"' "$card_dir/profile.json" 2>/dev/null || echo "?")
     echo -e "  ${DIM}Profile:${NC} profile.json"
     
-    # Check rules
-    if [ -f "$card_dir/rules.yaml" ]; then
-        local remote=$(grep "policy:" "$card_dir/rules.yaml" | head -1 | sed 's/.*: *"\?\([^"]*\)"\?/\1/')
+    if [ -n "$remote" ]; then
         echo -e "  ${DIM}Remote:${NC} $remote"
     fi
     
-    # Count evidence
-    if [ -f "$card_dir/evidence.json" ]; then
-        local ev_count=$(grep -c '"type":' "$card_dir/evidence.json" 2>/dev/null || echo "0")
+    if [ "${ev_count:-0}" -gt 0 ]; then
         echo -e "  ${DIM}Evidence:${NC} $ev_count items"
     fi
     
-    # Check rules dir
-    if [ -d "$card_dir/rules" ]; then
-        local rule_count=$(ls "$card_dir/rules/"*.md 2>/dev/null | wc -l | tr -d ' ')
+    if [ "${rule_count:-0}" -gt 0 ]; then
         echo -e "  ${DIM}Rules:${NC} $rule_count rule files"
     fi
     
@@ -1363,55 +1391,69 @@ _write_state() {
     local source_hash="$1" provider="$2" source_files="$3"
     local now=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
     
-    # Read existing state or start fresh
-    local existing="{}"
-    [ -f "$STATE_FILE" ] && existing=$(cat "$STATE_FILE")
+    # Read existing state or start fresh — use temp file to avoid heredoc injection
+    local tmp_existing=$(mktemp /tmp/scoutica_state.XXXXXX)
+    if [ -f "$STATE_FILE" ]; then
+        cp "$STATE_FILE" "$tmp_existing"
+    else
+        echo '{}' > "$tmp_existing"
+    fi
     
-    python3 -c "
+    python3 - "$tmp_existing" "$source_hash" "$now" "$source_files" "$provider" "$STATE_FILE" <<'WRITESTATE'
 import json, sys
+existing_file, source_hash, now, source_files, provider, state_file = sys.argv[1:7]
 try:
-    state = json.loads('''$existing''')
-except:
+    with open(existing_file) as f:
+        state = json.load(f)
+except Exception:
     state = {}
 state['schema_version'] = '0.1.0'
 state['card'] = {
-    'source_hash': '$source_hash',
-    'generated_at': '$now',
-    'source_files': '$source_files'.split(','),
-    'provider': '$provider'
+    'source_hash': source_hash,
+    'generated_at': now,
+    'source_files': [s for s in source_files.split(',') if s],
+    'provider': provider
 }
-# Preserve preview state if it exists
 if 'preview' not in state:
     state['preview'] = {}
-with open('$STATE_FILE', 'w') as f:
+with open(state_file, 'w') as f:
     json.dump(state, f, indent=2)
-" 2>/dev/null
+WRITESTATE
+    rm -f "$tmp_existing"
 }
 
 _write_preview_state() {
     mkdir -p "$STATE_DIR"
     local url="$1" card_hash="$2"
     local now=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
-    local expires=$(python3 -c "from datetime import datetime,timedelta;print((datetime.utcnow()+timedelta(hours=24)).strftime('%Y-%m-%dT%H:%M:%SZ'))" 2>/dev/null || echo "")
+    local expires=$(python3 -c "from datetime import datetime,timedelta,timezone;print((datetime.now(timezone.utc)+timedelta(hours=24)).strftime('%Y-%m-%dT%H:%M:%SZ'))" 2>/dev/null || echo "")
     
-    local existing="{}"
-    [ -f "$STATE_FILE" ] && existing=$(cat "$STATE_FILE")
+    # Use temp file to avoid heredoc injection
+    local tmp_existing=$(mktemp /tmp/scoutica_state.XXXXXX)
+    if [ -f "$STATE_FILE" ]; then
+        cp "$STATE_FILE" "$tmp_existing"
+    else
+        echo '{}' > "$tmp_existing"
+    fi
     
-    python3 -c "
-import json
+    python3 - "$tmp_existing" "$url" "$now" "$expires" "$card_hash" "$STATE_FILE" <<'WRITEPREVIEW'
+import json, sys
+existing_file, url, now, expires, card_hash, state_file = sys.argv[1:7]
 try:
-    state = json.loads('''$existing''')
-except:
+    with open(existing_file) as f:
+        state = json.load(f)
+except Exception:
     state = {}
 state['preview'] = {
-    'url': '$url',
-    'published_at': '$now',
-    'expires_at': '$expires',
-    'card_hash': '$card_hash'
+    'url': url,
+    'published_at': now,
+    'expires_at': expires,
+    'card_hash': card_hash
 }
-with open('$STATE_FILE', 'w') as f:
+with open(state_file, 'w') as f:
     json.dump(state, f, indent=2)
-" 2>/dev/null
+WRITEPREVIEW
+    rm -f "$tmp_existing"
 }
 
 # ─── Name Slugify ─────────────────────────────────────────────────────────────
@@ -1444,12 +1486,12 @@ _register_card() {
     
     python3 << 'REGSCRIPT' - "$REGISTRY_FILE" "$card_dir" "$event" "$name" "$title" "$extra_json"
 import json, os, sys
-from datetime import datetime
+from datetime import datetime, timezone
 
 registry_file = sys.argv[1]
 card_dir = os.path.abspath(sys.argv[2])
 event = sys.argv[3]
-now = datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
+now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 name = sys.argv[4]
 title = sys.argv[5]
 
@@ -1620,6 +1662,7 @@ cmd_scan() {
                 echo -e "  ${BOLD}Options:${NC}" >&2
                 echo -e "    --output, -o <dir>    Output directory for card files (default: .)" >&2
                 echo -e "    --with, -w <cli>      AI CLI to use: gemini, claude, ollama (auto-detected)" >&2
+                echo -e "    --force, -f            Force regeneration even if sources unchanged" >&2
                 echo -e "    --clipboard, -c       Just copy the prompt to clipboard (no AI call)" >&2
                 echo "" >&2
                 echo -e "  ${BOLD}Supported AI CLIs (auto-detected):${NC}" >&2
@@ -1949,7 +1992,7 @@ $all_text"
             echo ""
             warn "No local AI CLI found on your system."
             echo -e "  ${DIM}Install one for fully automatic card generation:${NC}"
-            echo -e "    ${CYAN}gemini${NC}   → ${DIM}npm install -g @anthropic-ai/genkit${NC}   ${DIM}(google)${NC}"
+            echo -e "    ${CYAN}gemini${NC}   → ${DIM}npm install -g @google/gemini-cli${NC}   ${DIM}(google)${NC}"
             echo -e "    ${CYAN}claude${NC}   → ${DIM}npm install -g @anthropic-ai/claude-code${NC}"
             echo -e "    ${CYAN}ollama${NC}   → ${DIM}https://ollama.com${NC}   ${DIM}(runs 100% offline)${NC}"
             echo ""
@@ -1979,7 +2022,7 @@ $all_text"
     fi
     
     # ── Validate chosen provider is installed ──
-    local valid_providers=(gemini claude codex vibe opencode ollama ail clipboard)
+    local valid_providers=(gemini claude codex vibe opencode ollama ail openclaw clipboard)
     local is_valid=false
     for vp in "${valid_providers[@]}"; do
         [ "$provider" = "$vp" ] && is_valid=true
@@ -1989,7 +2032,7 @@ $all_text"
         exit 1
     fi
     
-    if [ "$provider" != "ail" ] && [ "$provider" != "clipboard" ] && ! command -v "$provider" &>/dev/null; then
+    if [ "$provider" != "ail" ] && [ "$provider" != "clipboard" ] && [ "$provider" != "openclaw" ] && ! command -v "$provider" &>/dev/null; then
         error "$provider is not installed on your system."
         echo ""
         case "$provider" in
@@ -2023,11 +2066,11 @@ $all_text"
     local prompt_size=$(wc -c < "$tmp_prompt" | tr -d ' ')
     local prompt_words=$(wc -w < "$tmp_prompt" | tr -d ' ')
     
-    # Log function for the background process
-    _scan_log() {
+    # Log function for the background process (use different name to avoid clobbering global _scan_log)
+    _bg_log() {
         echo "$(date +%H:%M:%S) $1" >> "$tmp_log"
     }
-    export -f _scan_log 2>/dev/null || true
+    export -f _bg_log 2>/dev/null || true
     
     echo -e "  ${DIM}[$(date +%H:%M:%S)]${NC} Prompt ready: ${BOLD}${prompt_words} words${NC} (${prompt_size} bytes) from ${file_count} documents"
     echo -e "  ${DIM}[$(date +%H:%M:%S)]${NC} Connecting to ${BOLD}$provider${NC}..."
@@ -2224,13 +2267,23 @@ Read my documents and generate my Scoutica Protocol Skill Card. Return ONLY raw 
     
     local total_elapsed=$(( $(date +%s) - start_time ))
     
-    wait "$bg_pid" 2>/dev/null || true
+    local bg_exit=0
+    wait "$bg_pid" 2>/dev/null || bg_exit=$?
     response=$(cat "$tmp_resp" 2>/dev/null || true)
     
+    # Save log contents before cleanup for error diagnosis
+    local log_contents=""
+    [ -f "$tmp_log" ] && log_contents=$(cat "$tmp_log" 2>/dev/null || true)
     rm -f "$tmp_prompt" "$tmp_resp" "$tmp_log"
     
     if [ -z "$response" ]; then
-        error "Empty response from $provider after ${total_elapsed}s. Is it running and configured?"
+        error "Empty response from $provider after ${total_elapsed}s (exit code: $bg_exit)"
+        if [ -n "$log_contents" ]; then
+            echo -e "  ${DIM}Provider log:${NC}" >&2
+            echo "$log_contents" | while IFS= read -r logline; do
+                echo -e "    ${DIM}$logline${NC}" >&2
+            done
+        fi
         exit 1
     fi
     
@@ -2447,6 +2500,10 @@ PARSE_SCRIPT
 
     if [ $? -ne 0 ]; then
         error "Failed to parse AI response. Raw response saved to $output_dir/.scan_response_raw.txt"
+        echo -e "  ${DIM}Review the raw response and try again, or edit manually.${NC}" >&2
+        # Note: intentionally NOT deleting .scan_response_raw.txt here so user can debug
+        # But warn about PII content
+        echo -e "  ${YELLOW}⚠️  The raw response file may contain personal data — delete after debugging.${NC}" >&2
         exit 1
     fi
     
@@ -2478,7 +2535,7 @@ PARSE_SCRIPT
     echo ""
     echo -e "${GREEN}╔═══════════════════════════════════════════════════════╗${NC}"
     echo -e "${GREEN}║                                                       ║${NC}"
-    echo -e "${GREEN}║   🎉 Your Scoutica Protocol Skill Card is ready!              ║${NC}"
+    echo -e "${GREEN}║   🎉 Your Scoutica Protocol Skill Card is ready!     ║${NC}"
     echo -e "${GREEN}║                                                       ║${NC}"
     echo -e "${GREEN}╚═══════════════════════════════════════════════════════╝${NC}"
     
@@ -2635,7 +2692,7 @@ except Exception:
     
     # ── Try scoutica.json first ──
     local discovery
-    discovery=$(curl -sf "$base_url/scoutica.json" 2>/dev/null)
+    discovery=$(curl -sf --connect-timeout 10 --max-time 30 "$base_url/scoutica.json" 2>/dev/null)
     if [ -n "$discovery" ]; then
         echo -e "  ${GREEN}✅${NC} Found scoutica.json (discovery file)"
         local card_url
@@ -2650,7 +2707,7 @@ except Exception:
     local profile="" rules="" evidence="" skill_md=""
     local found=0
     
-    profile=$(curl -sf "$base_url/profile.json" 2>/dev/null)
+    profile=$(curl -sf --connect-timeout 10 --max-time 30 "$base_url/profile.json" 2>/dev/null)
     if [ -n "$profile" ]; then
         echo -e "  ${GREEN}📄${NC} profile.json"
         found=$((found + 1))
@@ -2658,7 +2715,7 @@ except Exception:
         echo -e "  ${RED}✗${NC} profile.json ${DIM}(not found)${NC}"
     fi
     
-    rules=$(curl -sf "$base_url/rules.yaml" 2>/dev/null)
+    rules=$(curl -sf --connect-timeout 10 --max-time 30 "$base_url/rules.yaml" 2>/dev/null)
     if [ -n "$rules" ]; then
         echo -e "  ${GREEN}📄${NC} rules.yaml"
         found=$((found + 1))
@@ -2666,7 +2723,7 @@ except Exception:
         echo -e "  ${RED}✗${NC} rules.yaml ${DIM}(not found)${NC}"
     fi
     
-    evidence=$(curl -sf "$base_url/evidence.json" 2>/dev/null)
+    evidence=$(curl -sf --connect-timeout 10 --max-time 30 "$base_url/evidence.json" 2>/dev/null)
     if [ -n "$evidence" ]; then
         echo -e "  ${GREEN}📄${NC} evidence.json"
         found=$((found + 1))
@@ -2674,7 +2731,7 @@ except Exception:
         echo -e "  ${RED}✗${NC} evidence.json ${DIM}(not found)${NC}"
     fi
     
-    skill_md=$(curl -sf "$base_url/SKILL.md" 2>/dev/null)
+    skill_md=$(curl -sf --connect-timeout 10 --max-time 30 "$base_url/SKILL.md" 2>/dev/null)
     if [ -n "$skill_md" ]; then
         echo -e "  ${GREEN}📄${NC} SKILL.md"
         found=$((found + 1))
@@ -2702,7 +2759,7 @@ except Exception:
         title=$(echo "$profile" | python3 -c "import sys,json; print(json.load(sys.stdin).get('title',''))" 2>/dev/null)
         seniority=$(echo "$profile" | python3 -c "import sys,json; print(json.load(sys.stdin).get('seniority',''))" 2>/dev/null)
         years=$(echo "$profile" | python3 -c "import sys,json; print(json.load(sys.stdin).get('years_experience',''))" 2>/dev/null)
-        domains=$(echo "$profile" | python3 -c "import sys,json; print(', '.join(json.load(sys.stdin).get('domains',[])))" 2>/dev/null)
+        domains=$(echo "$profile" | python3 -c "import sys,json; p=json.load(sys.stdin); print(', '.join(p.get('primary_domains', p.get('domains',[]))))" 2>/dev/null)
         
         echo -e "${CYAN}║${NC}  ${BOLD}$name${NC}"
         [ -n "$title" ] && echo -e "${CYAN}║${NC}  $title"
@@ -2800,7 +2857,7 @@ except Exception: pass
                     ;;
             esac
         done
-        local final_hash=$(_compute_source_hash "$source_dir")
+        local final_hash=$(_compute_source_hash "$save_dir")
         _write_state "$final_hash" "${provider:-auto}" "$source_file_list"
     fi
 }
@@ -2880,28 +2937,34 @@ except Exception as e:
     print(f"Error loading files: {e}", file=sys.stderr)
     sys.exit(1)
 
-name = profile.get("name", "Unknown Operator")
-title = profile.get("title", "Initiate")
-seniority = profile.get("seniority", "junior").upper()
-years = profile.get("years_experience", "?")
-avail = str(profile.get("availability", "unknown")).upper()
-summary = profile.get("summary", "")
+import html as html_mod
 
-domains_html = " ".join([f"<span class='tag tag-primary'>{d}</span>" for d in profile.get("primary_domains", [])])
-skills_html = " ".join([f"<span class='tag'>{s}</span>" for s in profile.get("skills", [])])
+def esc(s):
+    """HTML-escape user content to prevent XSS in preview."""
+    return html_mod.escape(str(s)) if s else ""
+
+name = esc(profile.get("name", "Unknown Operator"))
+title = esc(profile.get("title", "Initiate"))
+seniority = esc(profile.get("seniority", "junior")).upper()
+years = esc(profile.get("years_experience", "?"))
+avail = esc(str(profile.get("availability", "unknown"))).upper()
+summary = esc(profile.get("summary", ""))
+
+domains_html = " ".join([f"<span class='tag tag-primary'>{esc(d)}</span>" for d in profile.get("primary_domains", [])])
+skills_html = " ".join([f"<span class='tag'>{esc(s)}</span>" for s in profile.get("skills", [])])
 
 wt = rules.get("engagement", {}).get("allowed_types", [])
-work_types = ", ".join(wt) if isinstance(wt, list) else str(wt)
-remote_policy = rules.get("remote", {}).get("policy", "Unknown")
-min_base = str(rules.get("engagement", {}).get("compensation", {}).get("minimum_base_eur", {}).get("permanent", "negotiable"))
+work_types = esc(", ".join(wt) if isinstance(wt, list) else str(wt))
+remote_policy = esc(rules.get("remote", {}).get("policy", "Unknown"))
+min_base = esc(str(rules.get("engagement", {}).get("compensation", {}).get("minimum_base_eur", {}).get("permanent", "negotiable")))
 
 evidence_items = evidence.get("items", [])
 evidence_html = ""
 for item in evidence_items:
-    t = item.get("title", "")
-    desc = item.get("description", "")
-    url = item.get("url", "#")
-    tags = " ".join([f"<span class='tag tag-primary'>{s}</span>" for s in item.get("skills_demonstrated", [])])
+    t = esc(item.get("title", ""))
+    desc = esc(item.get("description", ""))
+    url = esc(item.get("url", "#"))
+    tags = " ".join([f"<span class='tag tag-primary'>{esc(s)}</span>" for s in item.get("skills_demonstrated", [])])
     evidence_html += f"""
     <div class="cyber-card">
       <h3><a href="{url}" target="_blank">{t} ↗</a></h3>
@@ -3129,11 +3192,11 @@ generate_scoutica_json() {
     
     [ ! -f "$profile_file" ] && return 1
     
-    python3 << GENJSON
+    python3 - "$card_dir" <<'GENJSON'
 import json, sys, os
 from datetime import date
 
-card_dir = "$card_dir"
+card_dir = sys.argv[1]
 with open(os.path.join(card_dir, "profile.json")) as f:
     profile = json.load(f)
 
@@ -3158,7 +3221,7 @@ discovery = {
     "name": profile.get("name", ""),
     "title": profile.get("title", ""),
     "seniority": profile.get("seniority", ""),
-    "domains": profile.get("domains", []),
+    "domains": profile.get("primary_domains", profile.get("domains", [])),
     "availability": profile.get("availability", ""),
     "entity_type": profile.get("entity_type", "human"),
     "updated": date.today().isoformat()

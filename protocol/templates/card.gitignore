@@ -1,6 +1,8 @@
 # Scoutica — never commit these files
 .scan_response_raw.txt
 .backup/
+.preview/
+.scoutica/
 scoutica_prompt.txt
 
 # Secrets and environment

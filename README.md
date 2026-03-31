@@ -177,6 +177,9 @@ Commands:
   publish           Push card to GitHub
   preview           Build HTML layout and publish to here.now
   info              Show card summary
+  status            Dashboard of all your generated cards
+  logs              View scan logs and timing data
+  doctor            System diagnostics and health check
   update            Update the Scoutica CLI to the latest version
   help              Show this help
   version           Show version
@@ -185,14 +188,11 @@ Examples:
   # Create your card in the current directory
   scoutica init
 
-  # Create card in a specific folder
-  scoutica init ./my-card
+  # Auto-generate from your CV folder
+  scoutica scan ~/CV/
 
   # Validate, preview, and publish
   scoutica validate && scoutica preview && scoutica publish
-
-  # Auto-generate candidate card from your CV folder
-  scoutica scan ~/CV/
 
   # Scaffold an employer identity 
   scoutica org init
@@ -247,7 +247,7 @@ scoutica org publish
 
 Your roles are now live on the mesh network. Candidate agents will automatically evaluate and pitch you candidates that match your requirements.
 
-### Option 3: Manual CLI Install (Recommended for Devs)
+### Option 3: AI-Powered Conversation (No Install)
 
 1. Open [`GENERATE_MY_CARD.md`](GENERATE_MY_CARD.md) on GitHub
 2. Copy the entire file contents
@@ -257,14 +257,14 @@ Your roles are now live on the mesh network. Candidate agents will automatically
 
 > **This is the recommended path for non-technical users.** No git, no CLI, no install.
 
-### Option 3: Use the GitHub Template (One Click)
+### Option 4: Use the GitHub Template (One Click)
 
 1. Click **"Use this template"** on the [Scoutica Protocol repo](https://github.com/traylinx/scoutica-protocol)
 2. Name your repo (e.g., `my-scoutica-card`)
 3. Edit the files in `protocol/templates/` with your data
 4. Push → done
 
-### Option 4: Clone and Customize (Full Access)
+### Option 5: Clone and Customize (Full Access)
 
 ```bash
 git clone https://github.com/traylinx/scoutica-protocol.git

@@ -55,6 +55,20 @@ foreach ($schema in $schemas) {
     Invoke-WebRequest -Uri "$REPO_RAW/protocol/platform/01_schemas/$schema" -OutFile (Join-Path $SCHEMAS_DIR $schema) -UseBasicParsing
 }
 
+# --- Step 3b: Download recruiter schemas ---
+Write-Host "  → Downloading recruiter schemas..." -ForegroundColor Blue
+$RECRUITER_SCHEMAS_DIR = Join-Path $SCHEMAS_DIR "recruiter"
+New-Item -ItemType Directory -Force -Path $RECRUITER_SCHEMAS_DIR | Out-Null
+$recruiterSchemas = @("recruiter_profile.schema.json", "hiring_rules.schema.json", "role.schema.json", "reputation.schema.json", "message.schema.json")
+foreach ($schema in $recruiterSchemas) {
+    Invoke-WebRequest -Uri "$REPO_RAW/schemas/recruiter/$schema" -OutFile (Join-Path $RECRUITER_SCHEMAS_DIR $schema) -UseBasicParsing
+}
+
+# --- Step 3c: Download discovery schema ---
+try {
+    Invoke-WebRequest -Uri "$REPO_RAW/schemas/scoutica_discovery.schema.json" -OutFile (Join-Path $SCHEMAS_DIR "scoutica_discovery.schema.json") -UseBasicParsing
+} catch {}
+
 # --- Step 4: Download templates ---
 Write-Host "  → Downloading card templates..." -ForegroundColor Blue
 Invoke-WebRequest -Uri "$REPO_RAW/protocol/templates/SKILL.template.md" -OutFile (Join-Path $TEMPLATES_DIR "SKILL.template.md") -UseBasicParsing
@@ -70,6 +84,7 @@ Invoke-WebRequest -Uri "$REPO_RAW/GENERATE_MY_CARD.md" -OutFile (Join-Path $INST
 # --- Step 6: Download validation script ---
 Write-Host "  → Downloading validation tool..." -ForegroundColor Blue
 Invoke-WebRequest -Uri "$REPO_RAW/tools/validate_card.py" -OutFile (Join-Path $BIN_DIR "validate_card.py") -UseBasicParsing
+Invoke-WebRequest -Uri "$REPO_RAW/tools/SCAN_PROMPT.md" -OutFile (Join-Path $BIN_DIR "SCAN_PROMPT.md") -UseBasicParsing
 
 # --- Step 7: Add to PATH ---
 $currentPath = [Environment]::GetEnvironmentVariable("Path", "User")

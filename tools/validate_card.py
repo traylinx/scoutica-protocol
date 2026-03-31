@@ -311,9 +311,9 @@ def main():
     passed = 0
     failed = 0
     warnings = 0
-    for success, message in results:
+    for is_ok, message in results:
         print(message)
-        if success:
+        if is_ok:
             passed += 1
         elif message.startswith("⚠️"):
             warnings += 1
