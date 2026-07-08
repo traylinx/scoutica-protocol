@@ -75,9 +75,10 @@ Read https://raw.githubusercontent.com/traylinx/scoutica-protocol/main/RECRUITER
     The installer performs the following background tasks automatically:
     1. **Scaffold config directory:** Creates `~/.scoutica/` structure.
     2. **Binary download:** Puts the core executable in `~/.scoutica/bin`.
-    3. **Schemas download:** Pulls `v1` schemas into `~/.scoutica/schemas` for blazing fast offline validation.
+    3. **Schemas download:** Pulls schemas into `~/.scoutica/schemas` for blazing fast offline validation.
     4. **Templates download:** Pulls rules and markdown templates used for generation.
-    5. **Path registration:** Appends `~/.scoutica/bin` to your `PATH`.
+    5. **Helper download:** Pulls the Python helpers the CLI shells out to — `scoring.py` (fit scoring), `import_aijs.py` (ai-job-search import), and `validate_card.py` (validation) — into `~/.scoutica/bin`.
+    6. **Path registration:** Appends `~/.scoutica/bin` to your `PATH`.
   </Step>
 
   <Step title="Reload your shell (macOS / Linux)">
@@ -127,6 +128,9 @@ For users who prefer exhaustive control over their system configuration and want
     ```bash
     cp tools/scoutica ~/.scoutica/bin/scoutica
     chmod +x ~/.scoutica/bin/scoutica
+
+    # Python helpers the CLI shells out to (evaluate / import / validate) — MUST sit beside the binary
+    cp tools/scoring.py tools/import_aijs.py tools/validate_card.py ~/.scoutica/bin/
 
     cp schemas/*.json ~/.scoutica/schemas/
     cp protocol/templates/*.txt ~/.scoutica/templates/

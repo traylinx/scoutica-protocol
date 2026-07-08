@@ -43,10 +43,30 @@
               "cli/preview",
               "cli/resolve",
               "cli/info",
-              "cli/org",
-              "cli/role",
               "cli/doctor",
+              "cli/status",
+              "cli/logs",
               "cli/update"
+            ]
+          },
+          {
+            "group": "Employer & Roles",
+            "pages": [
+              "cli/org",
+              "cli/role"
+            ]
+          },
+          {
+            "group": "Network & Messaging",
+            "pages": [
+              "cli/evaluate",
+              "cli/jobs",
+              "cli/send",
+              "cli/inbox",
+              "cli/reply",
+              "cli/deliver",
+              "cli/register",
+              "cli/identity"
             ]
           },
           {

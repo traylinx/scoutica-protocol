@@ -1,0 +1,148 @@
+---
+title: "scoutica evaluate"
+description: "Score the fit between a candidate Skill Card and a role — deterministically, offline, and in both directions."
+---
+
+`evaluate` answers one question with a number: **how well does this candidate fit this role, and would the candidate's own rules accept it?** It shells out to a deterministic scoring engine (`scoring.py`, shipped alongside the CLI) that produces the same score every time for the same inputs — no AI, no randomness, no network.
+
+<Note>
+`evaluate` runs the **same engine in both directions**. The employer side scores skill fit (0–100) and applies hard filters. The candidate side replays the candidate's own `rules.yaml` to decide whether an autonomous Candidate Agent would auto-accept. Both verdicts come back in one result.
+</Note>
+
+## Command Syntax
+
+```bash
+scoutica evaluate <card> <role.json> [options]
+```
+
+`<card>` is either a **card directory** (containing `profile.json` and, optionally, `rules.yaml`) or a direct path to a `profile.json`. If you point at a directory, `evaluate` auto-detects `profile.json` and `rules.yaml` inside it. If you point at a `profile.json` file, it looks for a `rules.yaml` sibling next to it. When `<card>` is omitted, it defaults to the current directory (`.`).
+
+An `evidence.json` sitting next to the profile is picked up automatically and can contribute a bonus (see below).
+
+## Options
+
+| Option | Behavior |
+|--------|----------|
+| `--json` | Emit a clean, parseable JSON result to stdout and **suppress the decorative header**. Use this when an agent (e.g. an apply-to-role gate) needs to parse the verdict. |
+| `--role <path>` | Explicitly specify the role file instead of passing it positionally. |
+| `--recruiter <path>` | Provide the employer's `recruiter_profile.json` so industry-based filters (blocked industries) can be checked. Ignored if the file does not exist. |
+
+The card and role may also be supplied positionally: the first bare argument is the card, the second is the role.
+
+<Note>
+`evaluate` locates the scoring engine by looking for `scoring.py` next to the CLI first, then under `$SCOUTICA_HOME/bin/` and `$SCOUTICA_HOME/tools/`. If it can't be found, the command exits with an error rather than guessing a score.
+</Note>
+
+## What the scorer computes
+
+The engine runs a fixed four-step pipeline:
+
+<Steps>
+  <Step title="Hard filters (pass/fail)">
+    Boolean gates from the employer's perspective: engagement-type match, compensation floor (annual-to-annual only), remote/onsite policy, blocked industries (needs `--recruiter`), and required-language overlap. If **any** filter fails, the verdict is `HARD_REJECT` with a score of `0` and the reasons listed.
+  </Step>
+  <Step title="Skill score (0–100)">
+    `hard_ratio × 70 + preferred_ratio × 30`. Hard and preferred skills from the role are matched against the candidate's `skills`, `tools_and_platforms`, `specializations`, and `primary_domains`. When a role lists no preferred skills, the preferred component is treated as neutral (0.5).
+  </Step>
+  <Step title="Bonuses">
+    `+10` when the candidate's `evidence.json` demonstrates at least 50% of the role's hard skills, and `+5` for an exact seniority match. The final score is capped at 100.
+  </Step>
+  <Step title="Verdict + candidate-side check">
+    The score maps to a verdict, and the candidate's `rules.yaml` is replayed to produce `candidate_accepts`.
+  </Step>
+</Steps>
+
+### Verdict thresholds
+
+| Score | Verdict |
+|-------|---------|
+| Any hard filter failed | `HARD_REJECT` |
+| ≥ 80 | `STRONG_MATCH` |
+| 60–79 | `MODERATE_MATCH` |
+| 40–59 | `WEAK_MATCH` |
+| < 40 | `NO_MATCH` |
+
+## The `--json` result
+
+In `--json` mode, stdout is pure JSON — nothing else is printed — so it's safe to pipe into `jq` or an agent gate.
+
+```json
+{
+  "score": 78,
+  "verdict": "MODERATE_MATCH",
+  "hard_filters_passed": true,
+  "rejection_reasons": [],
+  "skill_breakdown": {
+    "hard_match": 0.83,
+    "hard_matched": 5,
+    "hard_total": 6,
+    "preferred_match": 0.5,
+    "preferred_matched": 2,
+    "preferred_total": 4
+  },
+  "bonuses": ["seniority_match"],
+  "candidate_accepts": true,
+  "candidate_reasons": ["all_rules_passed"]
+}
+```
+
+| Field | Meaning |
+|-------|---------|
+| `score` | Final fit score, 0–100. |
+| `verdict` | One of the thresholds above (or `HARD_REJECT`). |
+| `hard_filters_passed` | `false` when a mandatory employer filter blocked the candidate. |
+| `rejection_reasons` | Human-readable strings for each failed hard filter (empty when passed). |
+| `skill_breakdown` | Hard/preferred match ratios and counts (`null` on a hard reject). |
+| `bonuses` | List of applied bonuses, e.g. `evidence`, `seniority_match`. |
+| `candidate_accepts` | Whether the candidate's own `rules.yaml` would auto-accept the role. |
+| `candidate_reasons` | Why the candidate side accepted or rejected — including opt-in `manual_review:` signals. |
+
+<Warning>
+`candidate_accepts` is the candidate's **authoritative** gate. It is computed from the candidate's own `rules.yaml` (engagement types, compensation floor, remote policy, blocked industries), not from the employer's wishes. A high `score` with `candidate_accepts: false` means the role is a skills fit but violates the candidate's stated policy — respect it.
+</Warning>
+
+## Examples
+
+```bash
+# Evaluate a card directory against a role (human-readable output)
+scoutica evaluate ./alice-card roles/senior-engineer.json
+
+# Same, but emit clean JSON for an agent to parse
+scoutica evaluate ./alice-card roles/senior-engineer.json --json
+
+# Point at a specific profile.json and include the employer profile
+scoutica evaluate ./alice-card/profile.json --role roles/senior-engineer.json \
+  --recruiter ./acme-card/recruiter_profile.json
+
+# Gate an apply decision from a script
+if [ "$(scoutica evaluate ./alice-card role.json --json | jq -r '.candidate_accepts')" = "true" ]; then
+  echo "Candidate rules accept — proceed to apply."
+fi
+```
+
+### Human-readable output
+
+```text
+  ╔═══════════════════════════════════════════╗
+  ║  Scoutica Fit Score:  78/100               ║
+  ║  Verdict: MODERATE_MATCH                   ║
+  ╚═══════════════════════════════════════════╝
+
+  📊 Skill Match:
+     Hard skills:      5/6 (83%)
+     Preferred skills: 2/4 (50%)
+  🎁 Bonuses: seniority_match
+
+  🤖 Candidate-side evaluation:
+     ✅ Rules PASSED — agent would auto-accept
+```
+
+<Note>
+The scoring engine is **zero-dependency** and ships with the CLI. **PyYAML is recommended, not required** — it is used to parse `rules.yaml` accurately, including list rules such as `allowed_types` and `blocked_industries`. Without PyYAML the engine falls back to a JSON parser and then a minimal built-in YAML reader, which may miss some list-shaped rules. Install PyYAML for the most faithful candidate-side evaluation.
+</Note>
+
+## Determinism and privacy posture
+
+- **Deterministic.** The same inputs always yield the same score and verdict. There is no model call and no non-deterministic clock in the scoring path.
+- **Offline.** `evaluate` reads local files only. Evidence URLs recorded in `evidence.json` are never fetched during scoring.
+- **The candidate's rules are law.** The candidate side of the result is derived solely from the candidate's `rules.yaml`; the scorer's decision — not the employer's preference — is authoritative for whether an autonomous agent proceeds.

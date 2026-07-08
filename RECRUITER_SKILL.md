@@ -88,7 +88,7 @@ scoutica evaluate ./candidate-card roles/senior-ai-architect.json --json
 The scoring pipeline:
 1. **Hard Filters** — Engagement type, minimum salary, location policy, blocked industries, language requirements. Any failure = `HARD_REJECT`.
 2. **Skill Score (0-100)** — `(hard_skill_match × 70) + (preferred_skill_match × 30)`.
-3. **Bonuses** — +10 evidence, +5 seniority match, +5 freshness.
+3. **Bonuses** — +10 evidence, +5 seniority match.
 4. **Verdict** — `STRONG_MATCH` (≥80), `MODERATE_MATCH` (≥60), `WEAK_MATCH` (≥40), `NO_MATCH` (<40).
 
 The engine also runs **candidate-side evaluation** — checking if the candidate's `rules.yaml` would auto-accept or auto-reject your role.

@@ -17,28 +17,29 @@ Add new capabilities to the Scoutica Protocol — new schemas, entity types, rul
 
 ## Extension Points
 
-### 1. Add a New Schema Field
+### 1. Add a New Card Field
 
-**Source:** `schemas/candidate_profile.schema.json`
+The candidate card has **no standalone JSON Schema file** — `profile.json` is a
+flat object written by the CLI and checked by `tools/validate_card.py`. To add a
+field (e.g. a top-level `ai_models` array of models the candidate has trained or
+deployed), extend the flat profile shape:
 
 ```diff
- "skills": {
-   "languages": [...],
-   "frameworks": [...],
-+  "ai_models": {
-+    "type": "array",
-+    "items": {"type": "string"},
-+    "description": "AI/ML models the candidate has trained or deployed"
-+  }
+ {
+   "schema_version": "0.1.0",
+   "skills": ["Python", "Go", "React"],
+   "tools_and_platforms": ["Kubernetes", "AWS"],
++  "ai_models": ["Llama 3", "Stable Diffusion"]
  }
 ```
 
 **Checklist:**
-- [ ] Add to JSON Schema with description and type
+- [ ] Add the field to the writer in `tools/scoutica` (`cmd_init()` / the profile builder)
+- [ ] Add validation for the field in `tools/validate_card.py`
 - [ ] Update `SCAN_PROMPT.md` so AI generation includes the new field
-- [ ] Update `tools/scoutica` `cmd_init()` to ask for the new field
 - [ ] Update sample card in `protocol/examples/sample_card/`
 - [ ] Update `SKILL.md` agent instructions
+- [ ] Validate with `scoutica validate <card-folder>`
 
 ### 2. Add a New Entity Type
 
@@ -62,7 +63,7 @@ The protocol supports multiple entity types beyond humans:
 
 ### 3. Add a New Rule Template
 
-**Location:** `templates/rules/`
+**Location:** `protocol/templates/rules/`
 
 Create a new `.md` file that follows this pattern:
 
@@ -87,7 +88,7 @@ What this rule evaluates.
 ```
 
 **Checklist:**
-- [ ] Create the rule file in `templates/rules/`
+- [ ] Create the rule file in `protocol/templates/rules/`
 - [ ] Reference it in `SKILL.md` evaluation section
 - [ ] Add to `cmd_scan()` so generated cards include it
 - [ ] Update `protocol/examples/sample_card/rules/`
@@ -160,8 +161,8 @@ esac
 | JSON Schemas | `schemas/` |
 | CLI (bash) | `tools/scoutica` |
 | CLI (PowerShell) | `tools/scoutica.ps1` |
-| Card templates | `templates/` |
-| Rule templates | `templates/rules/` |
+| Card templates | `protocol/templates/` |
+| Rule templates | `protocol/templates/rules/` |
 | AI scan prompt | `tools/SCAN_PROMPT.md` |
 | Sample card | `protocol/examples/sample_card/` |
 | Protocol specs | `protocol/platform/` |

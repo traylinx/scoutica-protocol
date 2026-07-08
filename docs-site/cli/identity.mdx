@@ -1,0 +1,90 @@
+---
+title: "scoutica identity"
+description: "Generate and inspect a local Nostr (secp256k1) keypair for signing Scoutica messages — the private key never leaves your machine."
+---
+
+`identity` manages your cryptographic identity: a **Nostr keypair** (secp256k1) generated locally on your machine. The public key (`npub`) is what you share so others can verify signatures and address you; the private key (`nsec`) stays on disk and is used to sign — it is never transmitted, published, or committed.
+
+<Warning>
+Your private key is your identity. Anyone who has it can impersonate you. Scoutica stores it locally at mode `600` and never sends it anywhere — treat the file the same way you treat an SSH private key. Never commit it, paste it, or share it.
+</Warning>
+
+## Subcommands
+
+```bash
+scoutica identity init    # Generate a Nostr keypair (secp256k1)
+scoutica identity show    # Display your public key
+```
+
+Running `scoutica identity` with no subcommand prints this help.
+
+## `identity init`
+
+Generates a real secp256k1 keypair and writes it under `~/.scoutica/identity/`.
+
+```bash
+scoutica identity init
+```
+
+What it does:
+
+- Creates the identity directory `~/.scoutica/identity/` with mode `700` (owner-only).
+- Draws 32 random bytes and derives a secp256k1 keypair, producing an x-only Nostr public key.
+- bech32-encodes the keys as `npub…` (public) and `nsec…` (private).
+- Writes two files (details below) and seeds a default relay list: `wss://relay.damus.io`, `wss://relay.nostr.band`, `wss://nos.lol`.
+- Prints the `npub` to share and the path of the private key file.
+
+If an identity already exists, `init` warns and asks before overwriting — decline to keep your existing keypair.
+
+<Note>
+`init` refuses to write if the identity directory or either target file is a symlink (symlink-attack protection). The private key is written via a fresh temp file created at mode `600` and then atomically renamed into place, so the key never exists on disk with loose permissions and the write never follows a symlink.
+</Note>
+
+### Real keys only — no placeholders
+
+`init` requires a genuine secp256k1 library. If none is available, it **refuses to generate anything** rather than emit a fake, hash-derived key that would look valid but sign nothing. Install one and retry:
+
+```bash
+pip install coincurve
+scoutica identity init
+```
+
+## `identity show`
+
+Displays your public identity — safe to share.
+
+```bash
+scoutica identity show
+```
+
+Reads `~/.scoutica/identity/public.json` and prints:
+
+- 🔑 Public key (`npub…`)
+- 📡 Default relays
+- 📅 Creation timestamp
+
+If no identity exists yet, it tells you to run `scoutica identity init` first. `show` only ever reads the public file — it never touches or displays the private key.
+
+## Files on disk
+
+| File | Contents | Permissions |
+|------|----------|-------------|
+| `~/.scoutica/identity/` | Identity directory | `700` (owner-only) |
+| `~/.scoutica/identity/keypair.json` | **Full** keypair — `public_key_hex`, `npub`, `private_key_hex`, `nsec`, relays, created-at | `600` (owner read/write) |
+| `~/.scoutica/identity/public.json` | Public-only — `public_key_hex`, `npub`, relays, created-at | Standard |
+
+<Warning>
+`keypair.json` holds your **private key** (`private_key_hex` / `nsec`). Never add `~/.scoutica/identity/` to a repository, a backup you share, or a support ticket. Only ever hand out the `npub` from `public.json` (or `identity show`).
+</Warning>
+
+## Example
+
+```bash
+# One-time setup: create your signing identity
+scoutica identity init
+# → 🔑 Public key (share this): npub1alice...
+# → 🔒 Private key stored at ~/.scoutica/identity/keypair.json (mode 600) — NEVER share it.
+
+# Later, look up the public key to share with a recruiter or registry
+scoutica identity show
+```

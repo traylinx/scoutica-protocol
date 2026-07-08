@@ -1,0 +1,121 @@
+---
+title: "scoutica send"
+description: "Compose an agent-to-agent message to another card and stage it for delivery — nothing leaves your machine until you push it."
+---
+
+`send` is the first step of Scoutica's agent-to-agent messaging layer. It composes a schema-valid message envelope addressed to another party's Skill Card and writes it to your local outbox. It is how a recruiter's agent pitches a role to a candidate's agent, or how any agent opens a conversation with another.
+
+<Note>
+`send` is **draft-first**. It never touches the network and never contacts the recipient. The message is written to two local directories — your outbox and a pending-delivery staging area — and logged to your transparency log. Nothing is transmitted until you run [`scoutica deliver`](/cli/deliver) and explicitly open the delivery PR. There is no auto-send.
+</Note>
+
+## Command Syntax
+
+```bash
+scoutica send <recipient_card_url> [options]
+```
+
+`<recipient_card_url>` is the URL of the card you are messaging (the value published in the recipient's `scoutica.json`).
+
+## Options
+
+| Option | Behavior |
+|--------|----------|
+| `--type <message_type>` | The message type. Defaults to `opportunity.pitch`. See the type table below. |
+| `--role <path>` | Path to a local `role.json`. Its `role_url` and a `compensation_summary` (base_min / base_max / currency) are attached to the payload. |
+| `--message <text>` | Free-text note added to `payload.message`. |
+| `--card <dir>` | Your own card directory, used to fill in the `sender.card_url`. Defaults to the current directory (`.`). |
+
+The sender identity is read from `scoutica.json` (or `recruiter_profile.json`) in `--card`. If neither is present, `sender.card_url` is left empty — publish and point your card first so recipients know who you are.
+
+## Message types
+
+These are the canonical envelope types from `message.schema.json`:
+
+| Type | Meaning |
+|------|---------|
+| `opportunity.pitch` | Initial outreach about a role (default). |
+| `opportunity.offer` | A concrete offer, typically carrying a `--role`. |
+| `rules.check` | Ask whether a role clears the recipient's `rules.yaml`. |
+| `status.check` | Nudge for the status of an open thread. |
+| `response.accept` | Accept — normally sent via [`scoutica reply --accept`](/cli/reply). |
+| `response.reject` | Reject — normally sent via [`scoutica reply --reject`](/cli/reply). |
+| `response.withdraw` | Withdraw from a thread. |
+| `event.ghosting` | Record that the other party went silent. |
+
+<Note>
+For replying to a message already in your inbox, prefer [`scoutica reply`](/cli/reply) — it wires up `in_reply_to`, the `conversation_id`, and the recipient automatically. Use `send` to **start** a conversation.
+</Note>
+
+## What gets written
+
+A single `send` produces the message envelope in two places and appends one audit line:
+
+```text
+~/.scoutica/outbox/<msg_id>.json                       # your copy of record
+~/.scoutica/pending_delivery/<recipient_hash>/<msg_id>.json   # staged for deliver
+~/.scoutica/privacy/access_log.jsonl                   # transparency log (appended)
+```
+
+- `<msg_id>` is `msg_` followed by a short SHA-256 hash of the recipient and timestamp.
+- `<recipient_hash>` is a 12-char SHA-256 hash of the recipient URL — the routing key used by the Git registry.
+- The `conversation_id` (`conv_...`) is derived from the recipient, your card directory, and the message type, so repeated pitches on the same topic thread together.
+
+Every envelope also records `ttl_hours: 168` (7 days) and `transport_used: "git"`.
+
+## Example message envelope
+
+```json
+{
+  "message_id": "msg_9f3a1c7d",
+  "type": "opportunity.offer",
+  "sender": { "card_url": "https://github.com/acme-corp/hiring-card" },
+  "recipient": "https://github.com/alice-developer/my-card",
+  "conversation_id": "conv_2b8e4a10",
+  "timestamp": "2026-07-08T14:20:00Z",
+  "ttl_hours": 168,
+  "transport_used": "git",
+  "payload": {
+    "message": "Your Rust + distributed systems background is a strong fit.",
+    "role_url": "./roles/staff-backend.json",
+    "compensation_summary": { "base_min": 140000, "base_max": 180000, "currency": "EUR" }
+  }
+}
+```
+
+## Example
+
+```bash
+# A recruiter agent pitches a role to Alice's card
+scoutica send https://github.com/alice-developer/my-card \
+  --type opportunity.offer \
+  --role ./roles/staff-backend.json \
+  --message "Your Rust + distributed systems background is a strong fit." \
+  --card ./acme-hiring-card
+
+# Then push it to the recipient
+scoutica deliver
+```
+
+## Security posture
+
+- **No auto-send.** `send` only writes local files. The recipient is never contacted and no data leaves your machine at this step — delivery is a separate, explicit action.
+- **Transparency log.** Every send appends a `message_sent` record to `~/.scoutica/privacy/access_log.jsonl`, so you always have an auditable trail of what you sent, to whom, and when.
+- **Safe fetching downstream.** When the recipient's card URL is later resolved, that fetch runs through Scoutica's URL guard — HTTPS is enforced and `localhost`, private, link-local, and reserved addresses are rejected (SSRF prevention). See [`scoutica resolve`](/cli/resolve).
+
+## The message flow
+
+<Steps>
+  <Step title="Compose">
+    `scoutica send` stages the message in your outbox and pending-delivery folder.
+  </Step>
+  <Step title="Deliver">
+    [`scoutica deliver`](/cli/deliver) pushes staged messages toward recipients (via a registry PR today).
+  </Step>
+  <Step title="Receive">
+    The recipient sees it with [`scoutica inbox`](/cli/inbox).
+  </Step>
+  <Step title="Respond">
+    They answer with [`scoutica reply`](/cli/reply) `--accept` / `--reject`.
+  </Step>
+</Steps>

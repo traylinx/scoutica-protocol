@@ -53,6 +53,7 @@ scoutica-protocol/
 │       └── 13_TRANSPORT_ARCH       ← Git/Nostr/Webhook waterfall
 ├── .agents/skills/                 ← 🤖 AGENT SKILLS
 │   ├── create-skill-card/          ← Generate a card from documents
+│   ├── apply-to-role/              ← Draft a card-grounded CV + cover letter for a role
 │   ├── evaluate-candidate/         ← Score candidates against jobs
 │   ├── build-integration/          ← Build apps consuming cards
 │   └── extend-protocol/            ← Add features to the protocol
@@ -60,7 +61,9 @@ scoutica-protocol/
 │   └── registry/                   ← Registry index schemas
 ├── tools/                          ← CLI tools
 │   ├── scoutica                    ← Main CLI (bash + embedded Python)
-│   └── scoring.py                  ← Deterministic fit scoring engine
+│   ├── scoring.py                  ← Deterministic fit scoring engine
+│   ├── import_aijs.py              ← Offline ai-job-search → Skill Card importer
+│   └── validate_card.py            ← Schema validator (scoutica validate)
 ├── protocol/templates/            ← Card and rule templates
 └── protocol/
     ├── examples/                   ← Sample candidate + employer cards
@@ -167,39 +170,57 @@ Once installed, use the built-in help to see all commands:
 scoutica help
 ```
 ```text
-Scoutica CLI v0.1.0
+Scoutica Protocol CLI v0.4.0
 Your skills. Your rules. Your data.
 
-Usage:
-  scoutica <command> [options] [directory]
+Usage:  scoutica <command> [options] [directory]
 
-Commands:
-  init              Create your Skill Card (interactive wizard)
-  init --ai         Create card using AI assistant
-  scan              Auto-generate card from your documents (AI-powered)
-  resolve           Fetch and display a card from a URL
-  validate          Validate card against protocol schemas
-  publish           Push card to GitHub
-  preview           Build HTML layout and publish to here.now
-  info              Show card summary
-  status            Dashboard of all your generated cards
-  logs              View scan logs and timing data
-  doctor            System diagnostics and health check
-  update            Update the Scoutica CLI to the latest version
-  help              Show this help
-  version           Show version
+🚀 Create your card:
+  scan <docs-folder>   Auto-generate from your documents (easiest)
+  init                 Step-by-step interactive wizard
+  init --ai            Generate via AI assistant (paste your CV)
+  import aijs <fork>   Convert an ai-job-search fork into a card (offline)
+
+🔧 Manage your card:
+  info     [dir]       View your card summary
+  preview  [dir]       Build HTML layout and publish to here.now
+  validate [dir]       Validate card against protocol schemas
+  publish  [dir]       Push card to GitHub
+  resolve  <url>       Fetch and display any card from a URL
+
+🏢 Employer commands:
+  org init             Create a Recruiter/Employer Identity Card
+  org verify           Verify domain ownership (DNS TXT record)
+  org publish          Push employer card to GitHub
+  role create          Create a structured job posting (role.json)
+  role validate [dir]  Validate role(s) against protocol schemas
+
+🌐 Network commands:
+  evaluate <card> <role>   Score fit between a candidate and role
+  jobs search              Search the registry for candidates or roles
+  send <url> --type ...    Send a message to another agent
+  inbox                    Check for incoming messages
+  reply <msg_id> --accept  Accept/reject a message
+  deliver                  Push pending messages to recipients
+  register <dir> --type    Generate registry entry for PR submission
+  identity init            Generate your Nostr keypair
+
+⚙️  Advanced:
+  doctor   System diagnostics and health check
+  status   Show local card, identity, and network state
+  logs     Show recent CLI activity
+  update   Update the Scoutica Protocol CLI
+  help     Show this help
+  version  Show version
 
 Examples:
-  # Create your card in the current directory
-  scoutica init
+  # Full workflow: scan → validate → publish
+  scoutica scan ~/CV/ && scoutica validate && scoutica publish
 
-  # Auto-generate from your CV folder
-  scoutica scan ~/CV/
+  # Score a candidate against a role (clean JSON out)
+  scoutica evaluate ./my-card --role ./role.json --json
 
-  # Validate, preview, and publish
-  scoutica validate && scoutica preview && scoutica publish
-
-  # Scaffold an employer identity 
+  # Scaffold an employer identity
   scoutica org init
 ```
 
@@ -231,7 +252,7 @@ Your data never leaves your machine — everything runs through your local AI CL
 
 📗 **Learn More:** Check out the [Complete Documentation](https://docs.scoutica.com) for full commands, guides, and architecture.
 
-### Option 2: Employers / Recruiters (Hire passively or actively)
+### Option 3: Employers / Recruiters (Hire passively or actively)
 
 Are you an organization looking to hire from the network? Set up your Recruiter Card:
 
@@ -252,7 +273,7 @@ scoutica org publish
 
 Your roles are now live on the mesh network. Candidate agents will automatically evaluate and pitch you candidates that match your requirements.
 
-### Option 3: AI-Powered Conversation (No Install)
+### Option 4: AI-Powered Conversation (No Install)
 
 1. Open [`GENERATE_MY_CARD.md`](GENERATE_MY_CARD.md) on GitHub
 2. Copy the entire file contents
@@ -262,14 +283,14 @@ Your roles are now live on the mesh network. Candidate agents will automatically
 
 > **This is the recommended path for non-technical users.** No git, no CLI, no install.
 
-### Option 4: Use the GitHub Template (One Click)
+### Option 5: Use the GitHub Template (One Click)
 
 1. Click **"Use this template"** on the [Scoutica Protocol repo](https://github.com/traylinx/scoutica-protocol)
 2. Name your repo (e.g., `my-scoutica-card`)
 3. Edit the files in `protocol/templates/` with your data
 4. Push → done
 
-### Option 5: Clone and Customize (Full Access)
+### Option 6: Clone and Customize (Full Access)
 
 ```bash
 git clone https://github.com/traylinx/scoutica-protocol.git
@@ -277,7 +298,7 @@ cp -r protocol/templates/ my-card/
 python tools/validate_card.py ./my-card/
 ```
 
-### Option 6: Already using ai-job-search? Import it
+### Option 7: Already using ai-job-search? Import it
 
 If you keep your profile in an [ai-job-search](https://github.com/MadsLorentzen/ai-job-search) fork (an independent MIT workflow by Mads Lorentzen), convert it into a Skill Card in one **offline, deterministic** step — no network, no AI, no guessing:
 

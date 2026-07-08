@@ -4192,7 +4192,7 @@ if local_index and os.path.exists(local_index):
 else:
     index_url = f"{registry_url}/{search_type}/index.json"
     try:
-        req = Request(index_url, headers={"User-Agent": "Scoutica-CLI/0.3.0"})
+        req = Request(index_url, headers={"User-Agent": "Scoutica-CLI/0.4.0"})
         resp = urlopen(req, timeout=10)
         index = json.loads(resp.read().decode())
     except Exception as e:

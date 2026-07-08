@@ -75,8 +75,8 @@ def fetch_card(base_url):
 
 # Usage
 card = fetch_card("https://raw.githubusercontent.com/user/card/main")
-print(card['profile']['name'])       # "Sebastian Schkudlara"
-print(card['profile']['skills'])     # {languages: [...], frameworks: [...]}
+print(card['profile']['name'])       # "Alice Developer"
+print(card['profile']['skills'])     # ["Python", "Go", "React", ...] — flat array of strings
 print(card['rules']['compensation']) # {minimum_base_eur: "negotiable"}
 ```
 
@@ -121,16 +121,16 @@ def pre_screen(card, offer):
     """Check if an offer passes the candidate's rules."""
     rules = card['rules']
     
-    # Auto-reject checks
-    if offer.get('industry') in rules.get('auto_reject', {}).get('blocked_industries', []):
-        return {"status": "REJECTED", "reason": "blocked_industry"}
+    # Hard-filter checks
+    if offer.get('industry') in rules.get('filters', {}).get('blocked_industries', []):
+        return {"status": "HARD_REJECT", "reason": "blocked_industry"}
     
     if offer.get('engagement_type') not in rules.get('engagement', {}).get('allowed_types', []):
-        return {"status": "REJECTED", "reason": "engagement_type_mismatch"}
+        return {"status": "HARD_REJECT", "reason": "engagement_type_mismatch"}
     
     min_salary = rules.get('compensation', {}).get('minimum_base_eur')
     if min_salary != 'negotiable' and offer.get('salary', 0) < int(min_salary):
-        return {"status": "REJECTED", "reason": "salary_below_minimum"}
+        return {"status": "HARD_REJECT", "reason": "salary_below_minimum"}
     
     return {"status": "PASS"}
 ```
@@ -153,21 +153,14 @@ def pre_screen(card, offer):
 
 ## Schema Validation
 
-Always validate fetched cards against the JSON schemas:
+The candidate card has no standalone JSON Schema file. Validate a fetched card
+with the CLI, which runs `tools/validate_card.py` against the canonical card
+files (`profile.json`, `rules.yaml`, `evidence.json`, `SKILL.md`):
 
 ```bash
-# Schemas are in the schemas/ directory
+scoutica validate <card-folder>
+# or invoke the validator directly:
 python3 tools/validate_card.py <card-folder>
-```
-
-Or in code:
-
-```python
-import jsonschema, json
-
-schema = json.load(open('schemas/candidate_profile.schema.json'))
-profile = json.load(open('profile.json'))
-jsonschema.validate(profile, schema)  # Raises if invalid
 ```
 
 ## File References

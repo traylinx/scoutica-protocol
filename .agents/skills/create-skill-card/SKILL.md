@@ -43,30 +43,19 @@ Read every supported file in the user's folder:
 ```json
 {
   "schema_version": "0.1.0",
-  "name": "Full Name",
+  "name": "Alice Developer",
   "title": "Professional Title",
   "seniority": "senior",
   "years_experience": 10,
   "availability": "in_2_weeks",
-  "domains": ["Backend Engineering", "DevOps"],
-  "skills": {
-    "languages": ["Python", "Go", "TypeScript"],
-    "frameworks": ["Django", "FastAPI", "React"],
-    "tools_and_platforms": ["Kubernetes", "AWS", "Docker", "PostgreSQL"],
-    "certifications": ["AWS Solutions Architect"],
-    "soft_skills": ["Technical Leadership", "System Design"]
-  },
-  "languages": [
+  "primary_domains": ["Backend Engineering", "DevOps"],
+  "skills": ["Python", "Go", "TypeScript", "Django", "FastAPI", "React"],
+  "tools_and_platforms": ["Kubernetes", "AWS", "Docker", "PostgreSQL"],
+  "certifications_and_licenses": ["AWS Solutions Architect"],
+  "specializations": ["Technical Leadership", "System Design"],
+  "spoken_languages": [
     {"language": "English", "proficiency": "native"},
     {"language": "German", "proficiency": "fluent"}
-  ],
-  "experience": [
-    {
-      "company": "Company Name",
-      "role": "Senior Engineer",
-      "duration": "2020-2024",
-      "highlights": ["Built X", "Led Y team"]
-    }
   ]
 }
 ```
@@ -138,7 +127,7 @@ soft_reject:
 
 ### Step 5: Generate SKILL.md
 
-Use the template in `templates/card/SKILL.md` or generate:
+Use the template in `protocol/templates/SKILL.template.md` or generate:
 
 ```markdown
 ---
@@ -157,7 +146,7 @@ Professional profile for **<Name>** — <Title>.
 
 ### Step 6: Copy Rule Templates
 
-Copy evaluation rules from `templates/rules/`:
+Copy evaluation rules from `protocol/templates/rules/`:
 - `evaluate-fit.md`
 - `negotiate-terms.md`
 - `verify-evidence.md`
@@ -186,4 +175,4 @@ scoutica validate <card-folder>
 
 ## Schema Reference
 
-See `schemas/candidate_profile.schema.json` for the full JSON Schema validation spec.
+The candidate card has no standalone JSON Schema file. Validate the generated card with `scoutica validate <card-folder>`, which runs `tools/validate_card.py` against the canonical card files.

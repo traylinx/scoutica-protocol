@@ -1,0 +1,64 @@
+---
+title: "scoutica logs"
+description: "View, list, or clear the logs written by scoutica scan — useful for debugging AI extraction runs."
+---
+
+Every time [`scoutica scan`](/cli/scan) runs an AI extraction, it writes a log file. `logs` is how you read those back: view the most recent run, list the whole history, or clear them out. It's the first place to look when a scan produced something unexpected and you want to see what the AI actually did.
+
+<Note>
+`logs` is read-only unless you pass `--clear`. Log files live under `~/.scoutica/logs/` and are named `scan_*.log`.
+</Note>
+
+## Command Syntax
+
+```bash
+scoutica logs [--list | --clear]
+```
+
+## Actions
+
+| Invocation | Behavior |
+|------------|----------|
+| `scoutica logs` | (Default) Show the **most recent** scan log in full. |
+| `scoutica logs --list` | List up to the 20 most recent scan logs, newest first (with size and timestamp). Alias: `scoutica logs list`. |
+| `scoutica logs --clear` | Delete **all** `scan_*.log` files and report how many were removed. Alias: `scoutica logs clear`. |
+
+If there are no logs to show or list, `logs` tells you to run `scoutica scan` first.
+
+## Viewing the latest log
+
+With no arguments, `logs` finds the newest `scan_*.log`, prints its path, and dumps its contents:
+
+```bash
+scoutica logs
+```
+
+```text
+╔═══════════════════════════════════════════════════════╗
+║   Latest Scan Log                                     ║
+╚═══════════════════════════════════════════════════════╝
+
+  File: /home/alice/.scoutica/logs/scan_20260701_142233.log
+
+  [scan output...]
+```
+
+## Listing history
+
+```bash
+scoutica logs --list
+```
+
+Shows the 20 most recent scan logs (newest first) so you can see how many runs happened and when.
+
+## Clearing logs
+
+```bash
+scoutica logs --clear
+```
+
+Removes every `scan_*.log` file and prints the count cleared. If there's nothing to clear, it says so.
+
+<Warning>
+`--clear` deletes all scan logs immediately and irreversibly. There is no confirmation prompt — run it only when you're sure you no longer need the history.
+</Warning>

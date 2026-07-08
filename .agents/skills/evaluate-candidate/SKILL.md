@@ -35,13 +35,25 @@ Accept requirements as either:
 
 ### Step 3: Score Skills Match
 
-```
-required_matches = count(job.required_skills ∩ candidate.skills)
-total_required = count(job.required_skills)
-skills_score = (required_matches / total_required) × 100
+The CLI is the canonical scorer — always prefer it over hand-rolling the math:
 
-nice_to_have_matches = count(job.nice_to_have ∩ candidate.skills)
-bonus_score = nice_to_have_matches × 5
+```bash
+scoutica evaluate <card> --role <role.json> [--json]
+```
+
+This runs `tools/scoring.py`, a deterministic engine. The candidate's skill set
+is the union of `profile.skills`, `tools_and_platforms`, `specializations`, and
+`primary_domains`. The formula is:
+
+```
+hard_ratio      = matched(role.requirements.hard_skills)      / count(role.requirements.hard_skills)
+preferred_ratio = matched(role.requirements.preferred_skills) / count(role.requirements.preferred_skills)
+
+skills_score = hard_ratio × 70 + preferred_ratio × 30
+
+# Bonuses (the ONLY two; final score is capped at 100):
++10  if evidence.json demonstrates ≥ 50% of the hard skills
++5   if candidate seniority exactly matches role.requirements.seniority
 ```
 
 ### Step 4: Check Rules of Engagement
@@ -50,11 +62,11 @@ bonus_score = nice_to_have_matches × 5
 # From rules.yaml — check each rule:
 salary_check:     job.salary >= rules.compensation.minimum_base_eur
 remote_check:     job.remote_policy ∈ rules.remote.policy
-industry_check:   job.industry ∉ rules.auto_reject.blocked_industries
+industry_check:   job.industry ∉ rules.filters.blocked_industries
 engagement_check: job.engagement_type ∈ rules.engagement.allowed_types
 ```
 
-If ANY auto_reject rule fails → **REJECT** (do not continue).
+If ANY hard filter fails → **HARD_REJECT** (do not continue).
 
 ### Step 5: Verify Evidence (Optional)
 
@@ -95,10 +107,10 @@ For each claimed skill in `evidence.json`:
 | Score | Verdict | Action |
 |-------|---------|--------|
 | 80-100 | `STRONG_MATCH` | Proceed to interview |
-| 60-79 | `GOOD_MATCH` | Review and decide |
+| ≥60 | `MODERATE_MATCH` | Review and decide |
 | 40-59 | `WEAK_MATCH` | Consider if other factors compensate |
 | 0-39 | `NO_MATCH` | Do not proceed |
-| Any rule fails | `REJECTED` | Auto-reject, do not present |
+| Any hard filter fails | `HARD_REJECT` | Auto-reject, do not present |
 
 ## Privacy Rules
 
