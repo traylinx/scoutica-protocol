@@ -277,6 +277,17 @@ cp -r protocol/templates/ my-card/
 python tools/validate_card.py ./my-card/
 ```
 
+### Option 6: Already using ai-job-search? Import it
+
+If you keep your profile in an [ai-job-search](https://github.com/MadsLorentzen/ai-job-search) fork (an independent MIT workflow by Mads Lorentzen), convert it into a Skill Card in one **offline, deterministic** step — no network, no AI, no guessing:
+
+```bash
+scoutica import aijs ~/ai-job-search --to ./my-card --salary-floor-eur 85000
+scoutica validate ./my-card
+```
+
+Keep applying with ai-job-search *and* become discoverable with Scoutica off one profile. Your behavioral profile, interview stories, and salary data are never imported (data minimization). See the [bridge guide](docs-site/guides/from-ai-job-search.mdx) and [`scoutica import`](docs-site/cli/import.mdx).
+
 ---
 
 ## Key Decisions

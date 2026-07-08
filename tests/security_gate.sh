@@ -208,6 +208,25 @@ inv_consent_copy() {
     fi
 }
 
+inv_import_offline() {
+    # T-A1-OFFLINE-001 / INV-STATIC-OFFLINE: the ai-job-search importer is deterministic and OFFLINE.
+    # It must embed no network client and must not shell out — evidence URLs are recorded verbatim,
+    # never fetched. Marker: absence of any network/exec primitive in import_aijs.py. __import__/eval/
+    # exec are also banned (they have no legitimate use here and are the obvious obfuscation route).
+    # Limitation: a determined author could string-build a module name (__import__("so"+"cket")); that
+    # is out of scope — commit access is the trust boundary. This gate stops ACCIDENTAL introduction.
+    IMPORTER="$REPO_ROOT/tools/import_aijs.py"
+    if [ ! -f "$IMPORTER" ]; then
+        emit PASS T-A1-OFFLINE-001 INV-STATIC-OFFLINE STATIC "import_aijs.py absent"; return
+    fi
+    _hits=$(grep -nE '(urllib|requests|httpx|http\.client|urlopen|\bsocket\b|ftplib|smtplib|telnetlib|subprocess|os\.system|os\.popen|pycurl|\bcurl\b|\bwget\b|__import__|\beval\(|\bexec\()' "$IMPORTER" 2>/dev/null | grep -vE '^[0-9]+:[[:space:]]*#' || true)
+    if [ -n "$_hits" ]; then
+        emit FAIL T-A1-OFFLINE-001 INV-STATIC-OFFLINE STATIC "network/exec primitive in import_aijs.py (importer must be offline, no shell-out)"
+    else
+        emit PASS T-A1-OFFLINE-001 INV-STATIC-OFFLINE STATIC "import_aijs.py is offline (no network client, no shell-out)"
+    fi
+}
+
 # =========================================================================
 # Run all invariants
 # =========================================================================
@@ -222,6 +241,7 @@ inv_symlink_helper
 inv_url_validator
 inv_temp_trap
 inv_consent_copy
+inv_import_offline
 
 printf '== gate: %d invariant(s) failing ==\n' "$_gate_fail" >&2
 
