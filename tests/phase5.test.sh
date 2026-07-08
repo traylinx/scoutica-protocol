@@ -26,20 +26,39 @@ assert_grep "os.replace\(_tmp, keypair_file\)" "$SCOUTICA"
 assert_grep "makedirs\(identity_dir, mode=0o700" "$SCOUTICA"
 t_end
 
-# ---- F-HIGH-PS-001: allowlist staging, never git add -A ----
-t_begin F-HIGH-PS-001 "PowerShell publish stages an allowlist, never git add -A / git add ."
+# ---- F-HIGH-PS-001: allowlist staging, never git add -A; stages the real .gitignore ----
+t_begin F-HIGH-PS-001 "PowerShell publish stages an allowlist (incl. real .gitignore), never git add -A"
 assert_no_grep "git add -A" "$PS1"
 assert_no_grep "git add \." "$PS1"
 assert_grep "git add -- " "$PS1"
+# stages a file git actually honors; the git-inert 'card.gitignore' must NOT be in the allowlist
+assert_grep "'\.gitignore'\)\)" "$PS1"
+assert_no_grep "'card\.gitignore'" "$PS1"
 t_end
 
-# ---- F-HIGH-PS-002: card.gitignore copied at init ----
-t_begin F-HIGH-PS-002 "PowerShell init copies card.gitignore so secrets are never staged"
-assert_grep 'Destination \(Join-Path \$targetDir "card.gitignore"\)' "$PS1"
+# ---- F-HIGH-PS-002: init writes a REAL .gitignore (git ignores a file named card.gitignore) ----
+t_begin F-HIGH-PS-002 "PowerShell init copies the template to .gitignore so secrets are never staged"
+assert_grep 'giDest = Join-Path \$targetDir "\.gitignore"' "$PS1"
+assert_grep 'Copy-Item -Path \$giSrc -Destination \$giDest' "$PS1"
+# the old broken behavior (writing a literal card.gitignore into the card dir) must be gone
+assert_no_grep 'Destination \(Join-Path \$targetDir "card\.gitignore"\)' "$PS1"
 t_end
 
-# ---- F-MED-PS-001: structured writers, no raw scalar interpolation into JSON/YAML ----
-t_begin F-MED-PS-001 "PowerShell uses structured JSON/YAML escapers for generated files"
+# ---- F-MED-PS-001: every generated scalar routed through an escaping converter ----
+# No pwsh on the dev box, so these are STATIC regressions that lock the fix in place; the
+# authoritative behavioral enforcement is security_gate.sh:inv_ps_interp (shapes A + B).
+t_begin F-MED-PS-001 "PowerShell routes every generated JSON/YAML scalar through an escaper"
 assert_grep "ConvertTo-JsonScalar" "$PS1"
 assert_grep "ConvertTo-YamlScalar" "$PS1"
+# the converters themselves escape their elements (ConvertTo-JsonArray pipes each item to ConvertTo-Json)
+assert_grep 'ConvertTo-Json -Compress' "$PS1"
+# the exact review bug — an interpolation opening right after an escaped JSON quote — must be gone
+assert_no_grep '`"\$' "$PS1"
+# and evidence.json fields specifically go through the scalar escaper
+assert_grep 'type`": \$\(ConvertTo-JsonScalar \$_\.type\)' "$PS1"
+# SKILL.md Markdown body strips control chars so a name/title cannot inject a new block/line
+assert_grep 'nameLine = \(\$name -replace' "$PS1"
+assert_no_grep 'profile for \*\*\$name\*\*' "$PS1"
+# ConvertTo-YamlScalar encodes every C0 control char (else a control in a name -> invalid YAML)
+assert_grep 'code -lt 0x20' "$PS1"
 t_end

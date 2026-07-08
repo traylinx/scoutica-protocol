@@ -70,13 +70,13 @@ function Write-Err($msg) { Write-Host "  ❌ $msg" -ForegroundColor Red }
 
 function ConvertTo-JsonArray([string]$csv) {
     $items = $csv.Split(",") | ForEach-Object { $_.Trim() } | Where-Object { $_ -ne "" }
-    $quoted = $items | ForEach-Object { "`"$_`"" }
+    $quoted = $items | ForEach-Object { ([string]$_ | ConvertTo-Json -Compress) }
     return "[$($quoted -join ', ')]"
 }
 
 function ConvertTo-YamlList([string]$csv, [string]$indent = "    ") {
     $items = $csv.Split(",") | ForEach-Object { $_.Trim() } | Where-Object { $_ -ne "" }
-    return ($items | ForEach-Object { "${indent}- `"$_`"" }) -join "`n"
+    return ($items | ForEach-Object { "${indent}- $(ConvertTo-YamlScalar $_)" }) -join "`n"
 }
 
 # ─── INIT Command ─────────────────────────────────────────────────────────────
@@ -88,9 +88,23 @@ function ConvertTo-JsonScalar([object]$v) {
 }
 
 function ConvertTo-YamlScalar([object]$v) {
-    # YAML double-quoted scalar: escape backslashes first, then quotes.
+    # YAML double-quoted scalar. Escape backslash + quote, then encode EVERY C0 control char: raw
+    # controls (e.g. U+0001) are illegal inside a double-quoted scalar and would yield invalid YAML.
     $t = ([string]$v) -replace '\\', '\\' -replace '"', '\"'
-    return '"' + $t + '"'
+    $sb = [System.Text.StringBuilder]::new()
+    foreach ($ch in $t.ToCharArray()) {
+        $code = [int]$ch
+        switch ($code) {
+            9  { [void]$sb.Append('\t') }
+            10 { [void]$sb.Append('\n') }
+            13 { [void]$sb.Append('\r') }
+            default {
+                if ($code -lt 0x20 -or $code -eq 0x7F) { [void]$sb.AppendFormat('\x{0:x2}', $code) }
+                else { [void]$sb.Append($ch) }
+            }
+        }
+    }
+    return '"' + $sb.ToString() + '"'
 }
 
 function Invoke-Init {
@@ -139,7 +153,7 @@ function Invoke-Init {
     } while (Ask-YesNo "Add another language?")
     
     $langJson = ($langEntries | ForEach-Object {
-        "{`"language`": `"$($_.language)`", `"level`": `"$($_.level)`"}"
+        "{`"language`": $(ConvertTo-JsonScalar $_.language), `"level`": $(ConvertTo-JsonScalar $_.level)}"
     }) -join ", "
     $langJson = "[$langJson]"
     Write-Host ""
@@ -218,7 +232,7 @@ function Invoke-Init {
   "tools_and_platforms": $(ConvertTo-JsonArray $tools),
   "certifications_and_licenses": $(ConvertTo-JsonArray $certs),
   "specializations": $(ConvertTo-JsonArray $specializations),
-  "spoken_languages": $($langJson),
+  "spoken_languages": $langJson,
   "education": $(ConvertTo-JsonScalar $education),
   "summary": $(ConvertTo-JsonScalar $summary)
 }
@@ -233,16 +247,13 @@ function Invoke-Init {
     if ($compPermanent -or $compContract -or $compAdvisory) {
         $compBlock = "  compensation:`n    minimum_base_eur:"
         if ($compPermanent) {
-            $val = if ($compPermanent -match "^\d+$") { $compPermanent } else { "`"$compPermanent`"" }
-            $compBlock += "`n      permanent: $($val)"
+            $compBlock += "`n      permanent: $(if ($compPermanent -match '^\d+$') { $compPermanent } else { ConvertTo-YamlScalar $compPermanent })"
         }
         if ($compContract) {
-            $val = if ($compContract -match "^\d+$") { $compContract } else { "`"$compContract`"" }
-            $compBlock += "`n      contract: $($val)"
+            $compBlock += "`n      contract: $(if ($compContract -match '^\d+$') { $compContract } else { ConvertTo-YamlScalar $compContract })"
         }
         if ($compAdvisory) {
-            $val = if ($compAdvisory -match "^\d+$") { $compAdvisory } else { "`"$compAdvisory`"" }
-            $compBlock += "`n      advisory: $($val)"
+            $compBlock += "`n      advisory: $(if ($compAdvisory -match '^\d+$') { $compAdvisory } else { ConvertTo-YamlScalar $compAdvisory })"
         }
     }
     
@@ -292,8 +303,7 @@ privacy:
     
     # --- evidence.json ---
     $evJson = ($evItems | ForEach-Object {
-        $sk = ConvertTo-JsonArray $_.skills
-        "    {`n      `"type`": `"$($_.type)`",`n      `"title`": `"$($_.title)`",`n      `"url`": `"$($_.url)`",`n      `"description`": `"$($_.description)`",`n      `"skills_demonstrated`": $($sk)`n    }"
+        "    {`n      `"type`": $(ConvertTo-JsonScalar $_.type),`n      `"title`": $(ConvertTo-JsonScalar $_.title),`n      `"url`": $(ConvertTo-JsonScalar $_.url),`n      `"description`": $(ConvertTo-JsonScalar $_.description),`n      `"skills_demonstrated`": $(ConvertTo-JsonArray $_.skills)`n    }"
     }) -join ",`n"
     
     $evidenceJson = @"
@@ -308,19 +318,23 @@ $evJson
     Write-Success "Created evidence.json"
     
     # --- SKILL.md ---
+    # Body is Markdown prose: strip control chars so a name/title can't inject a new block/line
+    # (frontmatter scalars below are separately escaped via ConvertTo-YamlScalar).
+    $nameLine = ($name -replace '[\x00-\x1F]+', ' ').Trim()
+    $titleLine = ($title -replace '[\x00-\x1F]+', ' ').Trim()
     $skillMd = @"
 ---
 name: scoutica
-description: $($name) — AI-readable professional profile with automated opportunity filtering
+description: $(ConvertTo-YamlScalar "$name — AI-readable professional profile with automated opportunity filtering")
 metadata:
-  tags: $($skills.ToLower() -replace ',', ', ')
-  author: $($name)
+  tags: $(ConvertTo-YamlScalar ($skills.ToLower() -replace ',', ', '))
+  author: $(ConvertTo-YamlScalar $name)
   version: 0.1.0
 ---
 
 # Scoutica
 
-This skill provides an AI-readable professional profile for **$name** — $title.
+This skill provides an AI-readable professional profile for **$nameLine** — $titleLine.
 
 It allows any AI agent to:
 - Understand this candidate's capabilities and experience
@@ -359,13 +373,17 @@ It allows any AI agent to:
         Write-Warn "Rule templates not found — run installer first"
     }
 
-    # Copy card.gitignore so secrets (.env, raw CVs, .scoutica/) can never be staged (F-HIGH-PS-002)
+    # Copy the gitignore template to .gitignore so secrets (.env, raw CVs, .scoutica/) are never
+    # staged. Git only honors a file literally named .gitignore (F-HIGH-PS-002).
+    $giDest = Join-Path $targetDir ".gitignore"
     $giSrc = Join-Path $TEMPLATES_DIR "card.gitignore"
-    if (Test-Path $giSrc) {
-        Copy-Item -Path $giSrc -Destination (Join-Path $targetDir "card.gitignore") -Force
-        Write-Success "Created card.gitignore"
-    } else {
-        Write-Warn "card.gitignore template not found — publish may stage unintended files"
+    if (-not (Test-Path $giDest)) {
+        if (Test-Path $giSrc) {
+            Copy-Item -Path $giSrc -Destination $giDest -Force
+            Write-Success "Created .gitignore (protects secrets from accidental commits)"
+        } else {
+            Write-Warn "card.gitignore template not found — publish may stage unintended files"
+        }
     }
     
     Write-Host ""
@@ -453,7 +471,7 @@ function Invoke-Publish([string]$cardDir = ".") {
     Push-Location $cardDir
     try {
         if (Test-Path ".git") {
-            foreach ($f in @('profile.json','rules.yaml','evidence.json','SKILL.md','scoutica.json','card.gitignore')) {
+            foreach ($f in @('profile.json','rules.yaml','evidence.json','SKILL.md','scoutica.json','.gitignore')) {
                 if (Test-Path $f) { git add -- $f }
             }
             if (Test-Path 'rules') { git add -- 'rules' }
@@ -476,7 +494,7 @@ function Invoke-Publish([string]$cardDir = ".") {
             $ghUser = Ask "GitHub username"
             
             git init
-            foreach ($f in @('profile.json','rules.yaml','evidence.json','SKILL.md','scoutica.json','card.gitignore')) {
+            foreach ($f in @('profile.json','rules.yaml','evidence.json','SKILL.md','scoutica.json','.gitignore')) {
                 if (Test-Path $f) { git add -- $f }
             }
             if (Test-Path 'rules') { git add -- 'rules' }

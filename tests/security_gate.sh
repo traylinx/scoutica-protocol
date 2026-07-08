@@ -127,19 +127,39 @@ inv_ps_staging() {
 }
 
 inv_ps_interp() {
-    # F-MED-PS-001: PowerShell must build JSON/YAML via ConvertTo-Json/Python, not raw interpolation.
-    # Flag `key: "$var"` / `key: $var` shapes (raw interpolation); the safe `$(ConvertTo-JsonArray ..)`
-    # converter form ($ followed by "(") is excluded. Console output (Write-Host/Err/Warn/Success)
-    # is not file generation and is excluded — the invariant is about generated JSON/YAML only.
+    # F-MED-PS-001: PowerShell must generate JSON/YAML through escaping converters, never raw
+    # interpolation. Two dangerous shapes, both must be zero (PR#1 review: the old gate only caught
+    # `key: $var` and explicitly excluded `$(`, so `$($_.title)` inside JSON quotes false-greened):
+    #   A. JSON-string-embedded interpolation — a `$` opening right after an escaped JSON quote (`"$…).
+    #      This is the exact bug: `"type`": `"$($_.type)`". After the fix no generated quote is
+    #      immediately followed by an interpolation.
+    #   B. value-position interpolation (after `key:`) that is NOT an approved escaper: not
+    #      $(ConvertTo-JsonScalar|JsonArray|YamlScalar|YamlList …), not a $(if …) numeric guard, and
+    #      not a pre-serialized fragment named *Json/*Yaml (built BY the converters — check A proves
+    #      such a fragment cannot itself contain embedded raw interpolation).
+    # Console output (Write-Host/Err/Warn/Success) is not file generation and is excluded.
     if [ ! -f "$PS1FILE" ]; then
         emit PASS F-MED-PS-001 INV-STATIC-PS-INTERP STATIC "scoutica.ps1 absent"; return
     fi
-    _hits=$(grep -nE ':[[:space:]]*"?\$[A-Za-z_]' "$PS1FILE" | grep -vE 'Write-(Host|Err|Warn|Success)' || true)
-    if [ -n "$_hits" ]; then
-        _n=$(printf '%s\n' "$_hits" | grep -c ':')
-        emit FAIL F-MED-PS-001 INV-STATIC-PS-INTERP STATIC "$_n raw JSON/YAML interpolation site(s) in scoutica.ps1"
+    # A. interpolation opening right after an escaped JSON quote:  `"$…
+    _a=$(grep -nE '`"\$' "$PS1FILE" || true)
+    # A'. a raw variable/member subexpression `$($var)` / `$($var.member)` ANYWHERE (mid-value too,
+    #     closing the boundary-only bypass) — approved escapers start `$(ConvertTo…`/`$(if …`, never
+    #     `$($`; a benign `$($x -join …)` has an operator (no trailing `.`/`)`), so it is not matched.
+    #     Console output (Write-Host/Err/Warn/Success) is display, not file generation — excluded.
+    _ap=$(grep -nE '\$\(\$[A-Za-z_][A-Za-z0-9_]*[.)]' "$PS1FILE" \
+            | grep -vE 'Write-(Host|Err|Warn|Success)' || true)
+    # B. value-position `key: $…` that is not an approved escaper / numeric guard / *Json|*Yaml fragment.
+    _b=$(grep -nE ':[[:space:]]*"?\$' "$PS1FILE" \
+            | grep -vE 'Write-(Host|Err|Warn|Success)' \
+            | grep -vE '\$\((ConvertTo-(JsonScalar|JsonArray|YamlScalar|YamlList)|if )' \
+            | grep -vE ':[[:space:]]*\$[A-Za-z_][A-Za-z0-9_]*(Json|Yaml)\b' \
+            || true)
+    _hits=$(printf '%s\n%s\n%s\n' "$_a" "$_ap" "$_b" | grep -c '[^[:space:]]' || true)
+    if [ "${_hits:-0}" -gt 0 ]; then
+        emit FAIL F-MED-PS-001 INV-STATIC-PS-INTERP STATIC "$_hits raw JSON/YAML interpolation site(s) in scoutica.ps1 (A=embedded, A'=subexpr deref, B=non-escaper value)"
     else
-        emit PASS F-MED-PS-001 INV-STATIC-PS-INTERP STATIC "scoutica.ps1 uses structured writers only"
+        emit PASS F-MED-PS-001 INV-STATIC-PS-INTERP STATIC "scoutica.ps1 routes every generated scalar through an escaping converter"
     fi
 }
 
