@@ -404,13 +404,18 @@ def _json_dump(obj, path):
         json.dump(obj, f, indent=2, ensure_ascii=False)
         f.write("\n")
 
+def _yaml_dump_str(obj):
+    """Serialize obj to a YAML string. Untrusted values are quoted/escaped by the serializer, so
+    a value containing YAML metacharacters (e.g. a skill "Go: bad") can never break structure or
+    inject a key. Falls back to JSON — a valid YAML subset — when PyYAML is absent."""
+    if _HAVE_YAML:
+        return yaml.safe_dump(obj, sort_keys=False, allow_unicode=True, default_flow_style=False)
+    return json.dumps(obj, indent=2, ensure_ascii=False) + "\n"
+
+
 def _yaml_dump(obj, path):
     with open(path, "w", encoding="utf-8") as f:
-        if _HAVE_YAML:
-            yaml.safe_dump(obj, f, sort_keys=False, allow_unicode=True, default_flow_style=False)
-        else:
-            json.dump(obj, f, indent=2, ensure_ascii=False)  # JSON is a valid YAML subset
-            f.write("\n")
+        f.write(_yaml_dump_str(obj))
 
 
 def _write_card(dstdir, profile, rules, evidence):
@@ -422,15 +427,22 @@ def _write_card(dstdir, profile, rules, evidence):
 
 
 def build_skill_md(profile):
-    tags = ", ".join(profile.get("skills", [])[:8])
+    # Frontmatter is SERIALIZED, never string-interpolated. skills[] is untrusted imported text; a
+    # value like "Go: bad" or a stray quote would corrupt hand-built YAML (and validate_card.py does
+    # not parse SKILL.md frontmatter, so it would ship silently). Routing through the YAML serializer
+    # quotes/escapes every value — the repo's "all file generation via json.dump/yaml.dump" rule.
+    front = _yaml_dump_str({
+        "name": "scoutica",
+        "description": "AI-readable professional profile with automated opportunity filtering",
+        "metadata": {
+            "tags": ", ".join(profile.get("skills", [])[:8]),
+            "version": SCHEMA_VERSION,
+            "source": "ai-job-search import",
+        },
+    }).rstrip("\n")
     return (
         "---\n"
-        "name: scoutica\n"
-        "description: AI-readable professional profile with automated opportunity filtering\n"
-        "metadata:\n"
-        "  tags: %s\n"
-        "  version: %s\n"
-        "  source: ai-job-search import\n"
+        "%s\n"
         "---\n\n"
         "# Scoutica Skill Card\n\n"
         "AI-readable professional profile imported from an ai-job-search fork.\n\n"
@@ -442,7 +454,7 @@ def build_skill_md(profile):
         "1. Never fabricate capabilities. Only report what is in `profile.json`.\n"
         "2. Respect the Rules of Engagement. If `rules.yaml` says REJECT, do not override.\n"
         "3. Candidate sovereignty. This profile serves the candidate, not the employer.\n"
-        % (tags, SCHEMA_VERSION)
+        % front
     )
 
 
@@ -589,7 +601,10 @@ def main():
         print("  ❌ refusing: target's parent directory is a symlink: %s" % parent, file=sys.stderr)
         return 4
     if os.path.isdir(target):
-        existing = [f for f in os.listdir(target) if not f.startswith(".")]
+        # ANY entry counts — including dotfiles. A directory holding only hidden files (.env, .git,
+        # .ssh) is NOT empty; silently writing a card into it would clobber a real directory the user
+        # never meant to target. os.listdir omits "." / ".." only, so this is the true occupancy.
+        existing = os.listdir(target)
         if existing and not args.force:
             print("  ❌ refusing: target directory is not empty (use --force): %s" % target, file=sys.stderr)
             return 4

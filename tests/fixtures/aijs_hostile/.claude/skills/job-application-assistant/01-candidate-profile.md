@@ -18,6 +18,7 @@ Somewhere
 ### Programming & ML
 - **Py"thon\** (expert): a"b, c\d, e:f
 - **Go`whoami`** (advanced): x
+- **Go: bad** (advanced): YAML-metachar skill — must not corrupt SKILL.md frontmatter
 
 ### Domain Expertise
 - Back"end: Engineering

@@ -42,6 +42,16 @@ mkdir -p "$WORK/real_elsewhere"; ln -s "$WORK/real_elsewhere" "$WORK/emit_sympar
 assert_eq 4 "$?" "symlinked parent directory must be refused"
 t_end
 
+# ── T-A1-HIDDEN-001 — a dir holding ONLY hidden files is not empty; refuse without --force ──
+t_begin T-A1-HIDDEN-001 "hidden-only target (.env/.git) is not empty -> refuse (exit 4), no clobber"
+hd="$WORK/hidden_only"; mkdir -p "$hd"; printf 'SECRET=keep-me\n' > "$hd/.env"
+"$SCOUTICA" import aijs "$FIXTURES/aijs_filled" --to "$hd" </dev/null >/dev/null 2>&1
+assert_eq 4 "$?" "dir containing only a dotfile must be refused without --force"
+assert_grep 'SECRET=keep-me' "$hd/.env"                       # the pre-existing dotfile is untouched
+_n=0; for f in profile.json rules.yaml evidence.json SKILL.md; do [ -f "$hd/$f" ] && _n=$((_n + 1)); done
+assert_eq 0 "$_n" "no card files written into the refused hidden-only target"
+t_end
+
 # ── T-A1-SALARY-001 — salary floor emits only schema-legal keys; negatives rejected ──
 t_begin T-A1-SALARY-001 "salary floor: compensable keys only, negatives rejected, valid output"
 # permanent fork + floor -> minimum_base_eur.permanent present and card validates
@@ -94,6 +104,31 @@ assert_exit 1 test -e aijs_pwned_canary
 assert_exit 0 test -f "$out/profile.json"
 assert_exit 0 python3 -c "import json,sys; json.load(open(sys.argv[1]))" "$out/profile.json"
 assert_grep 'touch aijs_pwned_canary' "$out/profile.json"
+t_end
+
+# ── T-B3-YAML-001 — a YAML-metachar skill can't corrupt or inject into SKILL.md frontmatter ──
+# The hostile fixture's skill set includes "Go: bad". build_skill_md serializes the frontmatter
+# (never string-interpolates), so it must remain well-formed YAML with EXACTLY the expected keys.
+# validate_card.py does not parse SKILL.md frontmatter, so this test is the only guard for it.
+t_begin T-B3-YAML-001 "hostile skill (\"Go: bad\") -> SKILL.md frontmatter stays valid YAML, no injection"
+yout="$WORK/yaml_host"
+"$SCOUTICA" import aijs "$FIXTURES/aijs_hostile" --to "$yout" </dev/null >/dev/null 2>&1
+assert_exit 0 test -f "$yout/SKILL.md"
+assert_exit 0 python3 - "$yout/SKILL.md" <<'PY'
+import sys
+try:
+    import yaml
+except Exception:
+    sys.exit(0)  # PyYAML absent: frontmatter uses the JSON fallback (a valid YAML subset); skip
+text = open(sys.argv[1], encoding="utf-8").read()
+assert text.startswith("---\n"), "SKILL.md must open with a frontmatter fence"
+fm = text.split("---\n", 2)[1]               # block between the first two fences
+doc = yaml.safe_load(fm)                      # raises on corruption -> non-zero exit -> test FAIL
+assert isinstance(doc, dict), "frontmatter is not a mapping"
+assert set(doc) == {"name", "description", "metadata"}, "unexpected/injected frontmatter keys: %s" % sorted(doc)
+assert doc["name"] == "scoutica"
+assert "Go: bad" in doc["metadata"]["tags"], "hostile skill was dropped, not neutralised"
+PY
 t_end
 
 # ── T-A1-REFUSE-001 — pristine placeholders -> abort, ZERO files written ──
