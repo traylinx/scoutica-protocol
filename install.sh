@@ -6,7 +6,7 @@
 #   curl -fsSL https://raw.githubusercontent.com/traylinx/scoutica-protocol/main/install.sh | bash
 #
 # This script:
-#   1. Downloads the scoutica CLI tool
+#   1. Downloads the scoutica CLI tool + its Python helpers (validate/scoring/import)
 #   2. Downloads JSON schemas for validation
 #   3. Downloads card templates
 #   4. Makes the CLI available in your PATH
@@ -81,6 +81,14 @@ curl -fsSL "$REPO_RAW/GENERATE_MY_CARD.md" -o "$INSTALL_DIR/GENERATE_MY_CARD.md"
 echo -e "${BLUE}→${NC} Downloading validation tool..."
 curl -fsSL "$REPO_RAW/tools/validate_card.py" -o "$BIN_DIR/validate_card.py"
 curl -fsSL "$REPO_RAW/tools/SCAN_PROMPT.md" -o "$BIN_DIR/SCAN_PROMPT.md"
+
+# --- Step 6b: Download the Python helpers the CLI shells out to ---
+# scoutica resolves these next to itself ($script_dir == $BIN_DIR when installed). They MUST be
+# present or `scoutica evaluate --json` (scoring.py) and `scoutica import aijs` (import_aijs.py)
+# fail at runtime. tests/install_smoke.test.sh guards this installer↔CLI parity.
+echo -e "${BLUE}→${NC} Downloading scoring + import helpers..."
+curl -fsSL "$REPO_RAW/tools/scoring.py" -o "$BIN_DIR/scoring.py"
+curl -fsSL "$REPO_RAW/tools/import_aijs.py" -o "$BIN_DIR/import_aijs.py"
 
 # --- Step 7: Add to PATH ---
 SHELL_RC=""

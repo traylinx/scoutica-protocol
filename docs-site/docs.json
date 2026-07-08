@@ -36,6 +36,7 @@
             "pages": [
               "cli/overview",
               "cli/init",
+              "cli/import",
               "cli/scan",
               "cli/validate",
               "cli/publish",
@@ -63,6 +64,7 @@
             "group": "Guides",
             "pages": [
               "guides/create-card",
+              "guides/from-ai-job-search",
               "guides/privacy-zones",
               "guides/use-cases",
               "guides/maintenance",

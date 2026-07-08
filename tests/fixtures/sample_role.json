@@ -1,0 +1,16 @@
+{
+  "scoutica_version": "0.1.0",
+  "job_id": "req_a1b2c3",
+  "title": "Senior Backend Engineer",
+  "status": "active",
+  "requirements": {
+    "hard_skills": ["Python", "Go", "PostgreSQL"],
+    "preferred_skills": ["Kubernetes", "Terraform"],
+    "seniority": "senior",
+    "languages_required": ["English"]
+  },
+  "compensation": { "currency": "EUR", "base_min": 85000, "base_max": 110000 },
+  "location": { "type": "remote" },
+  "engagement": { "type": "permanent" },
+  "description": "Mock role fixture for interop E2E — no real posting. Matches the Alice Developer card."
+}

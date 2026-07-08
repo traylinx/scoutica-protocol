@@ -5,6 +5,9 @@
 .scoutica/
 scoutica_prompt.txt
 
+# Application drafts from the apply-to-role skill (may reference private role details)
+applications/
+
 # Secrets and environment
 *.env
 .env*

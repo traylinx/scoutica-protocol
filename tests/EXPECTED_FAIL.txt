@@ -39,5 +39,9 @@
 # is created atomically at 0600 and its dir at 0700. Regression tests in tests/phase5.test.sh.
 
 # ═══════════════════════════════════════════════════════════════════════════════════════════════
-# ALLOWLIST EMPTY — every audit finding is resolved with a passing gate/regression test.
-# Sprint-completion condition (final verdict matrix) met.
+# SPRINT-AUDIT-REMEDIATION: allowlist empty, sprint-completion condition met (merged in PR #1).
+#
+# ── SPRINT-AIJS-INTEROP ──
+# Phase 1 (Track A importer) COMPLETE: all T-A1-* + T-F4-E2E-001 cases now PASS (interop.test.sh),
+# INV-STATIC-OFFLINE green. Allowlist re-emptied. Phases 2 (docs) and 3 (apply-to-role skill) ship
+# tests that pass on landing, so nothing further is seeded here.

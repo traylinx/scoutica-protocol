@@ -1,0 +1,15 @@
+{
+  "scoutica_version": "0.1.0",
+  "job_id": "req_d4e5f6",
+  "title": "Contract Backend Engineer",
+  "status": "active",
+  "requirements": {
+    "hard_skills": ["Python", "Go"],
+    "seniority": "senior",
+    "languages_required": ["English"]
+  },
+  "compensation": { "currency": "EUR", "base_min": 500, "base_max": 700 },
+  "location": { "type": "remote" },
+  "engagement": { "type": "contract" },
+  "description": "Mock role fixture: a contract engagement the Alice Developer card (permanent-only) must reject."
+}
