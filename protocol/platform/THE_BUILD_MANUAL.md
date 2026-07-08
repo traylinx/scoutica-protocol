@@ -44,7 +44,7 @@ scoutica-protocol/
 │   │   └── rules/               ← Standard agent rule files
 │   │
 │   └── examples/                ← WORKING EXAMPLES
-│       └── sample_card/         ← Complete example card (Alex Chen)
+│       └── sample_card/         ← Complete example card (Alice Developer)
 │
 ├── schemas/                     ← CAPABILITY TAXONOMY
 │   └── CAPABILITY_TAXONOMY.md
@@ -89,7 +89,7 @@ The JSON Schemas that validate every card in the network. If a card doesn't pass
 | `taxonomy.json` | [PILLAR_1_GENERATION.md](../docs_and_research/PILLAR_1_GENERATION.md) | "Comparability Rules" — normalized taxonomy, seniority normalization |
 | | [cv_as_a_skill_gemini.md](../docs_and_research/cv_as_a_skill_gemini.md) | Deep research on skill categorization (625KB) |
 | `role_requirements.schema.json` | [PILLAR_6_ECONOMICS.md](../docs_and_research/PILLAR_6_ECONOMICS.md) | "Pre-Match Engine" — the Role Schema structure for employer queries |
-| | [_archive/role_schemas/](../_archive/role_schemas/) | Early role schema examples from the Python prototype |
+| | _archive/role_schemas/ (local prototype — gitignored, not shipped) | Early role schema examples |
 
 ### Anti-Discrimination Constraint
 From [PODCAST_ANALYSIS_AND_INTEGRATION.md](../docs_and_research/PODCAST_ANALYSIS_AND_INTEGRATION.md):
@@ -194,8 +194,8 @@ The exact algorithms, formulas, and smart contracts for proving identity and tru
 | `canonical_url_validation.md` | [PILLAR_5_PRIVACY_AND_SECURITY.md](../docs_and_research/PILLAR_5_PRIVACY_AND_SECURITY.md) | "Anti-Impersonation via Ownership Proof" — content hash + signed manifest |
 
 ### Existing Code Reference
-- [_archive/candidate_engine/](../_archive/candidate_engine/) — Python scoring logic (archived, but scoring patterns may be reusable)
-- [_archive/tests/](../_archive/tests/) — Test cases for matching logic
+- _archive/candidate_engine/ — Python scoring logic (local prototype, gitignored; superseded by tools/scoring.py)
+- _archive/tests/ — early matching tests (local prototype, gitignored; superseded by tests/)
 
 ---
 
@@ -282,7 +282,7 @@ When starting to build a module:
 1. **Read this manual's section** for the module you're building
 2. **Open each backlinked source document** and read the referenced sections
 3. **Check the working prototype** in `scoutica/` for real examples
-4. **Check the archive** in `_archive/` for reusable logic patterns
+4. **Local prototype** — `_archive/` is gitignored and not part of this repo
 5. **Write the concrete file** (JSON Schema, Solidity contract, OpenAPI spec, etc.)
 6. **Validate** against the cross-cutting concerns (EU AI Act, anti-discrimination, privacy zones)
 7. **Update** [IMPLEMENTATION_ROADMAP.md](../docs_and_research/IMPLEMENTATION_ROADMAP.md) to mark the task done

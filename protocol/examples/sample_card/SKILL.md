@@ -1,15 +1,15 @@
 ---
 name: scoutica
-description: Alex Chen — AI-readable professional profile with automated opportunity filtering
+description: Alice Developer — AI-readable professional profile with automated opportunity filtering
 metadata:
   tags: full-stack, backend, cloud-native, python, typescript, kubernetes, senior
-  author: Alex Chen
+  author: Alice Developer
   version: 0.1.0
 ---
 
 # Scoutica
 
-This skill provides an AI-readable professional profile for **Alex Chen** — Senior Full-Stack Engineer.
+This skill provides an AI-readable professional profile for **Alice Developer** — Senior Full-Stack Engineer.
 
 It allows any AI agent to:
 - Understand this candidate's capabilities and experience

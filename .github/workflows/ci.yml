@@ -1,0 +1,32 @@
+name: CI
+
+# Runs the security gate + regression suite so main can never regress and every PR is gated.
+# (PR#1 review P2: the harness existed but nothing enforced it.)
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  tests:
+    name: security gate + regression suite
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      # Match the dev baseline: pyyaml + jsonschema present, coincurve absent
+      # (the identity refuse-path regression asserts the no-secp256k1-lib behavior).
+      - name: Install Python deps
+        run: python3 -m pip install --quiet jsonschema pyyaml
+
+      - name: Run test suite
+        run: bash tests/run.sh

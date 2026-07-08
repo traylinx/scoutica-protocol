@@ -3,7 +3,7 @@ title: "Use Cases"
 description: "Deep dive into real-world applications of the Scoutica Protocol for varying professions."
 ---
 
-The protocol transcends singular job applications. By adhering to rigorous schema data parsing, a Scoutica Skill Card acts as an autonomous ambassador mapping perfectly across disparate professional domains. 
+The protocol transcends singular job applications. By adhering to rigorous schema data parsing, a Scoutica Skill Card acts as an autonomous ambassador mapping perfectly across disparate professional domains.
 
 ---
 
@@ -19,11 +19,11 @@ The protocol transcends singular job applications. By adhering to rigorous schem
 
 ## 2. The Remote Open-Source Contractor
 
-**The Problem:** You do high-level independent consulting logic. Your hours are entirely asynchronous and strictly remote. 
+**The Problem:** You do high-level independent consulting logic. Your hours are entirely asynchronous and strictly remote.
 
 **The Execution:**
 - You run `scoutica scan ~/GitHub-Projects/ ./` allowing your local Mistral/Gemini LLM directly read your heavy architectural markdown overviews and structure your capability matrix completely.
-- In `rules.yaml`, you forcefully assert `engagement.allowed_types: ["contract", "freelance"]` and set `remote.policy: "remote"`. 
+- In `rules.yaml`, you forcefully assert `engagement.allowed_types: ["contract"]` and set `remote.policy: "remote"`.
 - By pushing your profile back to GitHub and issuing `scoutica preview`, you generate an instant brutalist HTML application you link explicitly into your Twitter bio `_Discover my skill API constraint limits._`
 
 ## 3. The Autonomous Headhunter AI
@@ -33,7 +33,7 @@ The protocol transcends singular job applications. By adhering to rigorous schem
 **The Execution:**
 - Your AI pipeline leverages Scoutica directly from the backend.
 - It parses candidate URLs aggressively via `scoutica resolve <card-url>`.
-- Without using token-heavy LLMs for extraction, standard Python libraries index `rules.compensation.minimum_base_eur` and immediately drop candidates matching less than the target budget array computationally. 
+- Without using token-heavy LLMs for extraction, standard Python libraries index `rules.compensation.minimum_base_eur` and immediately drop candidates matching less than the target budget array computationally.
 - You engage in interviews exclusively with candidates programmatically capable of clearing Phase 1 matching metrics intrinsically via structured JSON filtering.
 
 ---

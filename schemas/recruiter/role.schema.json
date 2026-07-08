@@ -1,5 +1,6 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://scoutica.com/schemas/role.schema.json",
   "title": "Scoutica Role Posting",
   "description": "A machine-readable job definition for deterministic candidate matching.",
   "type": "object",
@@ -106,7 +107,7 @@
       "properties": {
         "type": {
           "type": "string",
-          "enum": ["permanent", "contract", "fractional", "freelance"]
+          "enum": ["permanent", "contract", "fractional", "advisory", "internship"]
         },
         "duration_months": {
           "type": "integer",

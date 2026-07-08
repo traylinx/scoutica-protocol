@@ -3,7 +3,7 @@ Registry Client for Traylinx Registry integration.
 Handles agent registration, heartbeat, and deregistration.
 """
 
-import struct log
+import structlog
 import httpx
 import asyncio
 from typing import Dict, Any, List, Optional

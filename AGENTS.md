@@ -2,11 +2,11 @@
 
 ## Architecture
 
-- **CLI:** `tools/scoutica` (Bash, ~3,900 lines cross-platform design)
+- **CLI:** `tools/scoutica` (Bash, ~5,100 lines cross-platform design)
 - **Schemas:** `schemas/` (JSON Schema)
 - **Agent skills:** `.agents/skills/` (YAML frontmatter + Markdown)
 - **Templates:** `protocol/templates/`
-- **Docs:** `docs/`
+- **Docs:** `docs-site/`
 
 ## Rules for Contributing Agents
 
