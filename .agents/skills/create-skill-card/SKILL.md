@@ -68,34 +68,43 @@ Read every supported file in the user's folder:
 ### Step 3: Generate rules.yaml
 
 ```yaml
-engagement:
-  allowed_types:
-    - full_time
-    - contract
-  notice_period: "30 days"
+schema_version: "0.1.0"
 
-compensation:
-  minimum_base_eur: negotiable
-  equity_required: false
+engagement:
+  allowed_types:              # permanent | contract | fractional | advisory
+    - permanent
+    - contract
+  compensation:
+    minimum_base_eur:         # minimum base per engagement type; omit a type — or the
+      permanent: 80000        # whole compensation block — if the documents don't state it
+      contract: 600
 
 remote:
-  policy: remote_first
-  timezone_range: "UTC-1 to UTC+3"
+  policy: "remote_only"       # e.g. remote_only | hybrid | onsite | flexible
+  hybrid_locations: []        # cities/regions, only when policy is hybrid
 
-auto_reject:
-  blocked_industries:
-    - gambling
-    - weapons
-  no_relocation: true
+filters:
+  blocked_industries:         # only if the candidate explicitly names them
+    - "gambling"
+    - "weapons"
+  stack_keywords:
+    preferred:                # technologies the candidate wants to work with
+      - "Python"
+      - "TypeScript"
+  soft_reject:
+    weak_stack_overlap_below: 3   # flag roles matching fewer than N preferred keywords
 
-soft_reject:
-  weak_stack_overlap_below: 40
+privacy:
+  zone_1_public: [title, seniority, primary_domains, availability]
+  zone_2_paid: [full_profile, evidence, experience_details]
+  zone_3_private: [email, phone, exact_salary]
 ```
 
 **Rules:**
-- Use "negotiable" if salary info is not in the documents
-- Default `remote.policy` to "flexible" if not stated
-- Only add `blocked_industries` if explicitly mentioned
+- Compensation nests under `engagement`: `engagement.compensation.minimum_base_eur.<type>`. If salary is not in the documents, **omit** `minimum_base_eur` (or the whole `compensation` block) — never invent a figure.
+- Default `remote.policy` to `"flexible"` if not stated.
+- Only add `filters.blocked_industries` if explicitly mentioned.
+- Rejection rules live under `filters` (`blocked_industries`, `soft_reject.weak_stack_overlap_below`) — there is no top-level `auto_reject`. This shape is validated by `scoutica validate` and read directly by the scorer.
 
 ### Step 4: Generate evidence.json
 
