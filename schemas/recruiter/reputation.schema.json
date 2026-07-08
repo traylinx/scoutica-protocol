@@ -1,5 +1,6 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://scoutica.com/schemas/reputation.schema.json",
   "title": "Scoutica Recruiter Reputation",
   "description": "Computed by the network — NOT self-declared. Measures observable recruiter behavior.",
   "type": "object",

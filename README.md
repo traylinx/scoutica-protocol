@@ -61,7 +61,7 @@ scoutica-protocol/
 ├── tools/                          ← CLI tools
 │   ├── scoutica                    ← Main CLI (bash + embedded Python)
 │   └── scoring.py                  ← Deterministic fit scoring engine
-├── templates/                      ← Card and rule templates
+├── protocol/templates/            ← Card and rule templates
 └── protocol/
     ├── examples/                   ← Sample candidate + employer cards
     └── registry/                   ← Seed registry data (candidates + roles)
@@ -71,14 +71,14 @@ scoutica-protocol/
 
 ## How the Network Works
 
-**Today (v0.4.0 — Live):**
+**Today (v0.4.0 — local delivery primitives; real transport is planned):**
 
 ```text
 1. Candidate installs the CLI → generates Skill Card (profile + evidence + rules)
 2. Pushes card to GitHub → registers in the decentralized registry
 3. Employer creates Recruiter Card → publishes structured job postings
 4. Employer's agent searches registry → runs deterministic fit scoring
-5. Agent sends offer (Git-native or Nostr) → candidate agent auto-evaluates
+5. Agent queues an offer locally (Git-native PR / Nostr are the planned transports) → candidate agent auto-evaluates
 6. If rules pass → accept. If rules fail → auto-reject with reasons.
 7. All interactions logged for trust scoring + anti-ghosting.
 ```
@@ -87,8 +87,8 @@ scoutica-protocol/
 
 | Phase | Transport | Status |
 |-------|-----------|--------|
-| V1 | Git-native inbox (PRs as messages) | ✅ Live |
-| V2 | Nostr relays (encrypted, decentralized) | 🔧 Identity ready |
+| V1 | Git-native inbox (PRs as messages) | 🔧 Local simulation |
+| V2 | Nostr relays (encrypted, decentralized) | 🔧 Planned |
 | V3 | HTTP webhooks (for always-on agents) | 📋 Spec ready |
 
 **Target cost to hire:** ~$4 total · **LinkedIn Recruiter:** ~$10,000/year · **Agency:** ~$15,000–$30,000/hire

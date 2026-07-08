@@ -1,5 +1,6 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://scoutica.com/schemas/candidates_index.schema.json",
   "title": "Scoutica Registry — Candidates Index",
   "description": "A flat JSON index of all published candidate cards. Downloaded by agents to search the network.",
   "type": "object",

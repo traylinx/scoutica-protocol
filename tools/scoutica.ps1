@@ -81,6 +81,18 @@ function ConvertTo-YamlList([string]$csv, [string]$indent = "    ") {
 
 # ─── INIT Command ─────────────────────────────────────────────────────────────
 
+function ConvertTo-JsonScalar([object]$v) {
+    # JSON-encode ONE scalar so embedded quotes/backslashes/newlines cannot corrupt the file.
+    if ($null -eq $v) { return '""' }
+    return ([string]$v | ConvertTo-Json -Compress)
+}
+
+function ConvertTo-YamlScalar([object]$v) {
+    # YAML double-quoted scalar: escape backslashes first, then quotes.
+    $t = ([string]$v) -replace '\\', '\\' -replace '"', '\"'
+    return '"' + $t + '"'
+}
+
 function Invoke-Init {
     param([string]$targetDir = ".", [switch]$AI)
     
@@ -196,19 +208,19 @@ function Invoke-Init {
     $profileJson = @"
 {
   "schema_version": "0.1.0",
-  "name": "$name",
-  "title": "$title",
-  "seniority": "$seniority",
-  "years_experience": $years,
-  "availability": "$availability",
+  "name": $(ConvertTo-JsonScalar $name),
+  "title": $(ConvertTo-JsonScalar $title),
+  "seniority": $(ConvertTo-JsonScalar $seniority),
+  "years_experience": $(if ($years -match '^\d+$') { $years } else { 0 }),
+  "availability": $(ConvertTo-JsonScalar $availability),
   "primary_domains": $(ConvertTo-JsonArray $domains),
   "skills": $(ConvertTo-JsonArray $skills),
   "tools_and_platforms": $(ConvertTo-JsonArray $tools),
   "certifications_and_licenses": $(ConvertTo-JsonArray $certs),
   "specializations": $(ConvertTo-JsonArray $specializations),
-  "spoken_languages": $langJson,
-  "education": "$education",
-  "summary": "$summary"
+  "spoken_languages": $($langJson),
+  "education": $(ConvertTo-JsonScalar $education),
+  "summary": $(ConvertTo-JsonScalar $summary)
 }
 "@
     [System.IO.File]::WriteAllText((Join-Path $targetDir "profile.json"), $profileJson, [System.Text.UTF8Encoding]::new($false))
@@ -222,15 +234,15 @@ function Invoke-Init {
         $compBlock = "  compensation:`n    minimum_base_eur:"
         if ($compPermanent) {
             $val = if ($compPermanent -match "^\d+$") { $compPermanent } else { "`"$compPermanent`"" }
-            $compBlock += "`n      permanent: $val"
+            $compBlock += "`n      permanent: $($val)"
         }
         if ($compContract) {
             $val = if ($compContract -match "^\d+$") { $compContract } else { "`"$compContract`"" }
-            $compBlock += "`n      contract: $val"
+            $compBlock += "`n      contract: $($val)"
         }
         if ($compAdvisory) {
             $val = if ($compAdvisory -match "^\d+$") { $compAdvisory } else { "`"$compAdvisory`"" }
-            $compBlock += "`n      advisory: $val"
+            $compBlock += "`n      advisory: $($val)"
         }
     }
     
@@ -247,7 +259,7 @@ $engYaml
 $compBlock
 
 remote:
-  policy: "$remotePolicy"
+  policy: $(ConvertTo-YamlScalar $remotePolicy)
   hybrid_locations:
 $hybridYaml
 
@@ -258,7 +270,7 @@ $blockedYaml
     preferred:
 $stackYaml
   soft_reject:
-    weak_stack_overlap_below: $stackMin
+    weak_stack_overlap_below: $(if ($stackMin -match '^\d+$') { $stackMin } else { 0 })
 
 privacy:
   zone_1_public:
@@ -281,7 +293,7 @@ privacy:
     # --- evidence.json ---
     $evJson = ($evItems | ForEach-Object {
         $sk = ConvertTo-JsonArray $_.skills
-        "    {`n      `"type`": `"$($_.type)`",`n      `"title`": `"$($_.title)`",`n      `"url`": `"$($_.url)`",`n      `"description`": `"$($_.description)`",`n      `"skills_demonstrated`": $sk`n    }"
+        "    {`n      `"type`": `"$($_.type)`",`n      `"title`": `"$($_.title)`",`n      `"url`": `"$($_.url)`",`n      `"description`": `"$($_.description)`",`n      `"skills_demonstrated`": $($sk)`n    }"
     }) -join ",`n"
     
     $evidenceJson = @"
@@ -299,10 +311,10 @@ $evJson
     $skillMd = @"
 ---
 name: scoutica
-description: $name — AI-readable professional profile with automated opportunity filtering
+description: $($name) — AI-readable professional profile with automated opportunity filtering
 metadata:
   tags: $($skills.ToLower() -replace ',', ', ')
-  author: $name
+  author: $($name)
   version: 0.1.0
 ---
 
@@ -345,6 +357,15 @@ It allows any AI agent to:
         Write-Success "Copied evaluation rule templates"
     } else {
         Write-Warn "Rule templates not found — run installer first"
+    }
+
+    # Copy card.gitignore so secrets (.env, raw CVs, .scoutica/) can never be staged (F-HIGH-PS-002)
+    $giSrc = Join-Path $TEMPLATES_DIR "card.gitignore"
+    if (Test-Path $giSrc) {
+        Copy-Item -Path $giSrc -Destination (Join-Path $targetDir "card.gitignore") -Force
+        Write-Success "Created card.gitignore"
+    } else {
+        Write-Warn "card.gitignore template not found — publish may stage unintended files"
     }
     
     Write-Host ""
@@ -432,7 +453,10 @@ function Invoke-Publish([string]$cardDir = ".") {
     Push-Location $cardDir
     try {
         if (Test-Path ".git") {
-            git add -A
+            foreach ($f in @('profile.json','rules.yaml','evidence.json','SKILL.md','scoutica.json','card.gitignore')) {
+                if (Test-Path $f) { git add -- $f }
+            }
+            if (Test-Path 'rules') { git add -- 'rules' }
             $msg = "Update Scoutica Skill Card — $(Get-Date -Format 'yyyy-MM-dd')"
             git commit -m $msg 2>$null
             if ($LASTEXITCODE -ne 0) { Write-Warn "No changes to commit"; return }
@@ -452,7 +476,10 @@ function Invoke-Publish([string]$cardDir = ".") {
             $ghUser = Ask "GitHub username"
             
             git init
-            git add -A
+            foreach ($f in @('profile.json','rules.yaml','evidence.json','SKILL.md','scoutica.json','card.gitignore')) {
+                if (Test-Path $f) { git add -- $f }
+            }
+            if (Test-Path 'rules') { git add -- 'rules' }
             git commit -m "Initial Scoutica Skill Card"
             git branch -M main
             git remote add origin "https://github.com/$ghUser/$repoName.git"

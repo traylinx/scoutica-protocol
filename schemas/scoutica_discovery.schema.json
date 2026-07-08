@@ -1,5 +1,6 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://scoutica.com/schemas/scoutica_discovery.schema.json",
   "title": "Scoutica Discovery File",
   "description": "Well-known file placed at repo root to indicate the presence of a Scoutica Skill Card. Like robots.txt but for AI-readable professional profiles.",
   "type": "object",

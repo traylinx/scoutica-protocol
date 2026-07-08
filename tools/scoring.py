@@ -20,7 +20,32 @@ Zero external dependencies. Ships with the CLI.
 import json
 import sys
 import os
-from datetime import datetime, timezone
+
+
+def _as_number(x):
+    """Return x as a float if it is a real numeric value, else None.
+
+    Compensation floors may be the literal "negotiable" (or absent); treat any
+    non-numeric value as "no floor" so comparisons never raise TypeError.
+    """
+    if isinstance(x, bool):
+        return None
+    if isinstance(x, (int, float)):
+        return float(x)
+    return None
+
+
+# Canonical engagement types: permanent, contract, fractional, advisory, internship.
+# `freelance` is an accepted alias of `contract` (F-HIGH-ENUM-001), never a first-class type.
+_ENGAGEMENT_ALIASES = {"freelance": "contract"}
+
+
+def _norm_engagement(t):
+    """Normalize an engagement type to its canonical form (freelance -> contract)."""
+    if not t:
+        return t
+    key = str(t).strip().lower()
+    return _ENGAGEMENT_ALIASES.get(key, key)
 
 
 # ─── Hard Filter Engine ──────────────────────────────────────────────────────
@@ -34,8 +59,8 @@ def check_hard_filters(profile, rules, role, recruiter=None):
 
     # 1. Engagement type match
     if rules and "engagement" in rules:
-        allowed = rules["engagement"].get("allowed_types", [])
-        role_type = role.get("engagement", {}).get("type", "")
+        allowed = [_norm_engagement(a) for a in rules["engagement"].get("allowed_types", [])]
+        role_type = _norm_engagement(role.get("engagement", {}).get("type", ""))
         if allowed and role_type and role_type not in allowed:
             reasons.append(f"engagement_type_mismatch: role requires '{role_type}', candidate allows {allowed}")
 
@@ -43,7 +68,7 @@ def check_hard_filters(profile, rules, role, recruiter=None):
     if rules and "engagement" in rules:
         compensation = rules["engagement"].get("compensation", {})
         min_base = compensation.get("minimum_base_eur", {})
-        role_type = role.get("engagement", {}).get("type", "permanent")
+        role_type = _norm_engagement(role.get("engagement", {}).get("type", "permanent"))
         role_comp = role.get("compensation", {})
         role_max = role_comp.get("base_max", 0)
 
@@ -52,7 +77,12 @@ def check_hard_filters(profile, rules, role, recruiter=None):
         else:
             candidate_min = min_base
 
-        if candidate_min and role_max and role_max < candidate_min:
+        # Only a permanent role's base_max shares the candidate's annual unit; contract(daily)/
+        # advisory(hourly) floors are a different unit and cannot be compared to an annual max,
+        # so we skip rather than compare across units. "negotiable"/non-numeric ⇒ no floor.
+        cand_min_n = _as_number(candidate_min)
+        role_max_n = _as_number(role_max)
+        if role_type == "permanent" and cand_min_n is not None and role_max_n is not None and role_max_n < cand_min_n:
             reasons.append(
                 f"salary_below_minimum: role max {role_max} < candidate min {candidate_min} ({role_type})"
             )
@@ -143,7 +173,7 @@ def compute_skill_score(profile, role):
 def compute_bonuses(profile, role, evidence=None):
     """
     Compute bonus adjustments:
-    +10 evidence, +5 seniority match, +5 freshness, +5 recruiter trust
+    +10 evidence (≥50% hard-skill coverage), +5 exact seniority match.
     """
     bonuses = []
     bonus_total = 0
@@ -156,8 +186,10 @@ def compute_bonuses(profile, role, evidence=None):
             if hard_skills:
                 evidenced_skills = set()
                 for item in evidence_items:
-                    tags = item.get("tags", []) + item.get("skills", [])
-                    evidenced_skills.update(t.lower() for t in tags)
+                    # Canonical evidence field per evidence.schema.json is skills_demonstrated
+                    # (required); legacy tags/skills are not schema fields and never populated.
+                    demonstrated = item.get("skills_demonstrated", [])
+                    evidenced_skills.update(t.lower() for t in demonstrated)
                 covered = sum(1 for s in hard_skills if s.lower() in evidenced_skills)
                 if covered >= len(hard_skills) * 0.5:
                     bonuses.append("evidence")
@@ -170,18 +202,10 @@ def compute_bonuses(profile, role, evidence=None):
         bonuses.append("seniority_match")
         bonus_total += 5
 
-    # Freshness bonus: +5 if profile updated within 30 days
-    updated = profile.get("updated", profile.get("last_updated", ""))
-    if updated:
-        try:
-            if isinstance(updated, str) and len(updated) >= 10:
-                update_date = datetime.strptime(updated[:10], "%Y-%m-%d")
-                days_old = (datetime.now() - update_date).days
-                if days_old <= 30:
-                    bonuses.append("freshness")
-                    bonus_total += 5
-        except (ValueError, TypeError):
-            pass
+    # Freshness bonus removed: the candidate schema sets additionalProperties:false and defines
+    # no `updated`/`last_updated` field, so a schema-valid card could never carry it — the branch
+    # was unreachable dead code that also used datetime.now() (non-deterministic, contradicting the
+    # engine's determinism contract). See F-HIGH-SCORE-003.
 
     return bonus_total, bonuses
 
@@ -259,8 +283,8 @@ def candidate_evaluates_role(rules, role, recruiter=None):
 
     # Check engagement type
     if "engagement" in rules:
-        allowed = rules["engagement"].get("allowed_types", [])
-        role_type = role.get("engagement", {}).get("type", "")
+        allowed = [_norm_engagement(a) for a in rules["engagement"].get("allowed_types", [])]
+        role_type = _norm_engagement(role.get("engagement", {}).get("type", ""))
         if allowed and role_type and role_type not in allowed:
             reasons.append(f"engagement_type_not_allowed: {role_type}")
             accepted = False
@@ -269,7 +293,7 @@ def candidate_evaluates_role(rules, role, recruiter=None):
     if "engagement" in rules:
         compensation = rules["engagement"].get("compensation", {})
         min_base = compensation.get("minimum_base_eur", {})
-        role_type = role.get("engagement", {}).get("type", "permanent")
+        role_type = _norm_engagement(role.get("engagement", {}).get("type", "permanent"))
         role_comp = role.get("compensation", {})
         role_max = role_comp.get("base_max", 0)
 
@@ -278,7 +302,11 @@ def candidate_evaluates_role(rules, role, recruiter=None):
         else:
             candidate_min = min_base
 
-        if candidate_min and role_max and role_max < candidate_min:
+        # Same unit caveat as the employer-side filter: only compare annual-to-annual
+        # (permanent); non-numeric/"negotiable" ⇒ no floor. Avoids TypeError + bogus cross-unit compare.
+        cand_min_n = _as_number(candidate_min)
+        role_max_n = _as_number(role_max)
+        if role_type == "permanent" and cand_min_n is not None and role_max_n is not None and role_max_n < cand_min_n:
             reasons.append(f"salary_too_low: max {role_max} < min {candidate_min}")
             accepted = False
 
@@ -300,18 +328,24 @@ def candidate_evaluates_role(rules, role, recruiter=None):
             reasons.append(f"blocked_industry: {overlap}")
             accepted = False
 
-    # Check stack overlap
+    # Check stack overlap → SOFT reject (manual review), NOT a hard auto-reject.
+    # roe.schema.json models soft_reject as a manual-review signal; collapsing it into
+    # accepted=False (F-MED-SCORE-004) silently auto-rejected borderline roles. We surface a
+    # distinct manual_review reason and leave accepted unchanged. The check is opt-in: it only
+    # runs when weak_stack_overlap_below is explicitly configured (F-MED-SCORE-005) — absent = off.
     if "filters" in rules:
         stack_pref = rules["filters"].get("stack_keywords", {}).get("preferred", [])
         role_skills = role.get("requirements", {}).get("hard_skills", [])
-        if stack_pref and role_skills:
-            soft_reject_threshold = rules["filters"].get("soft_reject", {}).get("weak_stack_overlap_below", 0)
+        soft_cfg = rules["filters"].get("soft_reject", {})
+        if stack_pref and role_skills and "weak_stack_overlap_below" in soft_cfg:
+            soft_reject_threshold = soft_cfg.get("weak_stack_overlap_below", 0)
             overlap = sum(1 for s in role_skills if s.lower() in [p.lower() for p in stack_pref])
             if overlap < soft_reject_threshold:
-                reasons.append(f"weak_stack_overlap: {overlap} matching skills (threshold: {soft_reject_threshold})")
-                accepted = False
+                reasons.append(
+                    f"manual_review:weak_stack_overlap: {overlap} matching skills (threshold: {soft_reject_threshold})"
+                )
 
-    if accepted:
+    if accepted and not any(r.startswith("manual_review:") for r in reasons):
         reasons.append("all_rules_passed")
 
     return accepted, reasons

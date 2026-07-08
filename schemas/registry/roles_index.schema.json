@@ -1,5 +1,6 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://scoutica.com/schemas/roles_index.schema.json",
   "title": "Scoutica Registry — Roles Index",
   "description": "A flat JSON index of all published job postings. Downloaded by candidate agents to search for opportunities.",
   "type": "object",
@@ -47,7 +48,7 @@
           },
           "engagement_type": {
             "type": "string",
-            "enum": ["permanent", "contract", "fractional", "freelance"]
+            "enum": ["permanent", "contract", "fractional", "advisory", "internship"]
           },
           "status": {
             "type": "string",

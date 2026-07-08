@@ -114,9 +114,81 @@ ask_choice() {
 
 confirm() {
     local prompt="$1"
-    echo -ne "  ${BOLD}$prompt${NC} ${DIM}[y/N]${NC}: "
+    # Prompt to stderr (not stdout) so `bool=$(confirm ...)` captures only the y/N result,
+    # never the prompt text (F-MED-CONFIRM-001). read still uses the terminal via stdin.
+    echo -ne "  ${BOLD}$prompt${NC} ${DIM}[y/N]${NC}: " >&2
     read -r answer
     [[ "$answer" =~ ^[Yy] ]]
+}
+
+# _validate_url <url> : 0 if safe to fetch, 1 otherwise (reason on stderr). Enforces HTTPS and
+# blocks localhost / private / link-local / reserved / metadata hosts. Fails CLOSED on DNS failure
+# or an unresolvable host. Used for BOTH the user URL and any discovered card_url (F-HIGH-SSRF-001).
+_validate_url() {
+    local u="$1"
+    if ! printf '%s' "$u" | grep -qE '^https://'; then
+        error "Only HTTPS URLs are supported (got: $u)"
+        return 1
+    fi
+    local out
+    out=$(python3 - "$u" <<'VALIDATE_URL' 2>/dev/null
+import sys, ipaddress, socket
+from urllib.parse import urlparse
+_pu = urlparse(sys.argv[1])
+host = (_pu.hostname or '').lower()
+port = _pu.port or 443
+if not host:
+    print('BLOCKED:no-host'); sys.exit(0)
+if host in ('localhost', 'ip6-localhost', 'ip6-loopback'):
+    print('BLOCKED:localhost'); sys.exit(0)
+def blocked(ipstr):
+    try:
+        ip = ipaddress.ip_address(ipstr)
+    except ValueError:
+        return False
+    return (ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved
+            or ip.is_multicast or ip.is_unspecified)
+# literal-IP host: allow only if it is a public address
+try:
+    ipaddress.ip_address(host)
+    print('BLOCKED:literal-ip' if blocked(host) else 'OK %s %d %s' % (host, port, host)); sys.exit(0)
+except ValueError:
+    pass
+# hostname: resolve and fail CLOSED on any failure or private answer
+try:
+    addrs = socket.getaddrinfo(host, None)
+except Exception:
+    print('BLOCKED:dns-failure'); sys.exit(0)
+ips = [s[4][0] for s in addrs]
+if not ips:
+    print('BLOCKED:no-address'); sys.exit(0)
+for ip in ips:
+    if blocked(ip):
+        print('BLOCKED:private-resolution'); sys.exit(0)
+v4 = [ip for ip in ips if ':' not in ip]
+print('OK %s %d %s' % (host, port, v4[0] if v4 else ips[0]))
+VALIDATE_URL
+)
+    if [ "${out%% *}" != "OK" ]; then
+        error "Refusing to fetch unsafe URL (${out:-validation-failed}): $u"
+        return 1
+    fi
+    # Echo the validated IP so callers can pin curl (--resolve) against DNS rebinding.
+    printf '%s\n' "${out#OK }"
+    return 0
+}
+
+# _refuse_if_symlink <path...> : shared symlink-safe write guard. Call before writing any card,
+# state, org, role, or identity file so a pre-planted symlink cannot redirect the write (F-HIGH-FS-001).
+_refuse_if_symlink() {
+    local _p
+    for _p in "$@"; do
+        if [ -L "$_p" ]; then
+            error "Refusing to write through symlink: $_p"
+            return 1
+        fi
+    done
+    return 0
 }
 
 success() {
@@ -906,7 +978,7 @@ cmd_publish() {
         local default_repo="my-scoutica-card"
         if [ -f "$card_dir/profile.json" ] && command -v python3 &>/dev/null; then
             local pname
-            pname=$(python3 -c "import json;d=json.load(open('$card_dir/profile.json'));print(d.get('name',''))" 2>/dev/null || echo "")
+            pname=$(python3 -c "import json,sys;d=json.load(open(sys.argv[1]+'/profile.json'));print(d.get('name',''))" "$card_dir" 2>/dev/null || echo "")
             if [ -n "$pname" ]; then
                 default_repo=$(_slugify_name "$pname")
                 [ -n "$default_repo" ] && default_repo="${default_repo}-card" || default_repo="my-scoutica-card"
@@ -1394,15 +1466,15 @@ _read_state() {
         python3 -c "
 import json, sys
 try:
-    with open('$STATE_FILE') as f:
+    with open(sys.argv[1]) as f:
         d = json.load(f)
-    keys = '$key'.split('.')
+    keys = sys.argv[2].split('.')
     for k in keys:
         d = d[k]
     print(d)
 except Exception as e:
     print('', file=sys.stderr)
-" 2>/dev/null
+" "$STATE_FILE" "$key" 2>/dev/null
     fi
 }
 
@@ -1419,6 +1491,7 @@ _write_state() {
         echo '{}' > "$tmp_existing"
     fi
     
+    _refuse_if_symlink "$STATE_FILE" || return 1
     python3 - "$tmp_existing" "$source_hash" "$now" "$source_files" "$provider" "$STATE_FILE" <<'WRITESTATE'
 import json, sys
 existing_file, source_hash, now, source_files, provider, state_file = sys.argv[1:7]
@@ -1456,6 +1529,7 @@ _write_preview_state() {
         echo '{}' > "$tmp_existing"
     fi
     
+    _refuse_if_symlink "$STATE_FILE" || return 1
     python3 - "$tmp_existing" "$url" "$now" "$expires" "$card_hash" "$STATE_FILE" <<'WRITEPREVIEW'
 import json, sys
 existing_file, url, now, expires, card_hash, state_file = sys.argv[1:7]
@@ -1500,8 +1574,8 @@ _register_card() {
     # Read name and title from profile.json if available
     local name="" title=""
     if [ -f "$card_dir/profile.json" ] && command -v python3 &>/dev/null; then
-        name=$(python3 -c "import json;d=json.load(open('$card_dir/profile.json'));print(d.get('name',''))" 2>/dev/null || echo "")
-        title=$(python3 -c "import json;d=json.load(open('$card_dir/profile.json'));print(d.get('title',''))" 2>/dev/null || echo "")
+        name=$(python3 -c "import json,sys;d=json.load(open(sys.argv[1]+'/profile.json'));print(d.get('name',''))" "$card_dir" 2>/dev/null || echo "")
+        title=$(python3 -c "import json,sys;d=json.load(open(sys.argv[1]+'/profile.json'));print(d.get('title',''))" "$card_dir" 2>/dev/null || echo "")
     fi
     
     python3 << 'REGSCRIPT' - "$REGISTRY_FILE" "$card_dir" "$event" "$name" "$title" "$extra_json"
@@ -1587,9 +1661,9 @@ _get_last_card() {
         return
     fi
     python3 -c "
-import json
+import json, sys
 try:
-    with open('$REGISTRY_FILE') as f:
+    with open(sys.argv[1]) as f:
         reg = json.load(f)
     cards = reg.get('cards', {})
     if not cards:
@@ -1599,7 +1673,7 @@ try:
         print(latest.get('card_dir', ''))
 except:
     print('')
-" 2>/dev/null
+" "$REGISTRY_FILE" 2>/dev/null
 }
 
 _resolve_card_dir() {
@@ -1637,14 +1711,14 @@ _resolve_card_dir() {
         # Check if there's a GitHub URL stored
         local gh_url
         gh_url=$(python3 -c "
-import json
+import json, sys
 try:
-    with open('$REGISTRY_FILE') as f:
+    with open(sys.argv[1]) as f:
         reg = json.load(f)
-    card = reg['cards'].get('$last_card', {})
+    card = reg['cards'].get(sys.argv[2], {})
     print(card.get('github_url', '') or '')
 except: print('')
-" 2>/dev/null)
+" "$REGISTRY_FILE" "$last_card" 2>/dev/null)
         if [ -n "$gh_url" ]; then
             echo -e "  ${DIM}Last published to: $gh_url${NC}" >&2
         fi
@@ -2070,17 +2144,20 @@ $all_text"
     fi
     
     _scan_log "PROVIDER" "selected: $provider"
-    echo -e "  ${BLUE}→${NC} Generating card via ${BOLD}$provider${NC} (local CLI — your data stays on your machine)..."
+    echo -e "  ${BLUE}→${NC} Generating card via ${BOLD}$provider${NC} (via your selected AI provider — this step does not publish a public card)..."
     echo ""
     _scan_log "AI_CALL" "sending request to $provider..."
     
     # ── Step 5: Call local AI CLI ──
     local response=""
+    local payload_file="" scan_raw_file=""
     local tmp_prompt=$(mktemp /tmp/scoutica_prompt.XXXXXX)
     local tmp_resp=$(mktemp /tmp/scoutica_resp.XXXXXX)
     local tmp_log=$(mktemp /tmp/scoutica_log.XXXXXX)
-    # Ensure temp files are always cleaned up safely
-    trap "rm -f \"$tmp_prompt\" \"$tmp_resp\" \"$tmp_log\" 2>/dev/null" EXIT INT TERM
+    # Clean ALL temp + PII files (prompt, response, request payload, raw AI response) on
+    # success/failure/interrupt. Single quotes defer expansion so the late-assigned
+    # payload_file / scan_raw_file are picked up at trap time (F-HIGH-TEMP-001).
+    trap 'rm -f "$tmp_prompt" "$tmp_resp" "$tmp_log" "$payload_file" "$scan_raw_file" 2>/dev/null' EXIT INT TERM
     echo "$full_prompt" > "$tmp_prompt"
     
     local prompt_size=$(wc -c < "$tmp_prompt" | tr -d ' ')
@@ -2141,18 +2218,19 @@ Read my documents and generate my Scoutica Protocol Skill Card. Return ONLY raw 
             ail_prompt=$(cat "$tmp_prompt")
             
             # Use python to construct the entire JSON payload to a temp file
-            local payload_file=$(mktemp /tmp/scoutica_payload.XXXXXX)
-            python3 -c "
+            payload_file=$(mktemp /tmp/scoutica_payload.XXXXXX)
+            python3 - "$payload_file" "$tmp_prompt" <<'BUILD_PAYLOAD'
 import sys, json
-prompt = sys.stdin.read()
+with open(sys.argv[2]) as _pf:
+    prompt = _pf.read()
 payload = {
     'messages': [{'role': 'user', 'content': prompt}],
     'temperature': 0.1,
     'stream': True
 }
-with open('$payload_file', 'w') as f:
+with open(sys.argv[1], 'w') as f:
     json.dump(payload, f)
-" < "$tmp_prompt"
+BUILD_PAYLOAD
             
             local payload_size=$(wc -c < "$payload_file" | tr -d ' ')
             echo "$(date +%H:%M:%S) POST /v1/chat/completions (payload: ${payload_size} bytes, temp: 0.1, stream: true)" >> "$tmp_log"
@@ -2318,11 +2396,11 @@ Read my documents and generate my Scoutica Protocol Skill Card. Return ONLY raw 
     if [ "$explicit_output" = false ]; then
         # Extract name from AI response to build the subfolder name
         local card_name
-        card_name=$(python3 -c "
-import json, re
-raw = '''$response'''.strip()
+        card_name=$(python3 - "$response" <<'PARSE_NAME' 2>/dev/null || echo ""
+import json, re, sys
+raw = sys.argv[1].strip()
 def find_json(text):
-    fence_matches = re.findall(r'\x60\x60\x60(?:json)?\s*({[\s\S]*?})\s*\x60\x60\x60', text)
+    fence_matches = re.findall(r'```(?:json)?\s*(\{[\s\S]*?\})\s*```', text)
     for fm in fence_matches:
         try:
             d = json.loads(fm)
@@ -2347,7 +2425,8 @@ if d and 'profile' in d:
     print(d['profile'].get('name', ''))
 else:
     print('')
-" 2>/dev/null || echo "")
+PARSE_NAME
+)
         
         if [ -n "$card_name" ]; then
             local slug=$(_slugify_name "$card_name")
@@ -2372,10 +2451,11 @@ else:
     mkdir -p "$output_dir/rules"
     
     # Save raw response for debugging
-    echo "$response" > "$output_dir/.scan_response_raw.txt"
+    scan_raw_file="$output_dir/.scan_response_raw.txt"
+    echo "$response" > "$scan_raw_file"
     
     # Use Python to extract JSON, parse it, and write files
-    python3 << 'PARSE_SCRIPT' - "$output_dir" "$response"
+    if ! python3 << 'PARSE_SCRIPT' - "$output_dir" "$response"
 import json, sys, os, re
 
 output_dir = sys.argv[1]
@@ -2517,13 +2597,10 @@ with open(os.path.join(output_dir, "README.md"), "w") as f:
 print("  ✅ Created README.md (Human presentation)")
 
 PARSE_SCRIPT
-
-    if [ $? -ne 0 ]; then
-        error "Failed to parse AI response. Raw response saved to $output_dir/.scan_response_raw.txt"
-        echo -e "  ${DIM}Review the raw response and try again, or edit manually.${NC}" >&2
-        # Note: intentionally NOT deleting .scan_response_raw.txt here so user can debug
-        # But warn about PII content
-        echo -e "  ${YELLOW}⚠️  The raw response file may contain personal data — delete after debugging.${NC}" >&2
+    then
+        error "Failed to parse the AI response into a valid card."
+        echo -e "  ${DIM}The response did not contain parseable JSON — re-run scan or edit manually.${NC}" >&2
+        echo -e "  ${YELLOW}⚠️  The raw AI response (which may contain personal data) was discarded for privacy.${NC}" >&2
         exit 1
     fi
     
@@ -2566,22 +2643,16 @@ PARSE_SCRIPT
     local disp_dir=""
     [ "$output_dir" != "." ] && disp_dir=" $output_dir"
 
-    # Auto-chain into preview if here.now is installed
-    local here_script="$HOME/.claude/skills/here-now/scripts/publish.sh"
-    if [ -f "$here_script" ]; then
-        echo -e "  ${BLUE}→${NC} Auto-deploying live preview via ${BOLD}here.now${NC}..."
-        echo ""
-        cmd_preview "$output_dir"
-    else
-        echo -e "  ${BOLD}What to do next:${NC}"
-        echo ""
-        echo -e "  ${CYAN}1.${NC} ${CYAN}scoutica preview$disp_dir${NC}    ${DIM}Deploy a live web preview${NC}"
-        echo -e "  ${CYAN}2.${NC} ${CYAN}scoutica validate$disp_dir${NC}   ${DIM}Check for schema errors${NC}"
-        echo -e "  ${CYAN}3.${NC} ${CYAN}scoutica publish$disp_dir${NC}    ${DIM}Push to GitHub and share${NC}"
-        echo ""
-        echo -e "  ${DIM}Not happy? Edit the JSON files directly or re-run scan.${NC}"
-        echo ""
-    fi
+    # Never auto-publish: scan produces LOCAL files only. Deploying a public preview is an
+    # explicit, separate step the user chooses to run (F-HIGH-PUBLISH-001).
+    echo -e "  ${BOLD}What to do next:${NC}"
+    echo ""
+    echo -e "  ${CYAN}1.${NC} ${CYAN}scoutica preview$disp_dir${NC}    ${DIM}Deploy a live web preview (publishes a public URL)${NC}"
+    echo -e "  ${CYAN}2.${NC} ${CYAN}scoutica validate$disp_dir${NC}   ${DIM}Check for schema errors${NC}"
+    echo -e "  ${CYAN}3.${NC} ${CYAN}scoutica publish$disp_dir${NC}    ${DIM}Push to GitHub and share${NC}"
+    echo ""
+    echo -e "  ${DIM}Not happy? Edit the JSON files directly or re-run scan.${NC}"
+    echo ""
     
     # ── Register card in global registry ──
     local abs_output_dir
@@ -2613,72 +2684,10 @@ cmd_resolve() {
         return 0
     fi
     
-    # ── Security: Validate URL ──
-    if ! echo "$url" | grep -qE '^https://'; then
+    # URL validation + IP pinning happens on the FINAL normalized base_url below, so the check
+    # covers the exact host we fetch and pins curl to that IP (defeats DNS rebinding).
+    if ! printf '%s' "$url" | grep -qE '^https://'; then
         error "Only HTTPS URLs are supported (got: $url)"
-        echo -e "  ${DIM}Example: scoutica resolve https://github.com/user/my-card${NC}" >&2
-        exit 1
-    fi
-    
-    # Block localhost / private IPs / cloud metadata
-    local blocked=false
-    blocked=$(python3 -c "
-import sys
-try:
-    from urllib.parse import urlparse
-    import ipaddress
-    
-    url = sys.argv[1]
-    parsed = urlparse(url)
-    host = parsed.hostname or ''
-    
-    # Check for localhost, IPv4, IPv6
-    private_blocks = [
-        ipaddress.ip_network('127.0.0.0/8'),
-        ipaddress.ip_network('::1/128'),
-        ipaddress.ip_network('fc00::/7'),
-        ipaddress.ip_network('fe80::/10'),
-        ipaddress.ip_network('10.0.0.0/8'),
-        ipaddress.ip_network('172.16.0.0/12'),
-        ipaddress.ip_network('192.168.0.0/16'),
-        ipaddress.ip_network('169.254.0.0/16'),
-        ipaddress.ip_network('0.0.0.0/32'),
-    ]
-    
-    try:
-        # Try resolving hostname to IP
-        import socket
-        addrs = socket.getaddrinfo(host, None)
-        for family, _, _, _, sockaddr in addrs:
-            ip = ipaddress.ip_address(sockaddr[0])
-            for block in private_blocks:
-                if ip in block:
-                    print('BLOCKED')
-                    sys.exit(0)
-    except (socket.gaierror, ValueError):
-        pass
-    
-    # Also block if hostname itself is problematic
-    host_lower = host.lower()
-    if host_lower in ('localhost', 'ip6-localhost', 'ip6-loopback'):
-        print('BLOCKED')
-        sys.exit(0)
-    
-    # Block literal IPs in URL
-    try:
-        ip = ipaddress.ip_address(host)
-        for block in private_blocks:
-            if ip in block:
-                print('BLOCKED')
-                sys.exit(0)
-    except ValueError:
-        pass
-except Exception:
-    pass
-" "$url" 2>/dev/null)
-    
-    if [ "$blocked" = "BLOCKED" ]; then
-        error "Cannot resolve from localhost, private networks, or cloud metadata endpoints"
         exit 1
     fi
     
@@ -2706,19 +2715,41 @@ except Exception:
         base_url=$(echo "$url" | sed 's|/$||')
     fi
     
+    # ── SSRF: validate the FINAL fetch target, then pin curl to the validated host:port:ip so the
+    # connection cannot be rebound between check and fetch — covers IPv4+IPv6 and non-443 ports
+    # (M6/F-HIGH-SSRF-001). ---
+    local pin_spec fetch_host fetch_port pin_ip resolve_args=""
+    pin_spec=$(_validate_url "$base_url") || exit 1
+    read -r fetch_host fetch_port pin_ip <<<"$pin_spec"
+    case "$pin_ip" in
+        "")  ;;
+        *:*) resolve_args="--resolve $fetch_host:$fetch_port:[$pin_ip]" ;;  # IPv6 must be bracketed
+        *)   resolve_args="--resolve $fetch_host:$fetch_port:$pin_ip" ;;
+    esac
+
     header "Resolving Skill Card"
     echo -e "  ${BLUE}→${NC} Fetching from ${DIM}$base_url${NC}"
     echo ""
     
     # ── Try scoutica.json first ──
     local discovery
-    discovery=$(curl -sf --connect-timeout 10 --max-time 30 "$base_url/scoutica.json" 2>/dev/null)
+    discovery=$(curl -sf --connect-timeout 10 --max-time 30 --max-filesize 2097152 $resolve_args "$base_url/scoutica.json" 2>/dev/null)
     if [ -n "$discovery" ]; then
         echo -e "  ${GREEN}✅${NC} Found scoutica.json (discovery file)"
         local card_url
         card_url=$(echo "$discovery" | python3 -c "import sys,json; print(json.load(sys.stdin).get('card_url',''))" 2>/dev/null)
         if [ -n "$card_url" ] && [ "$card_url" != "$base_url" ]; then
+            # A discovery file is attacker-influenced — re-run the SAME guard so it cannot
+            # redirect the fetch to an internal host (F-HIGH-SSRF-001).
             base_url=$(echo "$card_url" | sed 's|/$||')
+            pin_spec=$(_validate_url "$base_url") || { error "Discovered card_url failed validation; refusing redirect"; exit 1; }
+            read -r fetch_host fetch_port pin_ip <<<"$pin_spec"
+            resolve_args=""
+            case "$pin_ip" in
+                "")  ;;
+                *:*) resolve_args="--resolve $fetch_host:$fetch_port:[$pin_ip]" ;;  # IPv6 bracketed
+                *)   resolve_args="--resolve $fetch_host:$fetch_port:$pin_ip" ;;
+            esac
             echo -e "  ${DIM}→ Card URL: $base_url${NC}"
         fi
     fi
@@ -2727,7 +2758,7 @@ except Exception:
     local profile="" rules="" evidence="" skill_md=""
     local found=0
     
-    profile=$(curl -sf --connect-timeout 10 --max-time 30 "$base_url/profile.json" 2>/dev/null)
+    profile=$(curl -sf --connect-timeout 10 --max-time 30 --max-filesize 2097152 $resolve_args "$base_url/profile.json" 2>/dev/null)
     if [ -n "$profile" ]; then
         echo -e "  ${GREEN}📄${NC} profile.json"
         found=$((found + 1))
@@ -2735,7 +2766,7 @@ except Exception:
         echo -e "  ${RED}✗${NC} profile.json ${DIM}(not found)${NC}"
     fi
     
-    rules=$(curl -sf --connect-timeout 10 --max-time 30 "$base_url/rules.yaml" 2>/dev/null)
+    rules=$(curl -sf --connect-timeout 10 --max-time 30 --max-filesize 2097152 $resolve_args "$base_url/rules.yaml" 2>/dev/null)
     if [ -n "$rules" ]; then
         echo -e "  ${GREEN}📄${NC} rules.yaml"
         found=$((found + 1))
@@ -2743,7 +2774,7 @@ except Exception:
         echo -e "  ${RED}✗${NC} rules.yaml ${DIM}(not found)${NC}"
     fi
     
-    evidence=$(curl -sf --connect-timeout 10 --max-time 30 "$base_url/evidence.json" 2>/dev/null)
+    evidence=$(curl -sf --connect-timeout 10 --max-time 30 --max-filesize 2097152 $resolve_args "$base_url/evidence.json" 2>/dev/null)
     if [ -n "$evidence" ]; then
         echo -e "  ${GREEN}📄${NC} evidence.json"
         found=$((found + 1))
@@ -2751,7 +2782,7 @@ except Exception:
         echo -e "  ${RED}✗${NC} evidence.json ${DIM}(not found)${NC}"
     fi
     
-    skill_md=$(curl -sf --connect-timeout 10 --max-time 30 "$base_url/SKILL.md" 2>/dev/null)
+    skill_md=$(curl -sf --connect-timeout 10 --max-time 30 --max-filesize 2097152 $resolve_args "$base_url/SKILL.md" 2>/dev/null)
     if [ -n "$skill_md" ]; then
         echo -e "  ${GREEN}📄${NC} SKILL.md"
         found=$((found + 1))
@@ -2793,12 +2824,14 @@ except Exception:
         skills_summary=$(echo "$profile" | python3 -c "
 import sys, json
 p = json.load(sys.stdin)
-s = p.get('skills', {})
-parts = []
-if s.get('languages'): parts.append(f\"Languages: {', '.join(s['languages'])}\")
-if s.get('frameworks'): parts.append(f\"Frameworks: {', '.join(s['frameworks'])}\")
-if s.get('tools_and_platforms'): parts.append(f\"Tools: {', '.join(s['tools_and_platforms'])}\")
-for l in parts: print(f'  {l}')
+def _line(label, key):
+    v = p.get(key, [])
+    if isinstance(v, list) and v:
+        return '  ' + label + ': ' + ', '.join(str(x) for x in v)
+    return None
+for line in (_line('Skills', 'skills'), _line('Tools', 'tools_and_platforms'), _line('Specializations', 'specializations')):
+    if line:
+        print(line)
 " 2>/dev/null)
         
         if [ -n "$skills_summary" ]; then
@@ -2814,17 +2847,21 @@ for l in parts: print(f'  {l}')
         rules_summary=$(echo "$rules" | python3 -c "
 import sys, yaml
 try:
-    r = yaml.safe_load(sys.stdin)
-    if r.get('compensation',{}).get('minimum_base_eur'):
-        print(f\"  Minimum salary: {r['compensation']['minimum_base_eur']} EUR\")
-    if r.get('remote',{}).get('policy'):
-        print(f\"  Remote policy: {r['remote']['policy']}\")
-    if r.get('engagement',{}).get('allowed_types'):
-        print(f\"  Engagement: {', '.join(r['engagement']['allowed_types'])}\")
-    blocked = r.get('auto_reject',{}).get('blocked_industries',[])
+    r = yaml.safe_load(sys.stdin) or {}
+    comp = r.get('engagement', {}).get('compensation', {}).get('minimum_base_eur')
+    if comp:
+        if isinstance(comp, dict):
+            comp = ', '.join(str(k) + ': ' + str(v) for k, v in comp.items())
+        print('  Minimum salary: ' + str(comp) + ' EUR')
+    if r.get('remote', {}).get('policy'):
+        print('  Remote policy: ' + str(r['remote']['policy']))
+    if r.get('engagement', {}).get('allowed_types'):
+        print('  Engagement: ' + ', '.join(r['engagement']['allowed_types']))
+    blocked = r.get('filters', {}).get('blocked_industries', [])
     if blocked:
-        print(f\"  Blocked industries: {', '.join(blocked)}\")
-except Exception: pass
+        print('  Blocked industries: ' + ', '.join(blocked))
+except Exception:
+    pass
 " 2>/dev/null)
         
         if [ -n "$rules_summary" ]; then
@@ -2852,11 +2889,14 @@ except Exception: pass
             fi
         done
         mkdir -p "$save_dir"
-        [ -n "$profile" ] && echo "$profile" > "$save_dir/profile.json"
+        # F-MED-FETCH-002: only persist remote JSON that actually parses (defends against a
+        # hostile card writing garbage). rules.yaml / SKILL.md are text, already size-capped by curl.
+        _json_ok() { printf '%s' "$1" | python3 -c 'import sys,json; json.load(sys.stdin)' 2>/dev/null; }
+        [ -n "$profile" ] && { _json_ok "$profile" && echo "$profile" > "$save_dir/profile.json" || warn "Skipping profile.json: response was not valid JSON"; }
         [ -n "$rules" ] && echo "$rules" > "$save_dir/rules.yaml"
-        [ -n "$evidence" ] && echo "$evidence" > "$save_dir/evidence.json"
+        [ -n "$evidence" ] && { _json_ok "$evidence" && echo "$evidence" > "$save_dir/evidence.json" || warn "Skipping evidence.json: response was not valid JSON"; }
         [ -n "$skill_md" ] && echo "$skill_md" > "$save_dir/SKILL.md"
-        [ -n "$discovery" ] && echo "$discovery" > "$save_dir/scoutica.json"
+        [ -n "$discovery" ] && { _json_ok "$discovery" && echo "$discovery" > "$save_dir/scoutica.json" || warn "Skipping scoutica.json: response was not valid JSON"; }
         echo ""
         success "Card saved to $save_dir/"
         
@@ -2905,7 +2945,7 @@ cmd_preview() {
         if [ -n "$stored_card_hash" ] && [ "$current_card_hash" = "$stored_card_hash" ] && [ -n "$stored_url" ] && [ -n "$stored_expires" ]; then
             # Check if URL is still valid (not expired)
             local now_epoch=$(date +%s)
-            local expires_epoch=$(python3 -c "from datetime import datetime;print(int(datetime.strptime('$stored_expires','%Y-%m-%dT%H:%M:%SZ').timestamp()))" 2>/dev/null || echo "0")
+            local expires_epoch=$(python3 -c "import sys;from datetime import datetime;print(int(datetime.strptime(sys.argv[1],'%Y-%m-%dT%H:%M:%SZ').timestamp()))" "$stored_expires" 2>/dev/null || echo "0")
             
             if [ "$now_epoch" -lt "$expires_epoch" ]; then
                 local remaining_hrs=$(( (expires_epoch - now_epoch) / 3600 ))
@@ -2963,6 +3003,13 @@ def esc(s):
     """HTML-escape user content to prevent XSS in preview."""
     return html_mod.escape(str(s)) if s else ""
 
+def safe_href(u):
+    """Only http(s)/mailto hrefs survive; javascript:/data:/other schemes -> '#' (F-MED-PREVIEW-001)."""
+    u = str(u or "").strip()
+    if u.lower().startswith(("http://", "https://", "mailto:")):
+        return html_mod.escape(u, quote=True)
+    return "#"
+
 name = esc(profile.get("name", "Unknown Operator"))
 title = esc(profile.get("title", "Initiate"))
 seniority = esc(profile.get("seniority", "junior")).upper()
@@ -2983,7 +3030,7 @@ evidence_html = ""
 for item in evidence_items:
     t = esc(item.get("title", ""))
     desc = esc(item.get("description", ""))
-    url = esc(item.get("url", "#"))
+    url = safe_href(item.get("url", "#"))
     tags = " ".join([f"<span class='tag tag-primary'>{esc(s)}</span>" for s in item.get("skills_demonstrated", [])])
     evidence_html += f"""
     <div class="cyber-card">
@@ -3455,6 +3502,7 @@ cmd_org_init() {
     
     mkdir -p "$target_dir/roles"
     
+    _refuse_if_symlink "$target_dir/recruiter_profile.json" "$target_dir/hiring_rules.yaml" || exit 1
     # Generate recruiter_profile.json and hiring_rules.yaml via Python
     python3 << 'ORG_GENERATE_SCRIPT' - \
         "$target_dir" \
@@ -3817,7 +3865,7 @@ cmd_role_create() {
     # ── Recruiter Card URL ──
     local recruiter_card_url=""
     if [ -f "$target_dir/recruiter_profile.json" ]; then
-        recruiter_card_url=$(python3 -c "import json; d=json.load(open('$target_dir/recruiter_profile.json')); print(d.get('card_url',''))" 2>/dev/null || echo "")
+        recruiter_card_url=$(python3 -c "import json,sys; d=json.load(open(sys.argv[1]+'/recruiter_profile.json')); print(d.get('card_url',''))" "$target_dir" 2>/dev/null || echo "")
     fi
     if [ -z "$recruiter_card_url" ]; then
         recruiter_card_url=$(ask "Recruiter card URL (optional)" "")
@@ -4705,90 +4753,106 @@ cmd_identity_init() {
         fi
     fi
     
-    python3 - "$identity_dir" <<'IDENTITY_SCRIPT'
-import json, sys, os, hashlib, secrets
+    _refuse_if_symlink "$identity_dir" "$identity_dir/keypair.json" "$identity_dir/public.json" || exit 1
+    if python3 - "$identity_dir" <<'IDENTITY_SCRIPT'
+import json, sys, os, secrets
 from datetime import datetime, timezone
 
 identity_dir = sys.argv[1]
-os.makedirs(identity_dir, exist_ok=True)
 
-# Generate a secp256k1-compatible private key
-# (32 random bytes, hex-encoded)
-private_key_bytes = secrets.token_bytes(32)
-private_key_hex = private_key_bytes.hex()
+# bech32 (BIP-0173) encoder — a deterministic encoding, not cryptography.
+_CHARSET = "qpzry9x8gf2tvdw0s3jn54khce6mua7l"
+def _polymod(values):
+    gen = [0x3b6a57b2, 0x26508e6d, 0x1ea119fa, 0x3d4233dd, 0x2a1462b3]
+    chk = 1
+    for v in values:
+        b = chk >> 25
+        chk = ((chk & 0x1ffffff) << 5) ^ v
+        for i in range(5):
+            chk ^= gen[i] if ((b >> i) & 1) else 0
+    return chk
+def _hrp_expand(hrp):
+    return [ord(x) >> 5 for x in hrp] + [0] + [ord(x) & 31 for x in hrp]
+def _convertbits(data):
+    acc = 0; bits = 0; out = []
+    for b in data:
+        acc = (acc << 8) | b; bits += 8
+        while bits >= 5:
+            bits -= 5; out.append((acc >> bits) & 31)
+    if bits:
+        out.append((acc << (5 - bits)) & 31)
+    return out
+def bech32(hrp, raw):
+    data = _convertbits(list(raw))
+    poly = _polymod(_hrp_expand(hrp) + data + [0] * 6) ^ 1
+    chk = [(poly >> 5 * (5 - i)) & 31 for i in range(6)]
+    return hrp + "1" + "".join(_CHARSET[d] for d in data + chk)
 
-# Derive public key (simplified — for full secp256k1, use a library)
-# For now, generate a deterministic pubkey hash as placeholder
-# In production, this would use actual secp256k1 point multiplication
-pubkey_hash = hashlib.sha256(private_key_bytes).hexdigest()
+# Real secp256k1 keypair, or refuse — NEVER emit hash-derived placeholder keys.
+try:
+    from coincurve import PrivateKey
+except Exception:
+    sys.exit(3)
 
-# Create npub-style identifier (Bech32 encoding would be ideal, using hex for now)
-npub_placeholder = f"npub1{pubkey_hash[:58]}"
-nsec_placeholder = f"nsec1{private_key_hex[:58]}"
-
+sk = PrivateKey(secrets.token_bytes(32))
+priv = sk.secret                                  # 32-byte private key
+xonly = sk.public_key.format(compressed=True)[1:]  # 32-byte x-only Nostr pubkey
+npub = bech32("npub", xonly)
+nsec = bech32("nsec", priv)
 now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+relays = ["wss://relay.damus.io", "wss://relay.nostr.band", "wss://nos.lol"]
 
-identity = {
-    "created_at": now,
-    "algorithm": "secp256k1",
-    "note": "Placeholder keys. For production use, generate proper secp256k1 keypair with python-nostr or nostr-tools.",
-    "public_key_hex": pubkey_hash,
-    "npub": npub_placeholder,
-    "private_key_hex": private_key_hex,
-    "nsec": nsec_placeholder,
-    "default_relays": [
-        "wss://relay.damus.io",
-        "wss://relay.nostr.band",
-        "wss://nos.lol"
-    ]
-}
+os.makedirs(identity_dir, mode=0o700, exist_ok=True)
+os.chmod(identity_dir, 0o700)
 
-# Save keypair (private — never share)
 keypair_file = os.path.join(identity_dir, "keypair.json")
-with open(keypair_file, "w") as f:
-    json.dump(identity, f, indent=2)
-    f.write("\n")
-os.chmod(keypair_file, 0o600)
+_keydata = {"created_at": now, "algorithm": "secp256k1",
+            "public_key_hex": xonly.hex(), "npub": npub,
+            "private_key_hex": priv.hex(), "nsec": nsec,
+            "default_relays": relays}
+# Race-free private-key write: mkstemp makes a fresh 0600 file (never following a symlink),
+# fchmod to be certain, write, then atomically replace keypair.json (no O_TRUNC-follows-symlink,
+# no loose-perms window on overwrite).
+import tempfile
+_fd, _tmp = tempfile.mkstemp(dir=identity_dir, prefix=".keypair.", suffix=".tmp")
+try:
+    os.fchmod(_fd, 0o600)
+    with os.fdopen(_fd, "w") as f:
+        json.dump(_keydata, f, indent=2)
+        f.write("\n")
+    os.replace(_tmp, keypair_file)
+except BaseException:
+    try:
+        os.unlink(_tmp)
+    except OSError:
+        pass
+    raise
 
-# Save public-only file (safe to share)
-public_file = os.path.join(identity_dir, "public.json")
-public = {
-    "public_key_hex": pubkey_hash,
-    "npub": npub_placeholder,
-    "default_relays": identity["default_relays"],
-    "created_at": now,
-}
-with open(public_file, "w") as f:
-    json.dump(public, f, indent=2)
+with open(os.path.join(identity_dir, "public.json"), "w") as f:
+    json.dump({"public_key_hex": xonly.hex(), "npub": npub,
+               "default_relays": relays, "created_at": now}, f, indent=2)
     f.write("\n")
 
-print(f"  ✅ Nostr identity generated!")
+print("  ✅ Nostr identity generated (real secp256k1).")
 print()
-print(f"  🔑 Public key (share this):")
-print(f"     {npub_placeholder}")
-print()
-print(f"  🔒 Private key (NEVER share):")
-print(f"     Stored at: {keypair_file} (chmod 600)")
-print()
-print(f"  📡 Default relays:")
-for relay in identity["default_relays"]:
-    print(f"     • {relay}")
-print()
-print(f"  ⚠️  NOTE: These are placeholder keys using SHA-256 derivation.")
-print(f"     For production use, install python-nostr for proper secp256k1:")
-print(f"     pip install python-nostr")
-print()
-print(f"  📋 Next steps:")
-print(f"     1. Add your pubkey to scoutica.json:")
-print(f"        \"transport\": {{")
-print(f"          \"preferred\": \"nostr\",")
-print(f"          \"nostr\": {{")
-print(f"            \"pubkey\": \"{npub_placeholder}\",")
-print(f"            \"relays\": [\"wss://relay.damus.io\"]")
-print(f"          }}")
-print(f"        }}")
-print(f"     2. Publish your updated card: scoutica publish")
+print("  \U0001f511 Public key (share this): " + npub)
+print("  \U0001f512 Private key stored at " + keypair_file + " (mode 600) — NEVER share it.")
+print("  \U0001f4e1 Default relays: " + ", ".join(relays))
 IDENTITY_SCRIPT
+    then
+        :
+    else
+        _rc=$?
+        if [ "$_rc" -eq 3 ]; then
+            error "Cannot generate a real Nostr identity: no secp256k1 library is available."
+            echo -e "  ${DIM}Scoutica refuses to write placeholder/hash-derived keys — they are NOT valid Nostr${NC}" >&2
+            echo -e "  ${DIM}keys and would fake a working identity. Install a real library and retry, e.g.:${NC}" >&2
+            echo -e "  ${CYAN}pip install coincurve${NC}" >&2
+        else
+            error "Identity generation failed (exit $_rc)."
+        fi
+        exit 1
+    fi
     
     echo ""
 }
@@ -4804,14 +4868,14 @@ cmd_identity_show() {
     header "Your Nostr Identity"
     
     python3 -c "
-import json
-with open('$identity_file') as f:
+import json, sys
+with open(sys.argv[1]) as f:
     pub = json.load(f)
 print(f\"  🔑 Public Key: {pub['npub']}\")
 print(f\"  📡 Relays: {', '.join(pub.get('default_relays', []))}\")
 print(f\"  📅 Created: {pub.get('created_at', 'unknown')}\")
 print()
-"
+" "$identity_file"
 }
 
 # ─── DELIVER Command (Push Pending Messages) ────────────────────────────────

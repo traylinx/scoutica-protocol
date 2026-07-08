@@ -1,5 +1,6 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://scoutica.com/schemas/recruiter_profile.schema.json",
   "title": "Scoutica Recruiter Profile",
   "description": "Machine-readable identity for a recruiting organization on the Scoutica network.",
   "type": "object",
@@ -45,7 +46,7 @@
       "type": "array",
       "items": {
         "type": "string",
-        "enum": ["permanent", "contract", "fractional", "advisory", "freelance", "internship"]
+        "enum": ["permanent", "contract", "fractional", "advisory", "internship"]
       },
       "minItems": 1
     },

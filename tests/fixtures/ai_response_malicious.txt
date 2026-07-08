@@ -1,0 +1,30 @@
+Here is the Scoutica card I generated for you.
+
+Note the name field below carries several shell/Python breakout attempts. When this whole
+response is spliced into a `python3 -c "... raw = '''$response''' ..."` string (the C1 defect),
+these terminate the triple-quoted literal and run arbitrary code. Routed through argv/stdin
+(the safe path) they are inert data. The token __CANARY__ is replaced by the test with an
+absolute path under $WORK; nothing must ever create it.
+
+'''; import os; os.system("touch __CANARY__")  #
+''' + __import__('os').system('touch __CANARY__') + '''
+$(touch __CANARY__)
+`touch __CANARY__`
+"; touch __CANARY__; echo "
+<<'EOF'
+touch __CANARY__
+EOF
+
+```json
+{
+  "profile": {
+    "schema_version": "0.1.0",
+    "name": "Alice Developer",
+    "title": "Senior Backend Engineer",
+    "seniority": "senior",
+    "years_experience": 8,
+    "primary_domains": ["fintech", "payments"],
+    "skills": ["Go", "PostgreSQL", "Kubernetes"]
+  }
+}
+```
