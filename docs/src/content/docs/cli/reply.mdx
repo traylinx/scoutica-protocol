@@ -1,0 +1,102 @@
+---
+title: "scoutica reply"
+description: "Accept, reject, or withdraw in response to a message in your inbox \u2014 threaded, logged, and staged for delivery."
+---
+
+import Note from '@components/Note.astro';
+import Steps from '@components/Steps.astro';
+import Step from '@components/Step.astro';
+
+`reply` answers a message you received. Point it at a `message_id` from your [inbox](/cli/inbox), pick an action, and Scoutica builds the correctly-threaded response envelope, stages it for delivery, and files the original away.
+
+<Note>
+Like `send`, `reply` is **draft-first**. Your response is written to your outbox and pending-delivery folder and logged — it is not transmitted until you run [`scoutica deliver`](/cli/deliver).
+</Note>
+
+## Command Syntax
+
+```bash
+scoutica reply <message_id> --accept
+scoutica reply <message_id> --reject
+scoutica reply <message_id> --withdraw
+```
+
+`<message_id>` is the id shown by [`scoutica inbox`](/cli/inbox) (for example `msg_9f3a1c7d`). Exactly one action flag is required.
+
+## Actions and options
+
+| Flag | Response type | Notes |
+|------|---------------|-------|
+| `--accept` | `response.accept` | Adds your note to `payload.message` when `--message` is given. |
+| `--reject` | `response.reject` | Records reasons. Without `--message`, the payload is marked `auto_rejected: true` with reason `auto_rejected_by_rules`. |
+| `--withdraw` | `response.withdraw` | Adds your note to `payload.reason` when `--message` is given. |
+| `--message <text>` | — | Optional free text attached to any of the above. |
+
+If you supply no action flag, the command exits with an error asking for `--accept`, `--reject`, or `--withdraw`. If the `message_id` is not found in your inbox, it tells you to check `scoutica inbox`.
+
+## What it does
+
+<Steps>
+  <Step title="Finds the original">
+    Scans `~/.scoutica/inbox/` for the message with the matching `message_id`.
+  </Step>
+  <Step title="Builds the threaded response">
+    Sets `in_reply_to` to the original id, carries over its `conversation_id`, and addresses the reply back to the original sender's `card_url`.
+  </Step>
+  <Step title="Stages it for delivery">
+    Writes the response to `~/.scoutica/outbox/` and `~/.scoutica/pending_delivery/<sender_hash>/`, and appends a `reply_sent` line to `~/.scoutica/privacy/access_log.jsonl`.
+  </Step>
+  <Step title="Files the original">
+    Moves the original message out of the inbox into `~/.scoutica/inbox/processed/` so it won't show up again.
+  </Step>
+</Steps>
+
+## Example response envelope
+
+A `--reject` with no message:
+
+```json
+{
+  "message_id": "msg_4c1e88fa",
+  "type": "response.reject",
+  "recipient": "https://github.com/acme-corp/hiring-card",
+  "conversation_id": "conv_2b8e4a10",
+  "in_reply_to": "msg_9f3a1c7d",
+  "timestamp": "2026-07-08T15:05:00Z",
+  "ttl_hours": 168,
+  "transport_used": "git",
+  "payload": {
+    "reasons": ["auto_rejected_by_rules"],
+    "auto_rejected": true
+  }
+}
+```
+
+## Examples
+
+```bash
+# Accept an offer with a note
+scoutica reply msg_9f3a1c7d --accept --message "Happy to talk — Tuesday works."
+
+# Reject with a specific reason
+scoutica reply msg_9f3a1c7d --reject --message "Below my salary floor."
+
+# Reject and let the rules speak for themselves
+scoutica reply msg_9f3a1c7d --reject
+
+# Withdraw from a thread you started
+scoutica reply msg_9f3a1c7d --withdraw --message "Position filled internally."
+
+# Then push the response
+scoutica deliver
+```
+
+## Security posture
+
+- **No auto-send.** `reply` only writes local files; your response reaches no one until you deliver it deliberately.
+- **Consent is explicit.** A message sits untouched in your inbox until *you* choose to answer. Nothing responds on your behalf, and the original is only consumed (moved to `processed/`) when you reply.
+- **Auditable.** Every reply is logged to your transparency log with its type, the id it answers, and the recipient.
+
+## Next step
+
+Your reply is staged, not sent. Push it with [`scoutica deliver`](/cli/deliver); the sender then sees it in their own [`scoutica inbox`](/cli/inbox).

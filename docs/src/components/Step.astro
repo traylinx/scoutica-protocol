@@ -1,0 +1,12 @@
+---
+const { title } = Astro.props;
+---
+<div class="sc-step">
+  {title && <p class="sc-step-title">{title}</p>}
+  <div class="sc-step-body"><slot /></div>
+</div>
+<style>
+.sc-step{counter-increment:sc-step;position:relative;padding-bottom:.5rem;}
+.sc-step::before{content:counter(sc-step);position:absolute;inset-inline-start:-2.75rem;top:-.1rem;width:1.7rem;height:1.7rem;border-radius:50%;background:var(--sl-color-accent);color:var(--sl-color-white);display:grid;place-items:center;font-size:.85rem;font-weight:700;line-height:1;}
+.sc-step-title{font-weight:600;margin:.1rem 0 .4rem;}
+</style>

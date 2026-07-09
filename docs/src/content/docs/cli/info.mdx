@@ -1,0 +1,46 @@
+---
+title: "scoutica info"
+description: "Display a clean, human-readable summary of the current Skill Card."
+---
+
+When you navigate into a directory containing a Scoutica profile, raw JSON arrays can be difficult to read quickly. `scoutica info` is your quick lens into the semantic data locally.
+
+## Command Syntax
+```bash
+scoutica info [directory]
+```
+
+## How It Works
+
+This command does not hit the internet, APIs, or GitHub. It executes purely offline.
+It parses `profile.json`, `evidence.json`, and `rules.yaml` in the active scope and visually outputs:
+- Your exact Professional Title and Name.
+- Your Domain vectors.
+- Your Years of Experience vs Seniority Level.
+- Compensation Rules (e.g. Remote Policy constraints).
+- Total aggregated Public Evidence count.
+
+**Why use it:**
+- **Sanity Checks:** After running `scoutica scan ~/CV`, you want a rapid glance at what the AI extracted without breaking out `cat profile.json` or launching VS Code.
+- Verifying the local instance before choosing to `publish` to the open internet.
+
+### Output Example
+```text
+╔═══════════════════════════════════════════════════════╗
+║  John Doe
+║  Senior Backend Architect
+║  Seniority: senior  |  Experience: 8 years
+║  Domains: distributed_systems, fintech
+╚═══════════════════════════════════════════════════════╝
+
+  Skills:
+    Languages: Rust, Go, TypeScript
+    Tools: Kubernetes, Kafka, Terraform
+
+  Rules of Engagement:
+    Minimum salary: 140000 EUR
+    Remote policy: hybrid
+    Engagement: permanent
+
+  Evidence: 4 public items
+```

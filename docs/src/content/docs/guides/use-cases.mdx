@@ -1,0 +1,41 @@
+---
+title: "Use Cases"
+description: "Deep dive into real-world applications of the Scoutica Protocol for varying professions."
+---
+
+The protocol transcends singular job applications. By adhering to rigorous schema data parsing, a Scoutica Skill Card acts as an autonomous ambassador mapping perfectly across disparate professional domains.
+
+---
+
+## 1. The Stealth Mode Engineer
+
+**The Problem:** You work on top-secret infrastructure at a major cloud provider. You don't want a noisy LinkedIn profile explicitly defining your exact tasks, but you still want recruiters who operate within rigorous parameters to contact you if they hit your $250k Base floor.
+
+**The Execution:**
+- You instantiate purely via `scoutica init`, completely skipping the `--ai` engine parsing because your true data must be isolated.
+- In your `rules.yaml`, you configure the `auto_reject` block aggressively, filtering out explicitly defined industries (e.g., `["crypto", "ads", "gambling"]`).
+- You compile your `evidence.json` referencing open-source repos completely unrelated to your corporate identity to prove baseline competency without breaching NDAs.
+- When an AI agent reaches out dynamically, your card mathematically blocks the evaluation instantly if their parameters misalign, leaving your inbox spotless.
+
+## 2. The Remote Open-Source Contractor
+
+**The Problem:** You do high-level independent consulting logic. Your hours are entirely asynchronous and strictly remote.
+
+**The Execution:**
+- You run `scoutica scan ~/GitHub-Projects/ ./` allowing your local Mistral/Gemini LLM directly read your heavy architectural markdown overviews and structure your capability matrix completely.
+- In `rules.yaml`, you forcefully assert `engagement.allowed_types: ["contract"]` and set `remote.policy: "remote"`.
+- By pushing your profile back to GitHub and issuing `scoutica preview`, you generate an instant brutalist HTML application you link explicitly into your Twitter bio `_Discover my skill API constraint limits._`
+
+## 3. The Autonomous Headhunter AI
+
+**The Problem:** As a recruiter, you waste 35 hours weekly manually parsing PDFs and guessing if candidates will accept an exact salary band or require visa sponsorships.
+
+**The Execution:**
+- Your AI pipeline leverages Scoutica directly from the backend.
+- It parses candidate URLs aggressively via `scoutica resolve <card-url>`.
+- Without using token-heavy LLMs for extraction, standard Python libraries index `rules.compensation.minimum_base_eur` and immediately drop candidates matching less than the target budget array computationally.
+- You engage in interviews exclusively with candidates programmatically capable of clearing Phase 1 matching metrics intrinsically via structured JSON filtering.
+
+---
+
+The applications branch fundamentally into autonomous ecosystems precisely because **the metadata is rigorous and validated.** You are no longer managing PDFs; you are managing a living database schema.

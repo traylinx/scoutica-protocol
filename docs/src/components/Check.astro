@@ -1,0 +1,5 @@
+---
+import { Aside } from '@astrojs/starlight/components';
+const { title } = Astro.props;
+---
+<Aside type="tip" title={title}><slot /></Aside>

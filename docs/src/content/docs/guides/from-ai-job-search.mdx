@@ -1,0 +1,51 @@
+---
+title: "From ai-job-search"
+description: "Bridge an ai-job-search fork into Scoutica so one profile serves the whole hiring funnel."
+---
+
+import Note from '@components/Note.astro';
+import Steps from '@components/Steps.astro';
+import Step from '@components/Step.astro';
+
+[ai-job-search](https://github.com/MadsLorentzen/ai-job-search) and Scoutica sit on **two halves of the same funnel**. ai-job-search is a candidate-side *application workflow* — it finds postings, evaluates fit, and drafts tailored CVs and cover letters. Scoutica is the *protocol* — a static, machine-readable Skill Card that lets any recruiter's agent discover and score you deterministically.
+
+They share exactly one thing: **your profile**. The `scoutica import` command turns the profile you already maintain in an ai-job-search fork into a Scoutica Skill Card, so you fill it in once and use it everywhere.
+
+## Why bridge instead of choose
+
+- **Keep applying with ai-job-search.** Nothing about your fork changes; the import only *reads* it.
+- **Become discoverable with Scoutica.** Publish the generated card and recruiters' agents can find and pre-screen you against your own rules — no applications required.
+- **One source of truth.** Update your fork, re-import, re-publish. Your policies (`rules.yaml`) travel with you.
+
+## Steps
+
+<Steps>
+<Step title="Populate your ai-job-search fork">
+Run its `/setup` so `01-candidate-profile.md` and the related files are filled in — not left as `[PLACEHOLDER]` tokens.
+</Step>
+<Step title="Import into a card">
+```bash
+scoutica import aijs ~/ai-job-search --to ./my-card --salary-floor-eur 85000
+```
+The importer is offline and deterministic — see [`scoutica import`](/cli/import) for the full mapping and exit codes.
+</Step>
+<Step title="Review, validate, publish">
+```bash
+scoutica validate ./my-card
+scoutica publish ./my-card
+```
+Read `rules.yaml` before publishing — the import is a first draft of your policies, not the final word.
+</Step>
+</Steps>
+
+## What stays private
+
+The importer copies only what belongs in a shareable card. Your behavioral profile, writing-style notes, interview stories, application tracker, and any salary data files are **never** imported — data minimization by default.
+
+## Then what?
+
+Once your card exists, the [`apply-to-role`](/cli/overview) skill can draft applications *from the card*, running Scoutica's deterministic scorer as a gate first: if your own `rules.yaml` rejects a role, it refuses to draft. Your card drives both discovery and application.
+
+<Note>
+ai-job-search is an independent MIT-licensed project by Mads Lorentzen. Scoutica bridges to it and credits it; it neither vendors nor replaces it.
+</Note>

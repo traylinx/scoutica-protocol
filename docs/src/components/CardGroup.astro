@@ -1,0 +1,8 @@
+---
+const { cols = 2 } = Astro.props;
+---
+<div class="sc-cardgrid" style={`--sc-cols:${cols}`}><slot /></div>
+<style>
+.sc-cardgrid{display:grid;grid-template-columns:repeat(var(--sc-cols,2),1fr);gap:1rem;margin:1rem 0;}
+@media(max-width:640px){.sc-cardgrid{grid-template-columns:1fr;}}
+</style>

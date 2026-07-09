@@ -1,0 +1,70 @@
+---
+title: "scoutica import"
+description: "Convert an existing ai-job-search fork into a schema-valid Scoutica Skill Card \u2014 offline and deterministic."
+---
+
+import Note from '@components/Note.astro';
+
+If you already keep your profile in an [ai-job-search](https://github.com/MadsLorentzen/ai-job-search) fork, `import` turns it into a Scoutica Skill Card in one step. It reads your fork's local markdown, maps it onto the Scoutica schemas, and writes `profile.json`, `rules.yaml`, `evidence.json`, and `SKILL.md`.
+
+<Note>
+`import` is **fully offline and deterministic**. It never touches the network, never runs your shell, never calls an AI, and never commits to git. Every value from your fork is written through a structured serializer, so quotes, backslashes, or other special characters land as literal data — they can't corrupt the output or execute. Evidence URLs are recorded verbatim and are **never fetched**.
+</Note>
+
+## Command Syntax
+
+```bash
+scoutica import aijs <fork-directory> [options]
+```
+
+The source type `aijs` selects the ai-job-search adapter. `<fork-directory>` is the path to your populated fork.
+
+## Options
+
+| Option | Behavior |
+|--------|----------|
+| `--to <dir>` | Where to write the card. Defaults to the current directory. Refuses a non-empty directory unless `--force` is given. |
+| `--salary-floor-eur <N>` | Set your minimum base compensation (EUR) for each compensable engagement type. Must be a non-negative integer. Omitted if not provided — salary is **never guessed** from your CV. |
+| `--force` | Allow writing into a non-empty target directory. Symlinked target files and symlinked parent directories are still refused. |
+
+## What gets imported
+
+| Scoutica field | Comes from your fork |
+|----------------|----------------------|
+| `title`, `seniority`, `skills`, `primary_domains` | `01-candidate-profile.md` (Identity, Professional Experience, Technical Skills) |
+| `years_experience`, `education`, `spoken_languages`, `certifications`, `specializations` | profile + `CLAUDE.md` fallback |
+| `rules.yaml` engagement / remote policy / blocked industries | employment status, constraints, and `04-job-evaluation.md` deal-breakers |
+| `filters.stack_keywords` | `search-queries.md` plus your top skills |
+| `evidence.json` | GitHub / portfolio links and publications that carry a URL |
+
+Seniority is inferred from your role titles and years of experience. If it can't be resolved and you're not in an interactive terminal, the import **aborts** rather than guessing.
+
+## What is deliberately NOT imported
+
+To keep your published card minimal, the importer never copies your behavioral profile, writing-style notes, interview stories (STAR answers), application tracker, or any salary data files. These are private working material with no home in a shareable card.
+
+## Exit codes
+
+| Code | Meaning |
+|------|---------|
+| `0` | Success — card written. |
+| `2` | A required field (title / seniority source / skills / domains) is still an unfilled `[PLACEHOLDER]`. Nothing is written. |
+| `3` | A required enum (seniority) could not be resolved and the run is non-interactive. Nothing is written. |
+| `4` | Target refusal — the directory is non-empty (without `--force`), or a target file or parent directory is a symlink. |
+
+## Example
+
+```bash
+# Convert your fork into a card in ./my-card, setting a salary floor
+scoutica import aijs ~/ai-job-search --to ./my-card --salary-floor-eur 85000
+
+# Then validate and (when ready) publish
+scoutica validate ./my-card
+scoutica publish ./my-card
+```
+
+After importing, review the generated files — especially `rules.yaml` — before publishing. The importer is a fast first draft, not the final word on your policies.
+
+## Attribution
+
+The ai-job-search project is an independent open-source workflow by [Mads Lorentzen](https://github.com/MadsLorentzen/ai-job-search) (MIT). Scoutica bridges *to* it; it does not vendor or replace it.

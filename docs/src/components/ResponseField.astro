@@ -1,0 +1,21 @@
+---
+const { name, type, required, default: def } = Astro.props;
+---
+<div class="sc-field">
+  <div class="sc-field-head">
+    <code class="sc-field-name">{name}</code>
+    {type && <span class="sc-field-type">{type}</span>}
+    {required && <span class="sc-field-req">required</span>}
+    {def !== undefined && <span class="sc-field-def">default: {def}</span>}
+  </div>
+  <div class="sc-field-body"><slot /></div>
+</div>
+<style>
+.sc-field{border-top:1px solid var(--sl-color-hairline);padding:.6rem 0;}
+.sc-field-head{display:flex;gap:.5rem;align-items:baseline;flex-wrap:wrap;}
+.sc-field-name{font-weight:700;color:var(--sl-color-white);}
+.sc-field-type{font-size:.8rem;color:var(--sl-color-gray-3);}
+.sc-field-req{font-size:.72rem;text-transform:uppercase;letter-spacing:.03em;color:#f59e0b;font-weight:700;}
+.sc-field-def{font-size:.8rem;color:var(--sl-color-gray-3);}
+.sc-field-body{font-size:.92rem;color:var(--sl-color-gray-2);margin-top:.25rem;}
+</style>

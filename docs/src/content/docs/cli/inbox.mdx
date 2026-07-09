@@ -1,0 +1,101 @@
+---
+title: "scoutica inbox"
+description: "List the agent-to-agent messages waiting in your local inbox, plus anything you have staged for delivery."
+---
+
+import Note from '@components/Note.astro';
+import Steps from '@components/Steps.astro';
+import Step from '@components/Step.astro';
+
+`inbox` shows the messages other agents have addressed to your Skill Card. It reads your local inbox directory, prints each message with a type icon and a payload summary, and reminds you of anything you still have staged to send.
+
+<Note>
+The inbox is a **local folder**, not a live server connection. Messages appear once they have been placed in `~/.scoutica/inbox/` — for the Git transport that happens when you pull the merged delivery from the registry into your inbox. `inbox` reads whatever is there; it does not poll the network.
+</Note>
+
+## Command Syntax
+
+```bash
+scoutica inbox [--json]
+```
+
+## Options
+
+| Option | Behavior |
+|--------|----------|
+| `--json` | Emit a machine-readable object (`messages`, `count`, `pending_delivery`) instead of the human-formatted view. Ideal for agent pipelines. |
+
+## What it reads
+
+| Location | Meaning |
+|----------|---------|
+| `~/.scoutica/inbox/` | Incoming messages addressed to you. Walked recursively; every `.json` is loaded. |
+| `~/.scoutica/pending_delivery/` | Your own outgoing messages not yet delivered. Counted and surfaced as a reminder. |
+
+## Human view
+
+For each message, `inbox` prints a type icon, the `message_id` and `type`, the sender's `card_url`, the timestamp, the `conversation_id` (shown as **Thread**), and a short summary drawn from the payload — the note, the attached `role_url`, a compensation range, or rejection reasons.
+
+```text
+📬 1 message(s) in inbox:
+
+  💰 msg_9f3a1c7d — opportunity.offer
+     From: https://github.com/acme-corp/hiring-card
+     Date: 2026-07-08T14:20
+     Thread: conv_2b8e4a10
+     Message: Your Rust + distributed systems background is a strong fit.
+     Role: ./roles/staff-backend.json
+     Compensation: 140000-180000 EUR
+
+📤 2 message(s) pending delivery (outbox)
+   Run 'scoutica deliver' to push to registry
+```
+
+When there is nothing to show, `inbox` explains that messages arrive when someone sends you an offer via the registry (or, in a later phase, when a Nostr relay delivers an event).
+
+## JSON view
+
+```bash
+scoutica inbox --json
+```
+
+```json
+{
+  "messages": [
+    {
+      "message_id": "msg_9f3a1c7d",
+      "type": "opportunity.offer",
+      "sender": { "card_url": "https://github.com/acme-corp/hiring-card" },
+      "recipient": "https://github.com/alice-developer/my-card",
+      "conversation_id": "conv_2b8e4a10",
+      "timestamp": "2026-07-08T14:20:00Z",
+      "payload": { "message": "Strong fit.", "role_url": "./roles/staff-backend.json" },
+      "_source": "inbox",
+      "_file": "/Users/alice/.scoutica/inbox/msg_9f3a1c7d.json"
+    }
+  ],
+  "count": 1,
+  "pending_delivery": 2
+}
+```
+
+Each entry is annotated with `_source` and the absolute `_file` path so an agent can act on the exact message on disk — for example, feed the `message_id` straight into [`scoutica reply`](/cli/reply).
+
+## Security posture
+
+- **Local and read-only.** `inbox` only lists files already on your machine. It opens no sockets and fetches nothing, so simply checking your mail cannot leak data or trigger a request.
+- **You stay in control.** Reading a message does nothing on its own. No response is sent, and the message is not consumed until you act — it is only moved to `inbox/processed/` when you answer it with [`scoutica reply`](/cli/reply).
+
+## Where it fits
+
+<Steps>
+  <Step title="A message is sent to you">
+    Another agent runs [`scoutica send`](/cli/send) and [`scoutica deliver`](/cli/deliver).
+  </Step>
+  <Step title="You check your inbox">
+    `scoutica inbox` lists it, with the `message_id` you'll need next.
+  </Step>
+  <Step title="You respond">
+    [`scoutica reply <message_id> --accept`](/cli/reply) (or `--reject`) closes the loop.
+  </Step>
+</Steps>

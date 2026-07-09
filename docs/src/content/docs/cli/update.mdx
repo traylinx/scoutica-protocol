@@ -1,0 +1,30 @@
+---
+title: "scoutica update"
+description: "Autonomously upgrade your CLI logic and templates straight from the remote Protocol baseline."
+---
+
+import Note from '@components/Note.astro';
+
+Continuous deployment in a headless protocol guarantees that as the schemas evolve (`v1 -> v2`), you retrieve them instantly alongside any AI Extraction prompt optimizations without executing package managers like NPM or Homebrew.
+
+## Command Syntax
+```bash
+scoutica update
+```
+
+## How It Updates
+
+The update mechanism does not rely on third-party registries. Instead, it hits the exact Scoutica Protocol `main` raw files:
+1. It securely requests the core `tools/scoutica` CLI script across the internet.
+2. It greps specifically for the internal semantic `VERSION="x.y.z"` variable.
+3. If the remote numeric sequence strictly exceeds your `$VERSION`, it silently downloads and rewrites your `~/.scoutica/*` arrays. 
+
+**Why use it:**
+- AI Providers (e.g. Gemini, Claude, Ollama) constantly change API syntax and CLI outputs. `scoutica update` fixes broken parser patterns whenever `scan` suddenly drops parsing efficiency. 
+- You're using an outdated JSON schema. Upgrading resolves structural limitations seamlessly via the protocol foundation.
+
+### Automatic Execution Warning
+
+<Note>
+Always verify network integrity when explicitly upgrading bash scripts. Scoutica connects directly over HTTPS relying strictly on TLS security to the core GitHub domain to pull updates.
+</Note>

@@ -1,0 +1,67 @@
+---
+title: "For Employers & Recruiters"
+description: "How to hire talent seamlessly over the Scoutica P2P mesh"
+---
+
+Scoutica is a Two-Sided AI Talent Marketplace. While candidates use the protocol to protect their data and host their Skill Cards, employers use it to find talent programmatically — without recruiter fees, LinkedIn subscriptions, or spamming candidate inboxes.
+
+## The Architecture
+
+When you hire through Scoutica, your **Agent** communicates directly with the **Candidate's Agent**.
+
+1. You publish structured job roles (`role.json`).
+2. Your agent queries the decentralized Scoutica Registry for candidates matching your required skills.
+3. Your agent evaluates the returned Candidate Cards (Zone 1 data) and ranks them using deterministic scoring.
+4. If a candidate is a strong match, your agent issues an `opportunity.offer` payload directly to their API endpoint.
+5. The Candidate's agent screens your offer against their `rules.yaml` (e.g., minimum salary). If your offer passes their filters, the human candidate is notified.
+
+## Step 1: Scaffold your Organization
+
+Every hiring entity must have a Recruiter Card. Run this in a dedicated organizational repository (e.g. your company's GitHub):
+
+```bash
+scoutica org init
+```
+
+This interactive wizard creates `recruiter_profile.json` and `hiring_rules.yaml`.
+
+## Step 2: Establish Trust (Domain Verification)
+
+To prevent spam and impersonation, Candidate Agents require proof of identity.
+
+```bash
+scoutica org verify --domain yourcompany.com
+```
+
+The CLI will generate a SHA-256 hash. Add this as a TXT record to your DNS settings. Once verified, candidate agents will trust your messages.
+
+## Step 3: Create a Job Posting
+
+Instead of an unstructured prose job description, Scoutica uses precise JSON schemas.
+
+```bash
+scoutica role create
+```
+
+This creates a file in `roles/<slug>.json` outlining the title, exact salary band, required hard skills, and expiration date.
+
+## Step 4: Publish to the Mesh
+
+```bash
+scoutica role validate roles/
+scoutica org publish
+```
+
+This pushes your Recruiter Card to GitHub, syncing it with the decentralized index.
+
+## Step 5: Start Sourcing
+
+*(Note: The decentralized API index is currently in early-access. To test it today, run queries via the CLI!)*
+
+You can now use your own AI agent (or the CLI) to scan for candidates:
+
+```bash
+scoutica jobs search --skills "Python, PyTorch" --seniority "senior"
+```
+
+Because candidates own their data, you are never charged for finding them. If you make a match, you communicate via the protocols defined in `message.schema.json`.

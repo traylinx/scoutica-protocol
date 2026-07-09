@@ -1,0 +1,103 @@
+---
+title: "scoutica register"
+description: "Generate a registry index entry from a card so it can be submitted to the Scoutica registry via a Pull Request."
+---
+
+import Note from '@components/Note.astro';
+import Warning from '@components/Warning.astro';
+import Steps from '@components/Steps.astro';
+import Step from '@components/Step.astro';
+
+Publishing a card (see [`scoutica publish`](/cli/publish)) puts your files somewhere the world can fetch them. `register` is the next step: it distills your card into a small **index entry** and stages it locally, ready to add to the [`traylinx/scoutica-registry`](https://github.com/traylinx/scoutica-registry) index via a Pull Request. The registry is the discovery layer — a searchable index of pointers to cards, not a copy of the cards themselves.
+
+<Note>
+`register` is a local, deterministic operation. It reads your card, writes one staging file under `~/.scoutica/registry_staging/`, and prints a preview plus the manual PR steps. It never opens a PR, never pushes to git, and never touches the network.
+</Note>
+
+## Command Syntax
+
+```bash
+scoutica register [<card-dir>] [--type candidate|role]
+```
+
+`<card-dir>` defaults to the current directory (`.`).
+
+## Options
+
+| Option | Behavior |
+|--------|----------|
+| `--type candidate` | (Default) Build a single candidate index entry from the card's `profile.json`. |
+| `--type role` | Build one index entry per role file found under `<card-dir>/roles/`. Alias: `--type roles`. |
+
+## What the entry contains
+
+### Candidate entries (`--type candidate`)
+
+Reads `profile.json` (required) and, if present, `scoutica.json` for the discovery pointer. The staged entry is a compact summary suitable for a registry index:
+
+| Field | Source |
+|-------|--------|
+| `card_url`, `transport` | `scoutica.json` (`card_url`, `transport.preferred`; transport defaults to `git`) |
+| `name`, `title`, `seniority` | `profile.json` |
+| `skills` | `profile.json` `skills` + `tools_and_platforms`, capped at 10 entries |
+| `domains` | `profile.json` `primary_domains` (falls back to `domains`) |
+| `availability`, `entity_type` | `profile.json` (`entity_type` defaults to `human`) |
+| `updated`, `registered_at` | Generated timestamps |
+
+If `profile.json` is missing from the directory, `register` reports the error and stops.
+
+### Role entries (`--type role`)
+
+Reads every `*.json` file under `<card-dir>/roles/` and, if present, `recruiter_profile.json` for the recruiter pointer. Each role becomes one entry:
+
+| Field | Source |
+|-------|--------|
+| `role_url`, `recruiter_card_url` | Derived from the recruiter's `card_url` and the role filename |
+| `title`, `seniority`, `hard_skills` | Role file (`title`, `requirements.seniority`, `requirements.hard_skills`) |
+| `compensation_range` | `compensation.base_min`-`base_max` + `currency` |
+| `location`, `engagement_type`, `status` | Role file (`status` defaults to `active`) |
+| `posted_at`, `expires_at`, `registered_at` | Role file / generated timestamps |
+
+If there is no `roles/` directory, `register` reports the error and stops.
+
+## Where the entry is staged
+
+| Type | Staging file |
+|------|--------------|
+| `candidate` | `~/.scoutica/registry_staging/candidate_entry.json` |
+| `role` | `~/.scoutica/registry_staging/role_entries.json` (a JSON array) |
+
+The staged file is what you copy into the registry index. `register` also prints the full entry as a preview so you can review it before submitting.
+
+## Submitting to the registry
+
+After staging, the command prints these next steps:
+
+<Steps>
+  <Step title="Fork the registry">
+    Fork [`traylinx/scoutica-registry`](https://github.com/traylinx/scoutica-registry).
+  </Step>
+  <Step title="Add your entry">
+    Add the staged entry to `candidates/index.json` (candidate) or `roles/index.json` (role).
+  </Step>
+  <Step title="Open a Pull Request">
+    Open a PR against the registry with your addition.
+  </Step>
+  <Step title="Let CI validate">
+    Registry CI validates your entry against the schema before merge.
+  </Step>
+</Steps>
+
+## Example
+
+```bash
+# Stage a candidate index entry for Alice Developer's card
+scoutica register ./alice-card --type candidate
+
+# Stage entries for every role a recruiter has posted
+scoutica register ./acme-hiring --type role
+```
+
+<Warning>
+`register` only produces an index *pointer*. Make sure the card it points to is already reachable (published via [`scoutica publish`](/cli/publish)) before you open the registry PR — a pointer to an unpublished card resolves to nothing.
+</Warning>
