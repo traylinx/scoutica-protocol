@@ -15,6 +15,7 @@ export default defineConfig({
         { icon: 'github', label: 'GitHub', href: 'https://github.com/traylinx/scoutica-protocol' },
       ],
       sidebar: [
+    { label: "← Back to scoutica.com", link: "https://scoutica.com" },
     {
       label: "Get Started",
       items: [
