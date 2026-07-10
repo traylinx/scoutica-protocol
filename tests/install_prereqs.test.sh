@@ -107,6 +107,9 @@ assert_exists "$_install/bin/scoutica"
 assert_exists "$_install/bin/validate_card.py"
 assert_exists "$_install/bin/scoring.py"
 assert_exists "$_install/bin/import_aijs.py"
+assert_exists "$_install/bin/safe_fetch.py"
+assert_exists "$_install/protocol/examples/sample_card/profile.json"
+assert_exists "$_install/protocol/examples/employer_card/roles/senior-ai-architect.json"
 t_end
 
 t_begin - "PowerShell installer declares the same fail-fast prerequisite contract"

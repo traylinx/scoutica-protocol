@@ -29,6 +29,9 @@ INSTALL_DIR="${SCOUTICA_HOME:-$HOME/.scoutica}"
 BIN_DIR="$INSTALL_DIR/bin"
 SCHEMAS_DIR="$INSTALL_DIR/schemas"
 TEMPLATES_DIR="$INSTALL_DIR/templates"
+EXAMPLES_DIR="$INSTALL_DIR/protocol/examples"
+CANDIDATE_EXAMPLE_DIR="$EXAMPLES_DIR/sample_card"
+ROLE_EXAMPLE_DIR="$EXAMPLES_DIR/employer_card/roles"
 
 # Validation is a supported core command, so a fresh install must not finish in
 # a state where it can only work after silently mutating the user's global
@@ -71,7 +74,8 @@ echo ""
 
 # --- Step 1: Create directories ---
 echo -e "${BLUE}→${NC} Creating directories in ${BOLD}$INSTALL_DIR${NC}..."
-mkdir -p "$BIN_DIR" "$SCHEMAS_DIR" "$SCHEMAS_DIR/recruiter" "$TEMPLATES_DIR" "$TEMPLATES_DIR/rules"
+mkdir -p "$BIN_DIR" "$SCHEMAS_DIR" "$SCHEMAS_DIR/recruiter" "$TEMPLATES_DIR" "$TEMPLATES_DIR/rules" \
+    "$CANDIDATE_EXAMPLE_DIR" "$ROLE_EXAMPLE_DIR"
 
 # --- Step 2: Download CLI ---
 echo -e "${BLUE}→${NC} Downloading scoutica CLI..."
@@ -119,6 +123,17 @@ echo -e "${BLUE}→${NC} Downloading runtime helpers..."
 curl -fsSL "$REPO_RAW/tools/scoring.py" -o "$BIN_DIR/scoring.py"
 curl -fsSL "$REPO_RAW/tools/import_aijs.py" -o "$BIN_DIR/import_aijs.py"
 curl -fsSL "$REPO_RAW/tools/scan_runtime.py" -o "$BIN_DIR/scan_runtime.py"
+curl -fsSL "$REPO_RAW/tools/safe_fetch.py" -o "$BIN_DIR/safe_fetch.py"
+
+# --- Step 6c: Download the bounded offline registry fallback ---
+# `scoutica jobs search` uses these two public examples only when the registry is
+# unreachable or absent (404). Keep installer layout aligned with the CLI's
+# `$script_dir/../protocol/examples` lookup.
+echo -e "${BLUE}→${NC} Downloading bundled registry fallback..."
+curl -fsSL "$REPO_RAW/protocol/examples/sample_card/profile.json" \
+    -o "$CANDIDATE_EXAMPLE_DIR/profile.json"
+curl -fsSL "$REPO_RAW/protocol/examples/employer_card/roles/senior-ai-architect.json" \
+    -o "$ROLE_EXAMPLE_DIR/senior-ai-architect.json"
 
 # --- Step 7: Add to PATH ---
 SHELL_RC=""

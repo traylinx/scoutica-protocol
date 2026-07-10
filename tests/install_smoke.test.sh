@@ -31,3 +31,11 @@ for h in $helpers; do
     assert_grep "BIN_DIR/$h\"" "$INSTALLER" "install.sh must place $h in \$BIN_DIR"
 done
 t_end
+
+# ── T-INSTALL-SMOKE-002 — jobs fallback resources match the installed lookup layout ──
+t_begin T-INSTALL-SMOKE-002 "install.sh ships the bounded jobs fallback resources"
+assert_grep 'protocol/examples/sample_card/profile\.json' "$INSTALLER"
+assert_grep 'CANDIDATE_EXAMPLE_DIR/profile\.json' "$INSTALLER"
+assert_grep 'protocol/examples/employer_card/roles/senior-ai-architect\.json' "$INSTALLER"
+assert_grep 'ROLE_EXAMPLE_DIR/senior-ai-architect\.json' "$INSTALLER"
+t_end

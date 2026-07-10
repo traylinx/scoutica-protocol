@@ -121,61 +121,31 @@ confirm() {
     [[ "$answer" =~ ^[Yy] ]]
 }
 
-# _validate_url <url> : 0 if safe to fetch, 1 otherwise (reason on stderr). Enforces HTTPS and
-# blocks localhost / private / link-local / reserved / metadata hosts. Fails CLOSED on DNS failure
-# or an unresolvable host. Used for BOTH the user URL and any discovered card_url (F-HIGH-SSRF-001).
-_validate_url() {
-    local u="$1"
-    if ! printf '%s' "$u" | grep -qE '^https://'; then
-        error "Only HTTPS URLs are supported (got: $u)"
-        return 1
+# Every user-controlled remote registry/card request goes through one helper.
+_safe_fetch_helper() {
+    local script_dir candidate
+    script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+    for candidate in \
+        "$script_dir/safe_fetch.py" \
+        "$SCOUTICA_HOME/bin/safe_fetch.py" \
+        "$SCOUTICA_HOME/tools/safe_fetch.py"; do
+        if [ -f "$candidate" ]; then
+            printf '%s\n' "$candidate"
+            return 0
+        fi
+    done
+    error "Safe fetch helper not found (safe_fetch.py)." >&2
+    return 1
+}
+
+_safe_fetch() {
+    local helper python_cmd="${VALIDATION_PYTHON:-}"
+    helper=$(_safe_fetch_helper) || return 1
+    if [ -z "$python_cmd" ]; then
+        _require_validation_runtime || return 1
+        python_cmd="$VALIDATION_PYTHON"
     fi
-    local out
-    out=$(python3 - "$u" <<'VALIDATE_URL' 2>/dev/null
-import sys, ipaddress, socket
-from urllib.parse import urlparse
-_pu = urlparse(sys.argv[1])
-host = (_pu.hostname or '').lower()
-port = _pu.port or 443
-if not host:
-    print('BLOCKED:no-host'); sys.exit(0)
-if host in ('localhost', 'ip6-localhost', 'ip6-loopback'):
-    print('BLOCKED:localhost'); sys.exit(0)
-def blocked(ipstr):
-    try:
-        ip = ipaddress.ip_address(ipstr)
-    except ValueError:
-        return False
-    return (ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved
-            or ip.is_multicast or ip.is_unspecified)
-# literal-IP host: allow only if it is a public address
-try:
-    ipaddress.ip_address(host)
-    print('BLOCKED:literal-ip' if blocked(host) else 'OK %s %d %s' % (host, port, host)); sys.exit(0)
-except ValueError:
-    pass
-# hostname: resolve and fail CLOSED on any failure or private answer
-try:
-    addrs = socket.getaddrinfo(host, None)
-except Exception:
-    print('BLOCKED:dns-failure'); sys.exit(0)
-ips = [s[4][0] for s in addrs]
-if not ips:
-    print('BLOCKED:no-address'); sys.exit(0)
-for ip in ips:
-    if blocked(ip):
-        print('BLOCKED:private-resolution'); sys.exit(0)
-v4 = [ip for ip in ips if ':' not in ip]
-print('OK %s %d %s' % (host, port, v4[0] if v4 else ips[0]))
-VALIDATE_URL
-)
-    if [ "${out%% *}" != "OK" ]; then
-        error "Refusing to fetch unsafe URL (${out:-validation-failed}): $u"
-        return 1
-    fi
-    # Echo the validated IP so callers can pin curl (--resolve) against DNS rebinding.
-    printf '%s\n' "${out#OK }"
-    return 0
+    "$python_cmd" "$helper" fetch "$@"
 }
 
 # _refuse_if_symlink <path...> : shared symlink-safe write guard. Call before writing any card,
@@ -2401,7 +2371,7 @@ cmd_scan() {
     return "$scan_runtime_rc"
 }
 
-cmd_resolve() {
+cmd_resolve() (
     local url="${1:-}"
     local save_dir="${2:-}"
     
@@ -2419,13 +2389,6 @@ cmd_resolve() {
         echo -e "    scoutica resolve https://github.com/user/my-card" >&2
         echo -e "    scoutica resolve https://github.com/user/my-card ./local-copy/" >&2
         return 0
-    fi
-    
-    # URL validation + IP pinning happens on the FINAL normalized base_url below, so the check
-    # covers the exact host we fetch and pins curl to that IP (defeats DNS rebinding).
-    if ! printf '%s' "$url" | grep -qE '^https://'; then
-        error "Only HTTPS URLs are supported (got: $url)"
-        exit 1
     fi
     
     # ── Normalize URL to raw base ──
@@ -2452,50 +2415,54 @@ cmd_resolve() {
         base_url=$(echo "$url" | sed 's|/$||')
     fi
     
-    # ── SSRF: validate the FINAL fetch target, then pin curl to the validated host:port:ip so the
-    # connection cannot be rebound between check and fetch — covers IPv4+IPv6 and non-443 ports
-    # (M6/F-HIGH-SSRF-001). ---
-    local pin_spec fetch_host fetch_port pin_ip resolve_args=""
-    pin_spec=$(_validate_url "$base_url") || exit 1
-    read -r fetch_host fetch_port pin_ip <<<"$pin_spec"
-    case "$pin_ip" in
-        "")  ;;
-        *:*) resolve_args="--resolve $fetch_host:$fetch_port:[$pin_ip]" ;;  # IPv6 must be bracketed
-        *)   resolve_args="--resolve $fetch_host:$fetch_port:$pin_ip" ;;
-    esac
+    local run_dir discovery_file profile_file rules_file evidence_file skill_file
+    local discovery="" profile="" rules="" evidence="" skill_md="" fetch_rc=0
+    run_dir=$(mktemp -d "${TMPDIR:-/tmp}/scoutica-resolve.XXXXXX") || {
+        printf '%s\n' "Could not create private resolve runtime directory." >&2
+        return 1
+    }
+    chmod 700 "$run_dir" || return 1
+    trap 'rm -rf "$run_dir" 2>/dev/null' EXIT INT TERM
+    discovery_file="$run_dir/scoutica.json"
+    profile_file="$run_dir/profile.json"
+    rules_file="$run_dir/rules.yaml"
+    evidence_file="$run_dir/evidence.json"
+    skill_file="$run_dir/SKILL.md"
 
     header "Resolving Skill Card"
     echo -e "  ${BLUE}→${NC} Fetching from ${DIM}$base_url${NC}"
     echo ""
     
-    # ── Try scoutica.json first ──
-    local discovery
-    discovery=$(curl -sf --connect-timeout 10 --max-time 30 --max-filesize 2097152 $resolve_args "$base_url/scoutica.json" 2>/dev/null)
+    # ── Try scoutica.json first. 404 is optional; every other failure aborts. ──
+    _safe_fetch --url "$base_url/scoutica.json" --output "$discovery_file" \
+        --expect json --allow-not-found || fetch_rc=$?
+    case "$fetch_rc" in
+        0) discovery=$(cat "$discovery_file") ;;
+        4) discovery="" ;;
+        *) return "$fetch_rc" ;;
+    esac
     if [ -n "$discovery" ]; then
         echo -e "  ${GREEN}✅${NC} Found scoutica.json (discovery file)"
         local card_url
-        card_url=$(echo "$discovery" | python3 -c "import sys,json; print(json.load(sys.stdin).get('card_url',''))" 2>/dev/null)
+        card_url=$("$VALIDATION_PYTHON" - "$discovery_file" <<'PY'
+import json, sys
+value = json.load(open(sys.argv[1], encoding="utf-8")).get("card_url", "")
+print(value if isinstance(value, str) else "")
+PY
+)
         if [ -n "$card_url" ] && [ "$card_url" != "$base_url" ]; then
-            # A discovery file is attacker-influenced — re-run the SAME guard so it cannot
-            # redirect the fetch to an internal host (F-HIGH-SSRF-001).
             base_url=$(echo "$card_url" | sed 's|/$||')
-            pin_spec=$(_validate_url "$base_url") || { error "Discovered card_url failed validation; refusing redirect"; exit 1; }
-            read -r fetch_host fetch_port pin_ip <<<"$pin_spec"
-            resolve_args=""
-            case "$pin_ip" in
-                "")  ;;
-                *:*) resolve_args="--resolve $fetch_host:$fetch_port:[$pin_ip]" ;;  # IPv6 bracketed
-                *)   resolve_args="--resolve $fetch_host:$fetch_port:$pin_ip" ;;
-            esac
             echo -e "  ${DIM}→ Card URL: $base_url${NC}"
         fi
     fi
     
     # ── Fetch card files ──
-    local profile="" rules="" evidence="" skill_md=""
     local found=0
-    
-    profile=$(curl -sf --connect-timeout 10 --max-time 30 --max-filesize 2097152 $resolve_args "$base_url/profile.json" 2>/dev/null)
+
+    fetch_rc=0
+    _safe_fetch --url "$base_url/profile.json" --output "$profile_file" \
+        --expect json --allow-not-found || fetch_rc=$?
+    case "$fetch_rc" in 0) profile=$(cat "$profile_file") ;; 4) profile="" ;; *) return "$fetch_rc" ;; esac
     if [ -n "$profile" ]; then
         echo -e "  ${GREEN}📄${NC} profile.json"
         found=$((found + 1))
@@ -2503,7 +2470,10 @@ cmd_resolve() {
         echo -e "  ${RED}✗${NC} profile.json ${DIM}(not found)${NC}"
     fi
     
-    rules=$(curl -sf --connect-timeout 10 --max-time 30 --max-filesize 2097152 $resolve_args "$base_url/rules.yaml" 2>/dev/null)
+    fetch_rc=0
+    _safe_fetch --url "$base_url/rules.yaml" --output "$rules_file" \
+        --expect text --allow-not-found || fetch_rc=$?
+    case "$fetch_rc" in 0) rules=$(cat "$rules_file") ;; 4) rules="" ;; *) return "$fetch_rc" ;; esac
     if [ -n "$rules" ]; then
         echo -e "  ${GREEN}📄${NC} rules.yaml"
         found=$((found + 1))
@@ -2511,7 +2481,10 @@ cmd_resolve() {
         echo -e "  ${RED}✗${NC} rules.yaml ${DIM}(not found)${NC}"
     fi
     
-    evidence=$(curl -sf --connect-timeout 10 --max-time 30 --max-filesize 2097152 $resolve_args "$base_url/evidence.json" 2>/dev/null)
+    fetch_rc=0
+    _safe_fetch --url "$base_url/evidence.json" --output "$evidence_file" \
+        --expect json --allow-not-found || fetch_rc=$?
+    case "$fetch_rc" in 0) evidence=$(cat "$evidence_file") ;; 4) evidence="" ;; *) return "$fetch_rc" ;; esac
     if [ -n "$evidence" ]; then
         echo -e "  ${GREEN}📄${NC} evidence.json"
         found=$((found + 1))
@@ -2519,7 +2492,10 @@ cmd_resolve() {
         echo -e "  ${RED}✗${NC} evidence.json ${DIM}(not found)${NC}"
     fi
     
-    skill_md=$(curl -sf --connect-timeout 10 --max-time 30 --max-filesize 2097152 $resolve_args "$base_url/SKILL.md" 2>/dev/null)
+    fetch_rc=0
+    _safe_fetch --url "$base_url/SKILL.md" --output "$skill_file" \
+        --expect text --allow-not-found || fetch_rc=$?
+    case "$fetch_rc" in 0) skill_md=$(cat "$skill_file") ;; 4) skill_md="" ;; *) return "$fetch_rc" ;; esac
     if [ -n "$skill_md" ]; then
         echo -e "  ${GREEN}📄${NC} SKILL.md"
         found=$((found + 1))
@@ -2640,7 +2616,7 @@ except Exception:
         # Resolve metadata belongs to the saved card, never the caller cwd.
         _write_resolve_state "$save_dir" "$base_url" || return 1
     fi
-}
+)
 
 # ─── PREVIEW Command ──────────────────────────────────────────────────────────
 
@@ -4052,7 +4028,7 @@ cmd_jobs() {
     esac
 }
 
-cmd_jobs_search() {
+cmd_jobs_search() (
     local skills_filter=""
     local seniority_filter=""
     local search_type="candidates"
@@ -4072,82 +4048,118 @@ cmd_jobs_search() {
         esac
     done
     
-    header "Scoutica Network Search"
-    
-    echo -e "  ${DIM}Searching ${search_type}...${NC}"
-    
+    case "$search_type" in candidates|roles) ;; *) printf '%s\n' "Invalid registry type: $search_type" >&2; return 1 ;; esac
     local script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-    
-    python3 - "$search_type" "$skills_filter" "$seniority_filter" "$registry_url" "$local_index" "$output_json" "$script_dir" <<'SEARCH_SCRIPT'
-import json, sys, os
-try:
-    from urllib.request import urlopen, Request
-except ImportError:
-    pass
+    local run_dir index_file index_mode fetch_rc=0
+    _require_validation_runtime || return 1
+    run_dir=$(mktemp -d "${TMPDIR:-/tmp}/scoutica-jobs.XXXXXX") || {
+        printf '%s\n' "Could not create private jobs runtime directory." >&2
+        return 1
+    }
+    chmod 700 "$run_dir" || return 1
+    trap 'rm -rf "$run_dir" 2>/dev/null' EXIT INT TERM
+    index_file="$run_dir/index.json"
+
+    if [ -n "$local_index" ]; then
+        if [ ! -f "$local_index" ]; then
+            printf '%s\n' "Local registry index not found: $local_index" >&2
+            return 1
+        fi
+        index_file="$local_index"
+        index_mode=local
+    else
+        _safe_fetch --url "${registry_url%/}/$search_type/index.json" \
+            --output "$index_file" --expect registry --allow-not-found || fetch_rc=$?
+        case "$fetch_rc" in
+            0) index_mode=remote ;;
+            3|4)
+                index_mode=fallback
+                if $output_json; then
+                    printf '%s\n' "Registry unavailable; using bundled examples." >&2
+                else
+                    warn "Registry unavailable; using bundled examples."
+                fi
+                ;;
+            *) return "$fetch_rc" ;;
+        esac
+    fi
+
+    $output_json || {
+        header "Scoutica Network Search"
+        echo -e "  ${DIM}Searching ${search_type}...${NC}"
+    }
+
+    "$VALIDATION_PYTHON" - "$search_type" "$skills_filter" "$seniority_filter" \
+        "$index_file" "$index_mode" "$output_json" "$script_dir" <<'SEARCH_SCRIPT'
+import json, os, sys
 
 search_type = sys.argv[1]
 skills_filter = sys.argv[2]
 seniority_filter = sys.argv[3]
-registry_url = sys.argv[4]
-local_index = sys.argv[5]
+index_file = sys.argv[4]
+index_mode = sys.argv[5]
 output_json = sys.argv[6] == "true"
 script_dir = sys.argv[7] if len(sys.argv) > 7 else "."
 
-# Load index
-index = None
-if local_index and os.path.exists(local_index):
-    with open(local_index) as f:
-        index = json.load(f)
-else:
-    index_url = f"{registry_url}/{search_type}/index.json"
-    try:
-        req = Request(index_url, headers={"User-Agent": "Scoutica-CLI/0.4.0"})
-        resp = urlopen(req, timeout=10)
-        index = json.loads(resp.read().decode())
-    except Exception as e:
-        # Try local examples as fallback
-        fallback = os.path.join(script_dir, '..', 'protocol', 'examples')
-        if os.path.exists(fallback):
-            print(f"  ⚠️  Registry not reachable. Using local examples.")
-            print(f"     ({e})")
-            print()
-            # Build index from local examples
-            entries = []
-            if search_type == "candidates":
-                sample = os.path.join(fallback, 'sample_card')
-                if os.path.exists(os.path.join(sample, 'profile.json')):
-                    with open(os.path.join(sample, 'profile.json')) as f:
-                        p = json.load(f)
-                    entries.append({
-                        "card_url": sample,
-                        "name": p.get("name", ""),
-                        "title": p.get("title", ""),
-                        "seniority": p.get("seniority", ""),
-                        "skills": p.get("skills", []),
-                        "availability": p.get("availability", ""),
-                    })
-            elif search_type == "roles":
-                roles_dir = os.path.join(fallback, 'employer_card', 'roles')
-                if os.path.exists(roles_dir):
-                    for fname in os.listdir(roles_dir):
-                        if fname.endswith('.json'):
-                            with open(os.path.join(roles_dir, fname)) as f:
-                                r = json.load(f)
-                            entries.append({
-                                "role_url": os.path.join(roles_dir, fname),
-                                "title": r.get("title", ""),
-                                "hard_skills": r.get("requirements", {}).get("hard_skills", []),
-                                "seniority": r.get("requirements", {}).get("seniority", ""),
-                                "compensation_range": f"{r.get('compensation', {}).get('base_min', '?')}-{r.get('compensation', {}).get('base_max', '?')} {r.get('compensation', {}).get('currency', '')}",
-                                "location": r.get("location", {}).get("type", ""),
-                                "status": r.get("status", ""),
-                            })
-            index = {"entries": entries, "updated": "local"}
-        else:
-            print(f"  ❌ Could not fetch registry: {e}")
-            sys.exit(1)
+MAX_INDEX_BYTES = 2 * 1024 * 1024
 
-entries = index.get("entries", [])
+def fail(message):
+    print(message, file=sys.stderr)
+    raise SystemExit(1)
+
+if index_mode in {"local", "remote"}:
+    try:
+        with open(index_file, "rb") as handle:
+            raw_index = handle.read(MAX_INDEX_BYTES + 1)
+        if len(raw_index) > MAX_INDEX_BYTES:
+            fail("Registry index exceeds the 2 MiB limit.")
+        index = json.loads(raw_index.decode("utf-8", errors="strict"))
+    except (OSError, UnicodeError, ValueError) as exc:
+        fail(f"Registry index is invalid: {exc}")
+    if not isinstance(index, dict):
+        fail("Registry index root must be an object.")
+    entries = index.get("entries")
+    if not isinstance(entries, list) or not all(isinstance(entry, dict) for entry in entries):
+        fail('Registry index must contain an "entries" list of objects.')
+else:
+    fallback = os.path.join(script_dir, '..', 'protocol', 'examples')
+    if not os.path.isdir(fallback):
+        fail("Registry unavailable and bundled examples are missing.")
+    entries = []
+    if search_type == "candidates":
+        sample = os.path.join(fallback, 'sample_card')
+        profile_path = os.path.join(sample, 'profile.json')
+        if os.path.isfile(profile_path):
+            with open(profile_path, encoding="utf-8") as handle:
+                profile = json.load(handle)
+            entries.append({
+                "card_url": sample,
+                "name": profile.get("name", ""),
+                "title": profile.get("title", ""),
+                "seniority": profile.get("seniority", ""),
+                "skills": profile.get("skills", []),
+                "availability": profile.get("availability", ""),
+            })
+    else:
+        roles_dir = os.path.join(fallback, 'employer_card', 'roles')
+        if os.path.isdir(roles_dir):
+            for filename in os.listdir(roles_dir):
+                if not filename.endswith('.json'):
+                    continue
+                with open(os.path.join(roles_dir, filename), encoding="utf-8") as handle:
+                    role = json.load(handle)
+                requirements = role.get("requirements", {})
+                compensation = role.get("compensation", {})
+                location = role.get("location", {})
+                entries.append({
+                    "role_url": os.path.join(roles_dir, filename),
+                    "title": role.get("title", ""),
+                    "hard_skills": requirements.get("hard_skills", []),
+                    "seniority": requirements.get("seniority", ""),
+                    "compensation_range": f"{compensation.get('base_min', '?')}-{compensation.get('base_max', '?')} {compensation.get('currency', '')}",
+                    "location": location.get("type", ""),
+                    "status": role.get("status", ""),
+                })
 
 # Apply filters
 results = []
@@ -4210,7 +4222,7 @@ else:
             print()
     print()
 SEARCH_SCRIPT
-}
+)
 
 # ─── SEND Command (Git-Native Messaging) ─────────────────────────────────────
 

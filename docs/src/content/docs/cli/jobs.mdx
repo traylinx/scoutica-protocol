@@ -29,8 +29,8 @@ Fetches a registry index and filters its entries client-side.
 | `--type <candidates\|roles>` | What to search for. Defaults to `candidates`. |
 | `--skills <list>` | Comma-separated skills to filter on. An entry matches if **any** listed skill is present (case-insensitive). For candidates this matches the card's `skills`; for roles it matches the role's `hard_skills`. |
 | `--seniority <level>` | Keep only entries whose seniority matches exactly (case-insensitive), e.g. `senior`, `staff`. |
-| `--registry <url>` | Base URL of the registry to query. Defaults to the public Scoutica registry on GitHub. |
-| `--local <path>` | Read the index from a local `index.json` file instead of the network. When the file exists, the registry URL is not contacted. |
+| `--registry <url>` | HTTPS base URL of the registry to query. Defaults to the public Scoutica registry on GitHub. Redirects and non-public destinations are refused. |
+| `--local <path>` | Read a bounded local `index.json` instead of the network. The registry URL is never contacted; a missing or invalid file fails. |
 | `--json` | Emit results as JSON (`{ "results": [...], "count": N }`) instead of the formatted list. |
 
 <Note>
@@ -41,13 +41,13 @@ The index is loaded from `<registry>/<type>/index.json` (for example `.../candid
 
 <Steps>
   <Step title="Local index (if provided)">
-    If `--local <path>` points at an existing file, it is loaded as-is and no network request is made.
+    The local file is limited to 2 MiB and must be UTF-8 JSON with an object root and an `entries` list of objects. Missing or invalid input fails without any network request.
   </Step>
   <Step title="Remote registry">
-    Otherwise the CLI fetches `<registry>/<type>/index.json` over HTTPS with a short timeout.
+    Otherwise the CLI fetches `<registry>/<type>/index.json` through one pinned HTTPS boundary: public DNS answers only, no credentials, no proxy, no redirects, 10-second connect timeout, 30-second total timeout, and a 2 MiB response limit.
   </Step>
   <Step title="Bundled examples (fallback)">
-    If the registry can't be reached, `jobs search` falls back to the example cards bundled with the repo under `protocol/examples/`, prints a warning, and searches those so the command still returns something useful offline.
+    A plain transport failure or an absent (`404`) registry index may use example cards bundled under `protocol/examples/`. URL/DNS policy, redirect, other HTTP status, content-type, UTF-8, size, and JSON-shape failures return nonzero and never fall back.
   </Step>
 </Steps>
 
@@ -79,7 +79,7 @@ For a **roles** search, each entry shows the title and status, up to six hard sk
 
 ### JSON output
 
-With `--json`, the same results are returned as a machine-readable object — ideal for piping into `jq` or feeding an agent:
+With `--json`, stdout is exactly one machine-readable object with no ANSI/header text. Warnings go to stderr; failures return nonzero with empty stdout.
 
 ```json
 {
@@ -116,5 +116,5 @@ scoutica jobs search --local ./registry/candidates/index.json --json
 ```
 
 <Warning>
-`jobs search` only ever **reads** an index of published entries — it fetches over HTTPS with a timeout and writes nothing to disk. It does not download or resolve full candidate cards; to inspect a specific card, take its `card_url` and use [`scoutica resolve`](/cli/resolve), which enforces its own HTTPS-and-no-private-IP validation.
+`jobs search` only ever **reads** an index of published entries. It does not download full candidate cards; to inspect one, pass its `card_url` to [`scoutica resolve`](/cli/resolve), which reuses the same bounded fetch boundary.
 </Warning>
