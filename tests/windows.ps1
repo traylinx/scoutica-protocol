@@ -554,8 +554,15 @@ try {
     $result = Invoke-ScouticaPublish $case.Repo
     Assert-Equal 0 $result.ExitCode "canonical staged update publishes"
     Assert-True ($result.Output -match "Pushed to GitHub") "successful push reports success"
-    & git --git-dir=$($case.Remote) cat-file -e "main:rules/secret.txt" 2>$null
-    Assert-True ($LASTEXITCODE -ne 0) "non-canonical rules child is not committed"
+    $savedErrorActionPreference = $ErrorActionPreference
+    try {
+        $ErrorActionPreference = "Continue"
+        & git --git-dir=$($case.Remote) cat-file -e "main:rules/secret.txt" >$null 2>&1
+        $catFileExit = $LASTEXITCODE
+    } finally {
+        $ErrorActionPreference = $savedErrorActionPreference
+    }
+    Assert-True ($catFileExit -ne 0) "non-canonical rules child is not committed"
     $remoteProfile = (& git --git-dir=$($case.Remote) show "main:profile.json" | Out-String)
     Assert-True ($remoteProfile -match "Updated Engineer") "canonical update reaches origin"
 
