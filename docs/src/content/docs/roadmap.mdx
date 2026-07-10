@@ -6,16 +6,17 @@ description: "What's live today and what's coming next for the Scoutica Protocol
 import Note from '@components/Note.astro';
 
 <Note>
-The protocol, CLI (v0.4.0), schemas, AI-powered card generation, the deterministic scoring engine, and the agent-to-agent network layer are all **live and ready to use today**. The monetization layer (micropayments, blockchain identity, `$SKILL` token) is under active development.
+Protocol 0.4.0, the POSIX implementation 0.4.0, schemas, AI-powered card generation, the deterministic scoring engine, and the agent-to-agent network layer are all **live and ready to use today**. Windows ships PowerShell implementation 0.1.0 under capability set `windows-subset-v1`; full Windows parity is parked. The monetization layer (micropayments, blockchain identity, `$SKILL` token) is under active development.
 </Note>
 
 ## V1 — Live today
 
-Everything in V1 is available now (CLI v0.4.0):
+Everything below is available now in the POSIX implementation 0.4.0 unless a platform row says otherwise:
 
 | Feature | Details |
 |---------|--------|
-| **Candidate CLI** | `init`, `import aijs`, `scan`, `validate`, `publish`, `preview`, `resolve`, `info` — macOS, Linux, Windows |
+| **Candidate CLI (macOS / Linux)** | `init`, `import aijs`, `scan`, `validate`, `publish`, `preview`, `resolve`, `info` |
+| **Candidate CLI (Windows)** | PowerShell 0.1.0 / `windows-subset-v1`: `init`, `init --ai`, `validate`, `publish`, `info`, `help`, `version` |
 | **Employer CLI** | `org init/verify/publish`, `role create/validate` — recruiter cards and structured job postings |
 | **JSON Schemas** | Validation schemas for all four card files |
 | **AI-powered scan** | Generate a full Skill Card from your documents using your local AI provider |

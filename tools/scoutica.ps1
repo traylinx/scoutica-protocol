@@ -11,7 +11,14 @@
 # ============================================================================
 
 $ErrorActionPreference = "Stop"
-$VERSION = "0.1.0"
+$PROTOCOL_VERSION = "0.4.0"
+$IMPLEMENTATION_VERSION = "0.1.0"
+$CAPABILITY_SET = "windows-subset-v1"
+$KNOWN_UNSUPPORTED_COMMANDS = @(
+    "import", "scan", "resolve", "preview", "update", "doctor", "status", "logs",
+    "org", "role", "evaluate", "jobs", "send", "inbox", "reply", "deliver",
+    "register", "identity"
+)
 $SCOUTICA_HOME = if ($env:SCOUTICA_HOME) { $env:SCOUTICA_HOME } else { Join-Path $env:USERPROFILE ".scoutica" }
 $SCHEMAS_DIR = Join-Path $SCOUTICA_HOME "schemas"
 $TEMPLATES_DIR = Join-Path $SCOUTICA_HOME "templates"
@@ -456,6 +463,8 @@ function Invoke-Validate([string]$cardDir = ".") {
     }
     
     & $pythonCmd $validator $cardDir
+    $validationExit = $LASTEXITCODE
+    if ($validationExit -ne 0) { exit $validationExit }
 }
 
 # ─── PUBLISH Command ─────────────────────────────────────────────────────────
@@ -652,7 +661,9 @@ function Invoke-Info([string]$cardDir = ".") {
 
 function Invoke-Help {
     Write-Host ""
-    Write-Host "  Scoutica CLI v$VERSION" -ForegroundColor White
+    Write-Host "  Scoutica Protocol $PROTOCOL_VERSION" -ForegroundColor White
+    Write-Host "  PowerShell implementation $IMPLEMENTATION_VERSION" -ForegroundColor DarkGray
+    Write-Host "  Capability set $CAPABILITY_SET" -ForegroundColor DarkGray
     Write-Host "  Your skills. Your rules. Your data." -ForegroundColor DarkGray
     Write-Host ""
     Write-Host "  Usage: scoutica <command> [options] [directory]" -ForegroundColor White
@@ -668,6 +679,12 @@ function Invoke-Help {
     Write-Host ""
     Write-Host "  Learn more: https://github.com/traylinx/scoutica-protocol" -ForegroundColor Cyan
     Write-Host ""
+}
+
+function Invoke-Version {
+    Write-Host "Scoutica Protocol $PROTOCOL_VERSION"
+    Write-Host "PowerShell implementation $IMPLEMENTATION_VERSION"
+    Write-Host "Capability set $CAPABILITY_SET"
 }
 
 # ─── Main Router ──────────────────────────────────────────────────────────────
@@ -689,8 +706,19 @@ switch ($command) {
     "help"     { Invoke-Help }
     "--help"   { Invoke-Help }
     "-h"       { Invoke-Help }
-    "version"  { Write-Host "scoutica v$VERSION" }
-    "--version" { Write-Host "scoutica v$VERSION" }
-    "-v"       { Write-Host "scoutica v$VERSION" }
-    default    { Write-Err "Unknown command: $command"; Invoke-Help; exit 1 }
+    "version"  { Invoke-Version }
+    "--version" { Invoke-Version }
+    "-v"       { Invoke-Version }
+    default    {
+        if ($KNOWN_UNSUPPORTED_COMMANDS -contains $command) {
+            [Console]::Error.WriteLine(
+                "Command '$command' is not supported by PowerShell capability set $CAPABILITY_SET. " +
+                "Use the POSIX implementation for this command."
+            )
+            exit 2
+        }
+        [Console]::Error.WriteLine(("Unknown command: {0}" -f $command))
+        Invoke-Help
+        exit 1
+    }
 }

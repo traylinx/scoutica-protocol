@@ -14,6 +14,10 @@ import Card from '@components/Card.astro';
   <Step title="Native Agent Install (Most Recommended)">
     The quickest way to install and configure everything is to give your AI agent (like Claude Code, Cursor, OpenCode, or OpenClaw) a single instruction. The agent will read the protocol and execute the entire setup autonomously in the background.
 
+    The simulation below uses the full POSIX implementation. On Windows, the
+    agent must stay within the `windows-subset-v1` commands documented in the
+    manual-install step.
+
     <Tabs>
       <TabItem label="For Candidates">
         Copy this prompt and paste it into your AI Agent:
@@ -77,9 +81,16 @@ import Card from '@components/Card.astro';
       </TabItem>
     </Tabs>
 
+    <Note>
+      Windows installs PowerShell implementation 0.1.0 for protocol 0.4.0,
+      capability set `windows-subset-v1`. It supports only `init`, `init --ai`,
+      `validate`, `publish`, `info`, `help`, and `version`; use macOS/Linux or a
+      POSIX environment for `scan` and the rest of the full CLI.
+    </Note>
+
     Then, build your card manually using one of these methods:
     <Tabs>
-      <TabItem label="AI Scan">
+      <TabItem label="AI Scan (POSIX)">
         Let AI generate your card automatically from your local documents.
         ```bash
         scoutica scan ~/my-docs/

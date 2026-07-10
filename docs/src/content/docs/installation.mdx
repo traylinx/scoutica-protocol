@@ -20,9 +20,25 @@ Before installing, make sure you have:
 - **Git** — required to publish your card to GitHub
 - **Python 3.11 or newer** — required for supported validation and scoring paths
 - **Strict validation dependencies** — install explicitly with `python3 -m pip install 'jsonschema[format]' PyYAML`
-- **An AI CLI provider** — at least one of the providers below must be installed for `scoutica scan` to work
+- **An AI CLI provider (macOS/Linux scan only)** — at least one provider below must be installed for `scoutica scan`
 
 The installers check Python and these packages before creating files. They do not run `pip` or mutate a global Python environment for you.
+
+## Platform capability matrix
+
+Protocol version and CLI implementation version are separate identities.
+
+| Platform | Implementation | Capability set | Supported commands |
+|----------|----------------|----------------|--------------------|
+| macOS / Linux | POSIX 0.4.0 | Full POSIX surface | All commands in the [CLI reference](/cli/overview) |
+| Windows PowerShell 5.1 / PowerShell 7 | PowerShell implementation 0.1.0 | `windows-subset-v1` | `init`, `init --ai`, `validate`, `publish`, `info`, `help`, `version` |
+
+Both implementations operate on Scoutica protocol 0.4.0. Windows does **not**
+currently provide the POSIX-only `import`, `scan`, `resolve`, `preview`,
+`update`, `doctor`, `status`, `logs`, `org`, `role`, `evaluate`, `jobs`, `send`,
+`inbox`, `reply`, `deliver`, `register`, or `identity` commands. Those commands
+exit 2 with an explicit unsupported diagnostic; a typo exits 1. Full Windows
+parity is parked for a future effort.
 
 ### Supported AI providers
 
@@ -55,7 +71,7 @@ If you want to generate a Skill Card to find a job on your own terms:
 ```text
 Read https://raw.githubusercontent.com/traylinx/scoutica-protocol/main/SKILL.md and follow the instructions to set up Scoutica Protocol natively.
 ```
-> **What the agent will do:** It reads the protocol specs, installs the CLI, finds your CV documents, extracts your skills into a Skill Card, validates the JSON schemas, and registers you on the Live Network for discovery.
+> **What the agent will do on POSIX:** It reads the protocol specs, installs the CLI, finds your CV documents, extracts your skills into a Skill Card, validates the JSON schemas, and registers you on the Live Network for discovery. On Windows, it must stay within `windows-subset-v1` and use `init` or the `init --ai` handoff instead of scan/registration.
 
 ### 🏢 For Recruiters & Employers
 If you want to establish an organizational identity to hire and discover candidates autonomously:
@@ -63,7 +79,7 @@ If you want to establish an organizational identity to hire and discover candida
 ```text
 Read https://raw.githubusercontent.com/traylinx/scoutica-protocol/main/RECRUITER_SKILL.md and follow the instructions to set up the Scoutica Employer Network natively.
 ```
-> **What the agent will do:** It reads the employer specs, installs the CLI, scaffolds your Recruiter Card, creates structured job roles, verifies your domain, and starts searching the registry to evaluate and message matching candidates securely.
+> **What the agent will do on POSIX:** It reads the employer specs, installs the CLI, scaffolds your Recruiter Card, creates structured job roles, verifies your domain, and starts searching the registry to evaluate and message matching candidates securely. Employer/network commands are not in the current Windows subset.
 
 ---
 
@@ -86,7 +102,7 @@ Read https://raw.githubusercontent.com/traylinx/scoutica-protocol/main/RECRUITER
     2. **Binary download:** Puts the core executable in `~/.scoutica/bin`.
     3. **Schemas download:** Pulls schemas into `~/.scoutica/schemas` for blazing fast offline validation.
     4. **Templates download:** Pulls rules and markdown templates used for generation.
-    5. **Helper download:** Pulls the Python helpers the CLI shells out to — `scoring.py` (fit scoring), `import_aijs.py` (ai-job-search import), and `validate_card.py` (validation) — into `~/.scoutica/bin`.
+    5. **Helper download:** Installs the helpers declared for the platform. The full POSIX install includes scoring, import, validation, scan, and safe-fetch helpers; Windows installs the resources declared for `windows-subset-v1`.
     6. **Path registration:** Appends `~/.scoutica/bin` to your `PATH`.
   </Step>
 
@@ -100,16 +116,23 @@ Read https://raw.githubusercontent.com/traylinx/scoutica-protocol/main/RECRUITER
 
   <Step title="Verify the installation">
     Run a diagnostic to ensure the binary is successfully in your path:
-    ```bash
+    <CodeGroup>
+    ```bash macOS / Linux
     scoutica version
     scoutica doctor
     ```
+
+    ```powershell Windows
+    scoutica version
+    scoutica help
+    ```
+    </CodeGroup>
   </Step>
 </Steps>
 
 ---
 
-## Manual Installation
+## Manual macOS/Linux Installation
 
 For users who prefer exhaustive control over their system configuration and want to avoid piping a remote script directly to bash, you can install Scoutica Protocol manually. 
 

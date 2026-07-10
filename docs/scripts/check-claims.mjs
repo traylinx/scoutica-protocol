@@ -6,6 +6,10 @@ const docsDir = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const repoDir = resolve(docsDir, '..');
 const contentDir = join(docsDir, 'src', 'content', 'docs');
 const rootDocs = ['README.md', 'AGENTS.md', 'SKILL.md'].map((name) => join(repoDir, name));
+const supportContract = JSON.parse(
+  readFileSync(join(repoDir, 'protocol', 'platform', 'cli_support_contract.json'), 'utf8'),
+);
+const windowsSupport = supportContract.implementations.windows;
 
 function walk(directory) {
   return readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
@@ -20,6 +24,7 @@ const forbidden = [
   ['obsolete documentation platform', /\bMintlify\b/i],
   ['obsolete documentation config', /\bdocs\.json\b/i],
   ['obsolete documentation command', /\bmint (?:dev|broken-links)\b/i],
+  ['false full Windows CLI parity claim', /Native CLI for macOS, Linux, and Windows/i],
 ];
 
 const scanClaimFiles = new Set([
@@ -80,6 +85,42 @@ for (const [file, pattern] of disclosureFiles) {
   if (!pattern.test(readFileSync(file, 'utf8'))) {
     failures.push(`${relative(repoDir, file).split(sep).join('/')}: missing remote-provider disclosure`);
   }
+}
+
+const windowsTruthFiles = [
+  join(repoDir, 'README.md'),
+  join(repoDir, 'SKILL.md'),
+  join(contentDir, 'installation.mdx'),
+  join(contentDir, 'quickstart.mdx'),
+  join(contentDir, 'guides', 'create-card.mdx'),
+  join(contentDir, 'cli', 'overview.mdx'),
+  join(contentDir, 'roadmap.mdx'),
+];
+
+if (windowsSupport.implementation_version === supportContract.protocol_version) {
+  failures.push('protocol/platform/cli_support_contract.json: Windows implementation must not imply protocol parity');
+}
+
+for (const file of windowsTruthFiles) {
+  const text = readFileSync(file, 'utf8');
+  const label = relative(repoDir, file).split(sep).join('/');
+  if (!text.includes(windowsSupport.capability_set)) {
+    failures.push(`${label}: missing Windows capability identity ${windowsSupport.capability_set}`);
+  }
+  if (!text.toLowerCase().includes(`powershell implementation ${windowsSupport.implementation_version}`)) {
+    failures.push(`${label}: missing PowerShell implementation identity ${windowsSupport.implementation_version}`);
+  }
+  if (!text.includes(supportContract.protocol_version)) {
+    failures.push(`${label}: missing protocol identity ${supportContract.protocol_version}`);
+  }
+}
+
+const installationText = readFileSync(join(contentDir, 'installation.mdx'), 'utf8');
+const supportedCommandText = windowsSupport.supported_commands
+  .map((command) => `\`${command}\``)
+  .join(', ');
+if (!installationText.includes(supportedCommandText)) {
+  failures.push('docs/src/content/docs/installation.mdx: Windows supported command list differs from contract');
 }
 
 if (failures.length) {

@@ -171,7 +171,14 @@ curl -fsSL https://raw.githubusercontent.com/traylinx/scoutica-protocol/main/ins
 irm https://raw.githubusercontent.com/traylinx/scoutica-protocol/main/install.ps1 | iex
 ```
 
-Once installed, use the built-in help to see all commands:
+Windows currently ships the **PowerShell implementation 0.1.0** for protocol
+0.4.0 under capability set **`windows-subset-v1`**. Its supported surface is
+exactly `init`, `init --ai`, `validate`, `publish`, `info`, `help`, and `version`.
+Other commands are deliberately reported as unsupported (exit 2); full POSIX
+command parity is parked for a future effort.
+
+Once installed, use the built-in help to see the commands supported by your
+platform. The full help surface below is from the POSIX implementation 0.4.0:
 
 ```bash
 scoutica help
