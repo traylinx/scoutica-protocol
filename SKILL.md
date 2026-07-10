@@ -19,9 +19,9 @@ curl -fsSL https://raw.githubusercontent.com/traylinx/scoutica-protocol/main/ins
 source ~/.zshrc 2>/dev/null || source ~/.bashrc 2>/dev/null   # reload PATH
 
 # 2. Generate from a folder of CV/resume docs (.md .txt .pdf .docx .json .yaml .csv .html)
-scoutica scan .                 # auto-detects your AI provider
+scoutica scan . --allow-remote-provider  # required noninteractively for remote-capable providers
 scoutica scan . --clipboard     # no local AI CLI? copy the prompt into any AI chat
-scoutica scan . --with gemini   # or claude, codex, vibe, opencode, ollama, ail
+scoutica scan . --with gemini   # or claude, codex, opencode, ollama, ail
 
 # 3. Validate, then publish
 scoutica validate
@@ -84,7 +84,7 @@ Transport waterfall: **Git-native** (default, zero infra) → **Nostr** (encrypt
 ```bash
 # Create / manage a card
 scoutica init [--ai]                       # interactive / AI-assisted creation
-scoutica scan . [--clipboard|--with <p>]   # generate from documents
+scoutica scan . [--clipboard|--with <p>] [--allow-remote-provider]
 scoutica import aijs <fork> --to <dir>     # convert an ai-job-search fork (offline, deterministic)
 scoutica validate [dir] [--type employer]  # validate against schemas
 scoutica info|preview|publish [dir]        # summary / HTML preview / push to GitHub

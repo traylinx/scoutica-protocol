@@ -3,6 +3,16 @@
 
 set -u
 
+if [ -n "${FAKE_PROVIDER_COUNT_FILE:-}" ]; then
+    _fake_count=0
+    if [ -f "$FAKE_PROVIDER_COUNT_FILE" ]; then
+        _fake_count=$(cat "$FAKE_PROVIDER_COUNT_FILE" 2>/dev/null || printf '0')
+    fi
+    case "$_fake_count" in ''|*[!0-9]*) _fake_count=0 ;; esac
+    _fake_count=$((_fake_count + 1))
+    printf '%s\n' "$_fake_count" > "$FAKE_PROVIDER_COUNT_FILE"
+fi
+
 if [ -n "${FAKE_PROVIDER_PID_FILE:-}" ]; then
     printf '%s\n' "$$" > "$FAKE_PROVIDER_PID_FILE"
 fi
@@ -24,6 +34,11 @@ fi
 
 if [ -n "${FAKE_PROVIDER_READY_FILE:-}" ]; then
     : > "$FAKE_PROVIDER_READY_FILE"
+fi
+
+if [ -n "${FAKE_PROVIDER_FORK_PID_FILE:-}" ]; then
+    sleep 20 &
+    printf '%s\n' "$!" > "$FAKE_PROVIDER_FORK_PID_FILE"
 fi
 
 if [ -n "${FAKE_PROVIDER_RELEASE_FILE:-}" ]; then

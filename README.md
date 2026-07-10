@@ -237,11 +237,11 @@ Put your CV, certs, and portfolio in a folder and let AI extract your skill card
 
 ```bash
 scoutica scan ~/my-docs/                  # auto-detects installed CLI
-scoutica scan ~/my-docs/ --with gemini    # use a specific provider
+scoutica scan ~/my-docs/ --with gemini --allow-remote-provider
 scoutica scan ~/my-docs/ --clipboard      # copy prompt to clipboard (no CLI needed)
 ```
 
-Document extraction happens locally. The selected AI CLI may send the full generated prompt and document text to a remote service, depending on that provider's configuration. `--clipboard` copies the same sensitive prompt to your system clipboard for user-controlled transfer.
+Document extraction happens locally. Remote-capable AI providers send the full generated prompt and document text to a remote service only after a per-invocation confirmation, or when noninteractive automation supplies `--allow-remote-provider`. Ollama is treated as local only for its default or a loopback endpoint. `--clipboard` makes no Scoutica network call but copies the same sensitive prompt to your system clipboard for user-controlled transfer. Scan state is private to the resulting card at `<card>/.scoutica/state.json`.
 
 **Supported providers** (auto-detected in this order):
 
@@ -250,10 +250,12 @@ Document extraction happens locally. The selected AI CLI may send the full gener
 | Gemini CLI | `gemini` | [google-gemini/gemini-cli](https://github.com/google-gemini/gemini-cli) |
 | Claude Code | `claude` | [anthropics/claude-code](https://github.com/anthropics/claude-code) |
 | OpenAI Codex | `codex` | [openai/codex](https://github.com/openai/codex) |
-| Mistral Vibe | `vibe` | [mistralai/mistral-vibe](https://github.com/mistralai/mistral-vibe) |
 | OpenCode | `opencode` | [opencode-ai/opencode](https://github.com/opencode-ai/opencode) |
 | Ollama | `ollama` | [ollama.com](https://ollama.com) |
 | switchAILocal | `ail` | [traylinx/switchAILocal](https://github.com/traylinx/switchAILocal) |
+
+Vibe and OpenClaw scan adapters are intentionally disabled until they expose a characterized
+stdin or prompt-file interface; Scoutica will not place source documents in process arguments.
 
 ---
 

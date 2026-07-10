@@ -194,7 +194,7 @@ cat > "$scan_response" <<'JSON'
 JSON
 FAKE_PROVIDER_RESPONSE_FILE="$scan_response"
 export FAKE_PROVIDER_RESPONSE_FILE
-if ! "$SCOUTICA" scan "$scan_source" --output "$scan_output" --with gemini --force \
+if ! "$SCOUTICA" scan "$scan_source" --output "$scan_output" --with gemini --force --allow-remote-provider \
     >/dev/null 2>&1; then
     t_fail "scan generation failed"
 fi
@@ -223,7 +223,7 @@ FAKE_PROVIDER_RESPONSE_FILE="$bad_response"
 export FAKE_PROVIDER_RESPONSE_FILE
 bad_output="$WORK/scan-output-empty"
 mkdir -p "$bad_output"
-if "$SCOUTICA" scan "$scan_source" --output "$bad_output" --with gemini --force \
+if "$SCOUTICA" scan "$scan_source" --output "$bad_output" --with gemini --force --allow-remote-provider \
     >/dev/null 2>&1; then
     t_fail "scan accepted an empty engagement policy"
 fi
@@ -244,7 +244,7 @@ json.dump(data, open(sys.argv[2], "w", encoding="utf-8"))
 PY
 FAKE_PROVIDER_RESPONSE_FILE="$invalid_profile_response"
 export FAKE_PROVIDER_RESPONSE_FILE
-if "$SCOUTICA" scan "$scan_source" --output "$prior_scan" --with gemini --force \
+if "$SCOUTICA" scan "$scan_source" --output "$prior_scan" --with gemini --force --allow-remote-provider \
     >/dev/null 2>&1; then
     t_fail "scan accepted a profile missing required title"
 fi

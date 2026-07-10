@@ -70,11 +70,12 @@ inv_interp_scan() {
     if [ ! -f "$CLI" ]; then
         emit FAIL F-CRIT-RCE-001 INV-STATIC-INTERP-SCAN STATIC "CLI not found at $CLI"; return
     fi
-    _lo=$(grep -nE '^cmd_scan\(\)' "$CLI" | head -1 | cut -d: -f1)
+    _lo=$(grep -nE '^(_cmd_scan_runtime|cmd_scan)\(\)' "$CLI" | head -1 | cut -d: -f1)
     if [ -z "$_lo" ]; then
         emit FAIL F-CRIT-RCE-001 INV-STATIC-INTERP-SCAN STATIC "cmd_scan() not found — cannot bound scan region"; return
     fi
-    _hi=$(awk -v s="$_lo" 'NR>s && /^cmd_[a-z_]+\(\)/{print NR-1; exit}' "$CLI")
+    _hi=$(grep -nE '^cmd_resolve\(\)' "$CLI" | head -1 | cut -d: -f1)
+    [ -n "$_hi" ] && _hi=$((_hi - 1))
     [ -n "$_hi" ] || _hi=$(wc -l < "$CLI" | tr -d ' ')
     _hits=$(_interp_hits "$_lo" "$_hi")
     if [ -n "$_hits" ]; then
@@ -91,8 +92,9 @@ inv_interp_local() {
     if [ ! -f "$CLI" ]; then
         emit FAIL F-MED-LOCAL-001 INV-STATIC-INTERP-LOCAL STATIC "CLI not found at $CLI"; return
     fi
-    _lo=$(grep -nE '^cmd_scan\(\)' "$CLI" | head -1 | cut -d: -f1)
-    _hi=$(awk -v s="${_lo:-0}" 'NR>s && /^cmd_[a-z_]+\(\)/{print NR-1; exit}' "$CLI")
+    _lo=$(grep -nE '^(_cmd_scan_runtime|cmd_scan)\(\)' "$CLI" | head -1 | cut -d: -f1)
+    _hi=$(grep -nE '^cmd_resolve\(\)' "$CLI" | head -1 | cut -d: -f1)
+    [ -n "$_hi" ] && _hi=$((_hi - 1))
     [ -n "$_lo" ] || _lo=0
     [ -n "$_hi" ] || _hi=0
     _total=$(wc -l < "$CLI" | tr -d ' ')
@@ -187,9 +189,10 @@ inv_url_validator() {
 }
 
 inv_temp_trap() {
-    # F-HIGH-TEMP-001: scan raw-response + request payload cleaned via trap on success/fail/interrupt.
-    # Marker: a trap whose cleanup references the scan raw response or the request payload file.
-    if grep -E '^[[:space:]]*trap ' "$CLI" 2>/dev/null | grep -qE 'scan_response_raw|payload_file|payload_'; then
+    # F-HIGH-TEMP-001: the lifecycle-owning scan scope removes its single private runtime directory.
+    # Marker remains supplemental; signal/failure behavior is authoritative in scan_runtime.test.sh.
+    if grep -qE '^[[:space:]]*_scan_runtime_cleanup\(\)' "$CLI" 2>/dev/null \
+        && grep -qE 'rm -rf "\$_SCAN_RUN_DIR"' "$CLI" 2>/dev/null; then
         emit PASS F-HIGH-TEMP-001 INV-RUNTIME-TEMP-TRAP SUPPLEMENTAL-PROBE "scan cleanup trap marker present; lifecycle behavior checked elsewhere"
     else
         emit FAIL F-HIGH-TEMP-001 INV-RUNTIME-TEMP-TRAP SUPPLEMENTAL-PROBE "scan cleanup trap marker absent"

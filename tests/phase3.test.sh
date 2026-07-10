@@ -61,14 +61,14 @@ assert_no_grep "your data stays on your machine" "$SCOUTICA"
 assert_no_grep "Auto-deploying live preview" "$SCOUTICA"
 t_end
 
-# ---- F-HIGH-TEMP-001: supplemental trap marker (not lifecycle closure) ----
-t_begin F-HIGH-TEMP-001 "supplemental marker probe: scan trap names payload and raw response"
-_trapline=$(grep -E "^[[:space:]]*trap " "$SCOUTICA" | grep payload_file)
-assert_grep "payload_file" "$_trapline"
-assert_grep "scan_raw_file" "$_trapline"
+# ---- F-HIGH-TEMP-001: supplemental owned-runtime marker (behavior is authoritative) ----
+t_begin F-HIGH-TEMP-001 "supplemental marker probe: scan trap cleans its owned runtime directory"
+_trapline=$(grep -E "^[[:space:]]*trap " "$SCOUTICA" | grep _scan_runtime_cleanup)
+assert_grep "_scan_runtime_cleanup" "$_trapline"
+assert_grep 'rm -rf "\$_SCAN_RUN_DIR"' "$SCOUTICA"
 t_end
 
 # ---- F-MED-PARSE-001: parse-failure branch reachable under set -e ----
-t_begin F-MED-PARSE-001 "parse-failure branch is reachable (if ! strict Python, not post-hoc \$?)"
-assert_grep "if ! \"\\\$VALIDATION_PYTHON\" << 'PARSE_SCRIPT'" "$SCOUTICA"
+t_begin F-MED-PARSE-001 "parse-failure branch is reachable through the strict response parser"
+assert_grep 'if ! "\$VALIDATION_PYTHON" "\$runtime_helper" parse-response' "$SCOUTICA"
 t_end

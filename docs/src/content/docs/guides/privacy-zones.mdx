@@ -11,7 +11,7 @@ The Scoutica Protocol is built on the principle that your professional data belo
 ## Your four data ownership guarantees
 
 1. **You own everything** — your card lives in your own GitHub repository, not on a platform's servers
-2. **Provider choice is explicit** — extraction runs locally, while a remote-capable provider may receive the full generated prompt and document text
+2. **Provider choice and transfer are explicit** — extraction runs locally; remote-capable scan providers name their destination and require per-invocation confirmation, or `--allow-remote-provider` in noninteractive automation
 3. **Rules are enforced** — agents that consume your card must respect your `rules.yaml`; auto-reject criteria are binding by protocol convention
 4. **You can disappear** — delete your GitHub repository and you are immediately gone from the network with no residual data
 
@@ -44,6 +44,14 @@ Zone 3 data — your contact information and exact compensation expectations —
 <Warning>
   Never put your email address, phone number, or precise salary figures in `profile.json`, `rules.yaml`, or `evidence.json`. These files are committed to a public GitHub repository.
 </Warning>
+
+Scan source text is bounded but still sensitive. Gemini, Claude, Codex, OpenCode,
+switchAILocal/gateway-backed routes, and Ollama configured to a non-loopback endpoint are
+remote-capable providers. They receive the complete generated prompt after consent. Clipboard mode
+does not contact a provider, but the complete prompt enters the operating-system clipboard.
+Transient prompts/responses are held in one private runtime directory and removed after the
+provider exits; persistent source hashes and canonical source paths live only in the target
+card's `.scoutica/state.json`.
 
 ## GDPR compliance
 

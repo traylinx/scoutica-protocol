@@ -8,12 +8,12 @@ import Warning from '@components/Warning.astro';
 The `scan` command is the powerhouse of the Scoutica Protocol. It takes any directory of unstructured text, PDFs, or code and compresses it into a high-fidelity, machine-readable professional profile.
 
 <Warning>
-`scan` requires a configured AI provider in your PATH (for example, `gemini`, `claude`, or `ollama`). A remote-capable provider may receive the full generated prompt and document text. `--clipboard` places that same sensitive payload on your system clipboard for user-controlled transfer.
+`scan` requires a configured AI provider in your PATH (for example, `gemini`, `claude`, or `ollama`). Before a remote-capable provider runs, Scoutica names the destination and discloses that it will receive the full generated prompt and document text. Interactive runs ask `y/N`; noninteractive runs must pass `--allow-remote-provider`. Ollama counts as local only when `OLLAMA_HOST` is unset/default or loopback. `--clipboard` makes no Scoutica network call, but places the same sensitive payload on your system clipboard for user-controlled transfer.
 </Warning>
 
 ## Command Syntax
 ```bash
-scoutica scan [options] <source-directory> [output-directory]
+scoutica scan <source-directory> [options]
 ```
 
 ## Options
@@ -21,6 +21,10 @@ scoutica scan [options] <source-directory> [output-directory]
 | Option | Behavior |
 |--------|----------|
 | `--clipboard` | Skips executing the local AI CLI call. Instead, it aggressively copies the deeply formatted prompt and embedded documents directly into your system clipboard, allowing you to paste it into ChatGPT, Claude.ai, or Gemini Advanced. |
+| `--output <directory>` | Selects the exact card directory before any provider call. |
+| `--with <provider>` | Selects a fixed, characterized provider adapter. |
+| `--allow-remote-provider` | Records consent for this invocation. Required for remote-capable providers in noninteractive use. |
+| `--force` | Regenerates even when card-owned source state is unchanged. |
 | `<source>` | **Required**. The directory containing your unstructured data (PDFs, Markdown, text, code, CVs). |
 | `[output]` | **Optional**. The directory to write the generated JSON/YAML to. Defaults to `./`. |
 
@@ -30,13 +34,14 @@ scoutica scan [options] <source-directory> [output-directory]
 
 **What it does:**
 When you run `scoutica scan ~/CV`, the CLI engine initiates the following operations:
-1. Recurses through the source directory (respecting `.gitignore` boundaries if present).
+1. Reads supported top-level source documents with a 2 MiB extracted-text limit per file and 4 MiB aggregate limit. Over-limit input fails; it is never truncated.
 2. Uses `pdftotext` to flatten any rich PDFs into rigorous raw plaintext.
-3. Ingests all Markdown (`.md`), Code, and Text files.
+3. Ingests supported top-level document formats (`.md`, `.txt`, JSON, YAML, CSV, HTML, PDF, and DOCX).
 4. Wraps this context tightly inside a massive system prompt (pulled from your `~/.scoutica/templates/scoutica_prompt.txt`).
-5. Hands the payload to your installed LLM CLI.
-6. The AI enforces strict Schema Output mapping to the Scoutica Protocol.
-7. The JSON response is caught, parsed, and decoupled into `profile.json`, `rules.yaml`, `evidence.json`, and `SKILL.md`.
+5. Discloses the provider destination and obtains consent when it is remote-capable.
+6. Supplies the payload through stdin or a request body, never as sensitive process arguments. Provider execution is capped at 300 seconds and the response at 8 MiB.
+7. Parses and validates the complete generated card in private staging, then promotes it with rollback protection.
+8. Writes source state only under `<card>/.scoutica/state.json`; unchanged scans can skip the provider without consulting legacy cwd state.
 
 **Why use it:**
 - **Zero-effort adoption:** Mapping 10 years of professional experience across 5 different companies into a JSON schema manually takes hours. `scoutica scan` accomplishes it in 15 seconds.
@@ -45,7 +50,7 @@ When you run `scoutica scan ~/CV`, the CLI engine initiates the following operat
 ### Use Case A: Zero-to-One
 You have a folder called `~/professional/` containing `resume.pdf`, `cover-letter.txt`, and `aws-cert.pdf`. 
 ```bash
-scoutica scan ~/professional/ ./my-new-card/
+scoutica scan ~/professional/ --output ./my-new-card/ --allow-remote-provider
 ```
 The AI reads your Amazon certificate, places it under `evidence.json`, reads your PDF resume, structures it into `profile.json`, infers your location and remote preference into `rules.yaml`. You are completely done and ready to `validate` and `publish`.
 

@@ -110,6 +110,7 @@ Invoke-WebRequest -Uri "$REPO_RAW/GENERATE_MY_CARD.md" -OutFile (Join-Path $INST
 Write-Host "  → Downloading validation tool..." -ForegroundColor Blue
 Invoke-WebRequest -Uri "$REPO_RAW/tools/validate_card.py" -OutFile (Join-Path $BIN_DIR "validate_card.py") -UseBasicParsing
 Invoke-WebRequest -Uri "$REPO_RAW/tools/SCAN_PROMPT.md" -OutFile (Join-Path $BIN_DIR "SCAN_PROMPT.md") -UseBasicParsing
+Invoke-WebRequest -Uri "$REPO_RAW/tools/scan_runtime.py" -OutFile (Join-Path $BIN_DIR "scan_runtime.py") -UseBasicParsing
 
 # --- Step 7: Add to PATH ---
 $currentPath = [Environment]::GetEnvironmentVariable("Path", "User")
