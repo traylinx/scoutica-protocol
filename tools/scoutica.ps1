@@ -460,6 +460,49 @@ function Invoke-Validate([string]$cardDir = ".") {
 
 # ─── PUBLISH Command ─────────────────────────────────────────────────────────
 
+function Get-PublishCanonicalPaths {
+    # Exact candidate-card publication surface. Both index checks and staging
+    # consume this one list so a directory can never broaden the boundary.
+    $paths = @()
+    foreach ($path in @('profile.json','rules.yaml','evidence.json','SKILL.md','scoutica.json','README.md','.gitignore')) {
+        $paths += $path
+    }
+    $paths += @(
+        'rules/evaluate-fit.md',
+        'rules/negotiate-terms.md',
+        'rules/verify-evidence.md',
+        'rules/request-interview.md'
+    )
+    return $paths
+}
+
+function Write-PublishError([string]$message) {
+    [Console]::Error.WriteLine("  ❌ $message")
+}
+
+function Test-PublishIndex([System.Collections.Generic.HashSet[string]]$allowedPaths, [string]$phase) {
+    $stagedPaths = @(& git diff --cached --name-only --)
+    if ($LASTEXITCODE -ne 0) {
+        Write-PublishError "Unable to inspect the Git index during $phase."
+        return $false
+    }
+
+    $blockedPaths = @()
+    foreach ($path in $stagedPaths) {
+        if (-not $allowedPaths.Contains([string]$path)) {
+            $blockedPaths += [string]$path
+        }
+    }
+    if ($blockedPaths.Count -gt 0) {
+        Write-PublishError "Refusing publish: the Git index contains non-canonical path(s):"
+        foreach ($path in $blockedPaths) {
+            [Console]::Error.WriteLine("     $path")
+        }
+        return $false
+    }
+    return $true
+}
+
 function Invoke-Publish([string]$cardDir = ".") {
     Write-Header "Publish to GitHub"
     
@@ -471,40 +514,108 @@ function Invoke-Publish([string]$cardDir = ".") {
     Push-Location $cardDir
     try {
         if (Test-Path ".git") {
-            foreach ($f in @('profile.json','rules.yaml','evidence.json','SKILL.md','scoutica.json','.gitignore')) {
-                if (Test-Path $f) { git add -- $f }
+            $allowedPaths = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::Ordinal)
+            foreach ($path in (Get-PublishCanonicalPaths)) {
+                [void]$allowedPaths.Add($path)
             }
-            if (Test-Path 'rules') { git add -- 'rules' }
-            $msg = "Update Scoutica Skill Card — $(Get-Date -Format 'yyyy-MM-dd')"
-            git commit -m $msg 2>$null
-            if ($LASTEXITCODE -ne 0) { Write-Warn "No changes to commit"; return }
-            
-            $remote = git remote -v 2>$null
-            if ($remote -match "origin") {
-                $branch = git branch --show-current
-                git push origin $branch
-                if ($LASTEXITCODE -eq 0) { Write-Success "Pushed to GitHub!" }
-                else { Write-Err "Push failed. Check your remote configuration." }
-            } else {
-                Write-Warn "No remote 'origin' configured."
-                Write-Host "  Run: git remote add origin https://github.com/YOU/YOUR-CARD.git" -ForegroundColor DarkGray
+
+            # Refuse before any Scoutica staging. A refusal leaves the caller's
+            # pre-existing index byte-for-byte unchanged.
+            if (-not (Test-PublishIndex $allowedPaths "pre-staging check")) { exit 1 }
+
+            $origin = & git remote get-url origin 2>$null
+            if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace([string]$origin)) {
+                Write-PublishError "No remote 'origin' configured."
+                [Console]::Error.WriteLine("     Run: git remote add origin https://github.com/YOU/YOUR-CARD.git")
+                exit 1
             }
+
+            $branch = & git branch --show-current 2>$null
+            if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace([string]$branch)) {
+                Write-PublishError "Cannot publish from a detached HEAD or unresolved branch."
+                exit 1
+            }
+
+            foreach ($path in (Get-PublishCanonicalPaths)) {
+                if (Test-Path -LiteralPath $path -PathType Leaf) {
+                    & git add -- $path
+                    if ($LASTEXITCODE -ne 0) {
+                        Write-PublishError ("Failed to stage canonical path: {0}" -f $path)
+                        exit 1
+                    }
+                }
+            }
+
+            # Defense in depth: prove the final index is still bounded before commit.
+            if (-not (Test-PublishIndex $allowedPaths "post-staging check")) { exit 1 }
+
+            & git diff --cached --quiet --exit-code --
+            $diffExit = $LASTEXITCODE
+            if ($diffExit -eq 1) {
+                $msg = "Update Scoutica Skill Card — $(Get-Date -Format 'yyyy-MM-dd')"
+                & git commit -m $msg 2>$null
+                if ($LASTEXITCODE -ne 0) {
+                    Write-PublishError "Commit failed; nothing was pushed."
+                    exit 1
+                }
+            } elseif ($diffExit -ne 0) {
+                Write-PublishError "Unable to inspect staged changes; nothing was pushed."
+                exit 1
+            }
+
+            & git push origin $branch
+            if ($LASTEXITCODE -ne 0) {
+                Write-PublishError "Push failed. Check your remote configuration or permissions."
+                exit 1
+            }
+            Write-Success "Pushed to GitHub!"
         } else {
             $repoName = Ask "GitHub repo name" "my-scoutica-card"
             $ghUser = Ask "GitHub username"
-            
-            git init
-            foreach ($f in @('profile.json','rules.yaml','evidence.json','SKILL.md','scoutica.json','.gitignore')) {
-                if (Test-Path $f) { git add -- $f }
+
+            & git init
+            if ($LASTEXITCODE -ne 0) {
+                Write-PublishError "Git repository initialization failed."
+                exit 1
             }
-            if (Test-Path 'rules') { git add -- 'rules' }
-            git commit -m "Initial Scoutica Skill Card"
-            git branch -M main
-            git remote add origin "https://github.com/$ghUser/$repoName.git"
-            
+
+            $allowedPaths = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::Ordinal)
+            foreach ($path in (Get-PublishCanonicalPaths)) {
+                [void]$allowedPaths.Add($path)
+            }
+            if (-not (Test-PublishIndex $allowedPaths "pre-staging check")) { exit 1 }
+
+            foreach ($path in (Get-PublishCanonicalPaths)) {
+                if (Test-Path -LiteralPath $path -PathType Leaf) {
+                    & git add -- $path
+                    if ($LASTEXITCODE -ne 0) {
+                        Write-PublishError ("Failed to stage canonical path: {0}" -f $path)
+                        exit 1
+                    }
+                }
+            }
+            if (-not (Test-PublishIndex $allowedPaths "post-staging check")) { exit 1 }
+
+            & git commit -m "Initial Scoutica Skill Card"
+            if ($LASTEXITCODE -ne 0) {
+                Write-PublishError "Commit failed; nothing was pushed."
+                exit 1
+            }
+            & git branch -M main
+            if ($LASTEXITCODE -ne 0) {
+                Write-PublishError "Failed to create the main branch."
+                exit 1
+            }
+            & git remote add origin "https://github.com/$ghUser/$repoName.git"
+            if ($LASTEXITCODE -ne 0) {
+                Write-PublishError "Failed to configure remote 'origin'."
+                exit 1
+            }
+
             Write-Host ""
-            Write-Host "  Next: Create the repo at https://github.com/new" -ForegroundColor White
-            Write-Host "  Then run: git push -u origin main" -ForegroundColor Cyan
+            Write-PublishError "Repository initialized locally, but it has not been published."
+            [Console]::Error.WriteLine("     Create the repo at https://github.com/new, then run this command again.")
+            exit 1
         }
     } finally {
         Pop-Location

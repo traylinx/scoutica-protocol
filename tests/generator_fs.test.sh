@@ -17,6 +17,12 @@ for python_candidate in python3.13 python3.12 python3.11 python3 python; do
 done
 [ -n "$TEST_PYTHON" ] || { printf '%s\n' 'No strict test Python available' >&2; exit 1; }
 
+role_create_input() {
+    printf '%s\n' \
+        'Senior Engineer' 'Build systems' '4' '5' 'Python' '' '' '' \
+        '' '' '' 'n' '1' '' '' '4' '' '' ''
+}
+
 t_begin F-17 "candidate init serializes SKILL frontmatter structurally"
 candidate="$WORK/candidate"
 mkdir -p "$candidate"
@@ -108,16 +114,13 @@ t_end
 t_begin F-18 "role create persists freelance as schema-valid contract"
 role_root="$WORK/role"
 mkdir -p "$role_root"
-if ! printf '%s\n' \
-    'Senior Engineer' 'Build systems' '4' '5' 'Python' '' '' '' \
-    '' '' '' 'n' '1' '' '' '4' '' '' '' \
-    | "$SCOUTICA" role create "$role_root" >/dev/null 2>&1; then
+if ! role_create_input | "$SCOUTICA" role create "$role_root" >/dev/null 2>&1; then
     t_fail "role create failed"
 fi
 role_file="$role_root/roles/senior-engineer.json"
 assert_exists "$role_file"
 assert_exit 0 "$TEST_PYTHON" - "$role_file" "$REPO_ROOT/schemas/recruiter/role.schema.json" <<'PY'
-import json, sys
+import json, os, stat, sys
 import jsonschema
 
 role = json.load(open(sys.argv[1], encoding="utf-8"))
@@ -125,7 +128,58 @@ schema = json.load(open(sys.argv[2], encoding="utf-8"))
 assert role["engagement"]["type"] == "contract"
 assert "freelance" not in json.dumps(role)
 jsonschema.validate(role, schema, format_checker=jsonschema.FormatChecker())
+assert stat.S_IMODE(os.stat(sys.argv[1]).st_mode) == 0o600
 PY
+role_regular_files=$(find "$role_root/roles" -type f -print | wc -l | tr -d '[:space:]')
+role_symlinks=$(find "$role_root/roles" -type l -print | wc -l | tr -d '[:space:]')
+assert_eq 1 "$role_regular_files" "normal role creation leaves only the final role file"
+assert_eq 0 "$role_symlinks" "normal role creation leaves no temporary symlink"
+t_end
+
+t_begin F-02 "role create refuses a symlinked roles parent without changing victim"
+role_parent_root="$WORK/role-parent-symlink"
+role_parent_victim_dir="$WORK/role-parent-victim"
+mkdir -p "$role_parent_root" "$role_parent_victim_dir"
+role_parent_victim="$role_parent_victim_dir/senior-engineer.json"
+printf '%s\n' 'role-parent-victim-must-remain-unchanged' > "$role_parent_victim"
+cp "$role_parent_victim" "$WORK/role-parent-victim.before"
+ln -s "$role_parent_victim_dir" "$role_parent_root/roles"
+if role_create_input | "$SCOUTICA" role create "$role_parent_root" >/dev/null 2>&1; then
+    t_fail "role create accepted a symlinked roles parent"
+fi
+assert_file_eq "$WORK/role-parent-victim.before" "$role_parent_victim" \
+    "symlinked roles parent must not permit victim overwrite"
+assert_exists "$role_parent_root/roles" "roles symlink remains present for inspection"
+t_end
+
+t_begin F-02 "role create refuses a multiply-slashed symlink target without changing victim"
+slash_victim="$WORK/role-target-slash-victim"
+slash_link="$WORK/role-target-slash-link"
+mkdir -p "$slash_victim/roles"
+printf '%s\n' '{"victim":true}' > "$slash_victim/roles/senior-software-engineer.json"
+cp "$slash_victim/roles/senior-software-engineer.json" "$WORK/role-target-slash-victim.before"
+ln -s "$slash_victim" "$slash_link"
+if printf '%s\n' \
+    '' '' '8' '' '' '' '' '' '' '' '' '' '' '' '' '' '' '' '' '' \
+    | "$SCOUTICA" role create "$slash_link//" >"$WORK/role-target-slash.out" 2>&1; then
+    t_fail "role create accepted a multiply-slashed symlink target"
+fi
+assert_file_eq "$WORK/role-target-slash-victim.before" \
+    "$slash_victim/roles/senior-software-engineer.json" \
+    "multiply-slashed symlink target must leave victim unchanged"
+t_end
+
+t_begin F-02 "role create refuses a symlinked final role without changing victim"
+role_final_root="$WORK/role-final-symlink"
+mkdir -p "$role_final_root/roles"
+fixture_make_symlink_victim "$role_final_root/roles" "senior-engineer.json"
+cp "$FIXTURE_SYMLINK_VICTIM" "$WORK/role-final-victim.before"
+if role_create_input | "$SCOUTICA" role create "$role_final_root" >/dev/null 2>&1; then
+    t_fail "role create accepted a symlinked final role file"
+fi
+assert_file_eq "$WORK/role-final-victim.before" "$FIXTURE_SYMLINK_VICTIM" \
+    "symlinked final role must not permit victim overwrite"
+assert_exists "$FIXTURE_SYMLINK_PATH" "final role symlink remains present for inspection"
 t_end
 
 t_begin F-17 "scan serializes frontmatter and canonicalizes engagement before writes"

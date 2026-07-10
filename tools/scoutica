@@ -191,8 +191,75 @@ _refuse_if_symlink() {
     return 0
 }
 
+_git_publish_path_allowed() {
+    local _publish_kind="$1" _publish_path="$2" _publish_leaf
+    case "$_publish_kind:$_publish_path" in
+        candidate:profile.json|candidate:rules.yaml|candidate:evidence.json|candidate:SKILL.md|candidate:scoutica.json|candidate:README.md|candidate:.gitignore|candidate:rules/evaluate-fit.md|candidate:rules/negotiate-terms.md|candidate:rules/verify-evidence.md|candidate:rules/request-interview.md)
+            return 0
+            ;;
+        employer:recruiter_profile.json|employer:hiring_rules.yaml)
+            return 0
+            ;;
+        employer:roles/*.json)
+            _publish_leaf=${_publish_path#roles/}
+            case "$_publish_leaf" in */*) return 1 ;; *) return 0 ;; esac
+            ;;
+    esac
+    return 1
+}
+
+# Refuse publication if the current index contains anything outside the command's canonical set.
+# This helper is read-only, so a pre-stage refusal leaves .git/index byte-for-byte unchanged.
+_git_require_canonical_index() {
+    local _publish_kind="$1" _publish_phase="$2" _publish_list _publish_path _publish_bad=0
+    _publish_list=$(mktemp "${TMPDIR:-/tmp}/scoutica-staged.XXXXXX") || {
+        error "Could not inspect the Git index."
+        return 1
+    }
+    if ! git diff --cached --name-only -z -- > "$_publish_list"; then
+        rm -f "$_publish_list"
+        error "Could not inspect the Git index."
+        return 1
+    fi
+    while IFS= read -r -d '' _publish_path; do
+        if ! _git_publish_path_allowed "$_publish_kind" "$_publish_path"; then
+            if [ "$_publish_bad" -eq 0 ]; then
+                error "Refusing to publish: $_publish_phase staged paths outside the canonical $_publish_kind allowlist:"
+            fi
+            printf '    %q\n' "$_publish_path" >&2
+            _publish_bad=1
+        fi
+    done < "$_publish_list"
+    rm -f "$_publish_list"
+    [ "$_publish_bad" -eq 0 ]
+}
+
+_git_stage_canonical_paths() {
+    local _publish_kind="$1" _publish_path
+    case "$_publish_kind" in
+        candidate)
+            for _publish_path in profile.json rules.yaml evidence.json SKILL.md scoutica.json README.md .gitignore \
+                rules/evaluate-fit.md rules/negotiate-terms.md rules/verify-evidence.md rules/request-interview.md; do
+                [ -f "$_publish_path" ] || continue
+                git add -- "$_publish_path" || return 1
+            done
+            ;;
+        employer)
+            for _publish_path in recruiter_profile.json hiring_rules.yaml; do
+                [ -f "$_publish_path" ] || continue
+                git add -- "$_publish_path" || return 1
+            done
+            for _publish_path in roles/*.json; do
+                [ -f "$_publish_path" ] || continue
+                git add -- "$_publish_path" || return 1
+            done
+            ;;
+        *) return 2 ;;
+    esac
+}
+
 # Promote a validated generated card into its final directory. Validation must
-# happen before this helper is called; Phase 2 upgrades these bounded copies to
+# happen before this helper is called; Phase 3 upgrades these bounded copies to
 # atomic no-follow writes.
 _promote_generated_card() {
     local _stage="$1" _destination="$2" _generated_file
@@ -1098,26 +1165,49 @@ cmd_publish() {
     # Check if already a git repo
     if [ -d "$card_dir/.git" ]; then
         (
-            cd "$card_dir"
-            # Only stage known card files — never stage secrets or .env
-            local card_files=(profile.json rules.yaml evidence.json SKILL.md scoutica.json README.md)
-            for cf in "${card_files[@]}"; do
-                [ -f "$cf" ] && git add "$cf" 2>/dev/null
-            done
-            [ -d "rules" ] && git add rules/ 2>/dev/null
+            cd "$card_dir" || return 1
+            if ! git remote get-url origin >/dev/null 2>&1; then
+                error "No remote 'origin' configured."
+                echo -e "  ${DIM}Run: git remote add origin https://github.com/YOU/YOUR-CARD.git${NC}" >&2
+                return 1
+            fi
+
+            _git_require_canonical_index candidate "pre-existing" || return 1
+            if ! _git_stage_canonical_paths candidate; then
+                error "Failed to stage canonical Skill Card files."
+                return 1
+            fi
+            _git_require_canonical_index candidate "final" || return 1
+
+            local publish_branch
+            publish_branch=$(git branch --show-current 2>/dev/null || true)
+            if [ -z "$publish_branch" ]; then
+                error "Cannot publish from a detached HEAD or unnamed branch."
+                return 1
+            fi
             
             # Preview changes to the user
             local changes
-            changes=$(git status -s 2>/dev/null | grep -E 'profile\.json|rules\.yaml|evidence\.json|SKILL\.md|scoutica\.json|rules/') || true
+            changes=$(git diff --cached --name-status -- 2>/dev/null) || {
+                error "Could not inspect staged Skill Card changes."
+                return 1
+            }
             
             if [ -z "$changes" ]; then
-                echo -e "  ${GREEN}✅${NC} Your Skill Card is already up to date!"
-                local origin_url=$(git remote get-url origin 2>/dev/null || echo "")
-                if [ -n "$origin_url" ]; then
-                    local clean_url=$(echo "$origin_url" | sed 's/\.git$//')
-                    echo -e "  ${DIM}Live at:${NC} $clean_url"
+                if ! git push origin "$publish_branch" >/dev/null 2>&1; then
+                    error "Push failed. The remote may not contain the local Skill Card commit."
+                    return 1
                 fi
-                return 0
+                echo -e "  ${GREEN}✅${NC} Your Skill Card is up to date and synchronized!"
+                local origin_url
+                origin_url=$(git remote get-url origin) || return 1
+                local clean_url
+                clean_url=$(echo "$origin_url" | sed 's/\.git$//')
+                echo -e "  ${DIM}Live at:${NC} $clean_url"
+                local abs_card_dir
+                abs_card_dir=$(pwd)
+                _register_card "$abs_card_dir" "publish" '{"github_url": "'"$clean_url"'"}'
+                return $?
             fi
             
             echo -e "  ${BOLD}The following changes will be published:${NC}"
@@ -1127,37 +1217,34 @@ cmd_publish() {
             echo ""
             
             local msg="Update Scoutica Protocol Skill Card — $(date +%Y-%m-%d)"
-            git commit -m "$msg" >/dev/null 2>&1
-            
-            # Try to push
-            if git remote -v | grep -q "origin"; then
-                echo -e "  ${DIM}Pushing to GitHub...${NC}"
-                if git push origin "$(git branch --show-current)" >/dev/null 2>&1; then
-                    echo -e "  ${GREEN}✅ Successfully published to GitHub!${NC}"
-                    echo ""
-                    
-                    # Extract URL for the user
-                    local origin_url=$(git remote get-url origin)
-                    local clean_url=$(echo "$origin_url" | sed 's/\.git$//')
-                    
-                    echo -e "  ${BOLD}View on GitHub:${NC}"
-                    echo -e "  $clean_url"
-                    echo ""
-                    echo -e "  ${BOLD}Test your live card:${NC}"
-                    echo -e "  ${CYAN}scoutica resolve $clean_url${NC}"
-                    
-                    # Register publish event in global registry
-                    local abs_card_dir
-                    abs_card_dir=$(pwd)
-                    _register_card "$abs_card_dir" "publish" '{"github_url": "'"$clean_url"'"}'
-                else
-                    error "Push failed. Check your remote configuration or permissions."
-                fi
-            else
-                warn "No remote 'origin' configured."
-                echo -e "  ${DIM}Run: git remote add origin https://github.com/YOU/YOUR-CARD.git${NC}"
+            if ! git commit -m "$msg" >/dev/null 2>&1; then
+                error "Commit failed. No publish was recorded."
+                return 1
             fi
+            
+            echo -e "  ${DIM}Pushing to GitHub...${NC}"
+            if ! git push origin "$publish_branch" >/dev/null 2>&1; then
+                error "Push failed. Check your remote configuration or permissions."
+                return 1
+            fi
+
+            echo -e "  ${GREEN}✅ Successfully published to GitHub!${NC}"
+            echo ""
+            local origin_url
+            origin_url=$(git remote get-url origin) || return 1
+            local clean_url
+            clean_url=$(echo "$origin_url" | sed 's/\.git$//')
+            echo -e "  ${BOLD}View on GitHub:${NC}"
+            echo -e "  $clean_url"
+            echo ""
+            echo -e "  ${BOLD}Test your live card:${NC}"
+            echo -e "  ${CYAN}scoutica resolve $clean_url${NC}"
+
+            local abs_card_dir
+            abs_card_dir=$(pwd)
+            _register_card "$abs_card_dir" "publish" '{"github_url": "'"$clean_url"'"}'
         )
+        return $?
     else
         # ── No git repo — smart setup ──────────────────────────────────
         
@@ -1185,18 +1272,29 @@ cmd_publish() {
                     echo ""
                     
                     (
-                        cd "$card_dir"
-                        git init >/dev/null 2>&1
-                        
-                        # Only stage known card files
-                        local card_files=(profile.json rules.yaml evidence.json SKILL.md scoutica.json README.md)
-                        for cf in "${card_files[@]}"; do
-                            [ -f "$cf" ] && git add "$cf" 2>/dev/null
-                        done
-                        [ -d "rules" ] && git add rules/ 2>/dev/null
-                        
-                        git commit -m "Initial Scoutica Protocol Skill Card" >/dev/null 2>&1
-                        git branch -M main >/dev/null 2>&1
+                        cd "$card_dir" || return 1
+                        if ! git init >/dev/null 2>&1; then
+                            error "Failed to initialize Git repository."
+                            return 1
+                        fi
+                        _git_require_canonical_index candidate "pre-existing" || return 1
+                        if ! _git_stage_canonical_paths candidate; then
+                            error "Failed to stage canonical Skill Card files."
+                            return 1
+                        fi
+                        _git_require_canonical_index candidate "final" || return 1
+                        if git diff --cached --quiet --; then
+                            error "No canonical Skill Card files are available to publish."
+                            return 1
+                        fi
+                        if ! git commit -m "Initial Scoutica Protocol Skill Card" >/dev/null 2>&1; then
+                            error "Commit failed. No publish was recorded."
+                            return 1
+                        fi
+                        if ! git branch -M main >/dev/null 2>&1; then
+                            error "Failed to prepare the main branch."
+                            return 1
+                        fi
                         
                         # Create repo on GitHub automatically
                         echo -e "  ${DIM}Creating repository ${BOLD}$gh_user/$repo_name${NC} ${DIM}on GitHub...${NC}"
@@ -1217,11 +1315,12 @@ cmd_publish() {
                             _register_card "$abs_card_dir" "publish" '{"github_url": "'"$github_url"'"}'
                         else
                             # gh repo create failed — maybe name conflict
-                            warn "Auto-create failed (repo name '$repo_name' may already exist)."
+                            error "Auto-create or push failed (repo name '$repo_name' may already exist)."
                             echo -e "  ${DIM}Try manually: gh repo create $repo_name --public --source=. --remote=origin --push${NC}"
+                            return 1
                         fi
                     )
-                    return 0
+                    return $?
                 fi
             fi
         fi
@@ -1235,24 +1334,44 @@ cmd_publish() {
             echo ""
             
             (
-                cd "$card_dir"
-                git init >/dev/null 2>&1
-                local card_files=(profile.json rules.yaml evidence.json SKILL.md scoutica.json README.md)
-                for cf in "${card_files[@]}"; do
-                    [ -f "$cf" ] && git add "$cf" 2>/dev/null
-                done
-                [ -d "rules" ] && git add rules/ 2>/dev/null
+                cd "$card_dir" || return 1
+                if ! git init >/dev/null 2>&1; then
+                    error "Failed to initialize Git repository."
+                    return 1
+                fi
+                _git_require_canonical_index candidate "pre-existing" || return 1
+                if ! _git_stage_canonical_paths candidate; then
+                    error "Failed to stage canonical Skill Card files."
+                    return 1
+                fi
+                _git_require_canonical_index candidate "final" || return 1
                 
                 local changes
-                changes=$(git status -s 2>/dev/null | grep -E 'profile\.json|rules\.yaml|evidence\.json|SKILL\.md|scoutica\.json|rules/') || true
+                changes=$(git diff --cached --name-status -- 2>/dev/null) || {
+                    error "Could not inspect staged Skill Card changes."
+                    return 1
+                }
+                if [ -z "$changes" ]; then
+                    error "No canonical Skill Card files are available to publish."
+                    return 1
+                fi
                 echo -e "  ${BOLD}The following files are ready to publish:${NC}"
                 echo "$changes" | while read -r line; do
                     echo -e "    ${CYAN}$line${NC}"
                 done
                 
-                git commit -m "Initial Scoutica Protocol Skill Card" >/dev/null 2>&1
-                git branch -M main >/dev/null 2>&1
-                git remote add origin "https://github.com/$gh_user/$repo_name.git" 2>/dev/null || true
+                if ! git commit -m "Initial Scoutica Protocol Skill Card" >/dev/null 2>&1; then
+                    error "Commit failed. No publish was recorded."
+                    return 1
+                fi
+                if ! git branch -M main >/dev/null 2>&1; then
+                    error "Failed to prepare the main branch."
+                    return 1
+                fi
+                if ! git remote add origin "https://github.com/$gh_user/$repo_name.git" 2>/dev/null; then
+                    error "Failed to configure remote 'origin'."
+                    return 1
+                fi
                 
                 echo ""
                 echo -e "  ${BOLD}Next steps:${NC}"
@@ -1263,11 +1382,10 @@ cmd_publish() {
                 echo -e "  ${BOLD}Test your live card after pushing:${NC}"
                 echo -e "  ${CYAN}scoutica resolve https://github.com/$gh_user/$repo_name${NC}"
                 
-                # Register in global registry
-                local abs_card_dir
-                abs_card_dir=$(pwd)
-                _register_card "$abs_card_dir" "publish" '{"github_url": "https://github.com/'"$gh_user"'/'"$repo_name"'"}'
+                error "Card committed locally but not published yet. Run the push command above."
+                return 1
             )
+            return $?
         else
             # ── Tier 3: Non-interactive terminal — safe instructions ──
             echo -e "  ${BOLD}No git repo found.${NC}"
@@ -1287,6 +1405,7 @@ cmd_publish() {
             echo -e "    4. Run: ${CYAN}git push -u origin main${NC}"
             echo ""
             echo -e "  ${DIM}After pushing, register your card: scoutica publish${NC}"
+            return 1
         fi
     fi
 }
@@ -4037,23 +4156,41 @@ cmd_org_publish() {
     
     if [ -d "$card_dir/.git" ]; then
         (
-            cd "$card_dir"
-            # Stage known employer card files
-            local card_files=(recruiter_profile.json hiring_rules.yaml)
-            for cf in "${card_files[@]}"; do
-                [ -f "$cf" ] && git add "$cf" 2>/dev/null
-            done
-            [ -d "roles" ] && git add roles/ 2>/dev/null
+            cd "$card_dir" || return 1
+            if ! git remote get-url origin >/dev/null 2>&1; then
+                error "No remote 'origin' configured."
+                echo -e "  ${DIM}Run: git remote add origin https://github.com/ORG/.scoutica.git${NC}" >&2
+                return 1
+            fi
+            _git_require_canonical_index employer "pre-existing" || return 1
+            if ! _git_stage_canonical_paths employer; then
+                error "Failed to stage canonical Employer Card files."
+                return 1
+            fi
+            _git_require_canonical_index employer "final" || return 1
+
+            local publish_branch
+            publish_branch=$(git branch --show-current 2>/dev/null || true)
+            if [ -z "$publish_branch" ]; then
+                error "Cannot publish from a detached HEAD or unnamed branch."
+                return 1
+            fi
             
             local changes
-            changes=$(git status -s 2>/dev/null | grep -E 'recruiter_profile|hiring_rules|roles/') || true
+            changes=$(git diff --cached --name-status -- 2>/dev/null) || {
+                error "Could not inspect staged Employer Card changes."
+                return 1
+            }
             
             if [ -z "$changes" ]; then
-                echo -e "  ${GREEN}✅${NC} Employer Card is already up to date!"
-                local origin_url=$(git remote get-url origin 2>/dev/null || echo "")
-                if [ -n "$origin_url" ]; then
-                    echo -e "  ${DIM}Live at:${NC} $(echo "$origin_url" | sed 's/\.git$//')"
+                if ! git push origin "$publish_branch" >/dev/null 2>&1; then
+                    error "Push failed. The remote may not contain the local Employer Card commit."
+                    return 1
                 fi
+                echo -e "  ${GREEN}✅${NC} Employer Card is up to date and synchronized!"
+                local origin_url
+                origin_url=$(git remote get-url origin) || return 1
+                echo -e "  ${DIM}Live at:${NC} $(echo "$origin_url" | sed 's/\.git$//')"
                 return 0
             fi
             
@@ -4064,28 +4201,32 @@ cmd_org_publish() {
             echo ""
             
             local msg="Update Scoutica Employer Card — $(date +%Y-%m-%d)"
-            git commit -m "$msg" >/dev/null 2>&1
-            
-            if git remote -v | grep -q "origin"; then
-                echo -e "  ${DIM}Pushing to GitHub...${NC}"
-                if git push origin "$(git branch --show-current)" >/dev/null 2>&1; then
-                    success "Successfully published to GitHub!"
-                    local origin_url=$(git remote get-url origin)
-                    local clean_url=$(echo "$origin_url" | sed 's/\.git$//')
-                    echo -e "  ${BOLD}View:${NC} $clean_url"
-                else
-                    error "Push failed. Check your remote or permissions."
-                fi
-            else
-                warn "No remote 'origin' configured."
-                echo -e "  ${DIM}Run: git remote add origin https://github.com/ORG/.scoutica.git${NC}"
+            if ! git commit -m "$msg" >/dev/null 2>&1; then
+                error "Commit failed. No publish was recorded."
+                return 1
             fi
+            
+            echo -e "  ${DIM}Pushing to GitHub...${NC}"
+            if ! git push origin "$publish_branch" >/dev/null 2>&1; then
+                error "Push failed. Check your remote or permissions."
+                return 1
+            fi
+            success "Successfully published to GitHub!"
+            local origin_url
+            origin_url=$(git remote get-url origin) || return 1
+            local clean_url
+            clean_url=$(echo "$origin_url" | sed 's/\.git$//')
+            echo -e "  ${BOLD}View:${NC} $clean_url"
         )
+        local publish_rc=$?
+        echo ""
+        return "$publish_rc"
     else
-        warn "Not a git repository."
+        error "Not a git repository."
         echo -e "  ${DIM}Initialize with: git init && git remote add origin ...${NC}"
+        echo ""
+        return 1
     fi
-    echo ""
 }
 
 # ─── ROLE Command (Job Postings) ──────────────────────────────────────────────
@@ -4110,6 +4251,18 @@ cmd_role() {
 
 cmd_role_create() {
     local target_dir="${1:-.}"
+    while [ "$target_dir" != "/" ] && [ "${target_dir%/}" != "$target_dir" ]; do
+        target_dir="${target_dir%/}"
+    done
+
+    if [ -L "$target_dir" ]; then
+        error "Refusing symlinked role target directory: $target_dir"
+        return 1
+    fi
+    if [ -e "$target_dir" ] && [ ! -d "$target_dir" ]; then
+        error "Role target is not a directory: $target_dir"
+        return 1
+    fi
     
     header "Create Structured Job Posting"
     
@@ -4200,7 +4353,20 @@ cmd_role_create() {
         return 1
     }
     
-    mkdir -p "$target_dir/roles"
+    mkdir -p "$target_dir" || {
+        error "Could not create role target directory: $target_dir"
+        return 1
+    }
+    _refuse_if_symlink "$target_dir" "$target_dir/roles" || return 1
+    if [ -e "$target_dir/roles" ] && [ ! -d "$target_dir/roles" ]; then
+        error "Role output parent is not a directory: $target_dir/roles"
+        return 1
+    fi
+    mkdir -p "$target_dir/roles" || {
+        error "Could not create role output directory: $target_dir/roles"
+        return 1
+    }
+    _refuse_if_symlink "$target_dir" "$target_dir/roles" || return 1
     
     "$VALIDATION_PYTHON" << 'ROLE_GENERATE_SCRIPT' - \
         "$target_dir" \
@@ -4210,7 +4376,7 @@ cmd_role_create() {
         "$location_type" "$regions" "$tz_overlap" "$office_location" \
         "$engagement_type" "$start_date" "$duration_months" \
         "$recruiter_card_url" "$role_schema"
-import json, sys, os, re, hashlib, jsonschema
+import json, sys, os, re, hashlib, jsonschema, secrets, stat
 from datetime import datetime, timezone, timedelta
 
 args = sys.argv[1:]
@@ -4295,9 +4461,92 @@ with open(role_schema_path, encoding="utf-8") as f:
 jsonschema.Draft7Validator.check_schema(role_schema)
 jsonschema.validate(role, role_schema, format_checker=jsonschema.FormatChecker())
 
-with open(filepath, 'w') as f:
-    json.dump(role, f, indent=2, ensure_ascii=False)
-    f.write('\n')
+def write_role_atomic():
+    required_flags = ("O_DIRECTORY", "O_NOFOLLOW")
+    if any(not hasattr(os, flag) for flag in required_flags):
+        raise RuntimeError("platform lacks required no-follow directory operations")
+
+    directory_flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
+    target_fd = None
+    roles_fd = None
+    temp_name = None
+    try:
+        target_fd = os.open(target_dir, directory_flags)
+        roles_fd = os.open("roles", directory_flags, dir_fd=target_fd)
+        target_identity = os.fstat(target_fd)
+        roles_identity = os.fstat(roles_fd)
+        if not stat.S_ISDIR(target_identity.st_mode) or not stat.S_ISDIR(roles_identity.st_mode):
+            raise RuntimeError("role target or roles parent is not a directory")
+
+        try:
+            final_state = os.stat(filename, dir_fd=roles_fd, follow_symlinks=False)
+        except FileNotFoundError:
+            final_state = None
+        if final_state is not None and stat.S_ISLNK(final_state.st_mode):
+            raise RuntimeError(f"refusing symlinked role output: {filepath}")
+        if final_state is not None and not stat.S_ISREG(final_state.st_mode):
+            raise RuntimeError(f"role output is not a regular file: {filepath}")
+
+        for _ in range(100):
+            candidate = f".scoutica-role-{os.getpid()}-{secrets.token_hex(8)}.tmp"
+            try:
+                temp_fd = os.open(
+                    candidate,
+                    os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,
+                    0o600,
+                    dir_fd=roles_fd,
+                )
+                temp_name = candidate
+                break
+            except FileExistsError:
+                continue
+        else:
+            raise RuntimeError("could not allocate a unique role temporary")
+
+        os.fchmod(temp_fd, 0o600)
+        with os.fdopen(temp_fd, "w", encoding="utf-8") as handle:
+            json.dump(role, handle, indent=2, ensure_ascii=False)
+            handle.write("\n")
+            handle.flush()
+            os.fsync(handle.fileno())
+
+        current_target = os.stat(target_dir, follow_symlinks=False)
+        current_roles = os.stat(os.path.join(target_dir, "roles"), follow_symlinks=False)
+        if stat.S_ISLNK(current_target.st_mode) or stat.S_ISLNK(current_roles.st_mode):
+            raise RuntimeError("role target or roles parent became a symlink")
+        if (current_target.st_dev, current_target.st_ino) != (target_identity.st_dev, target_identity.st_ino):
+            raise RuntimeError("role target directory changed during write")
+        if (current_roles.st_dev, current_roles.st_ino) != (roles_identity.st_dev, roles_identity.st_ino):
+            raise RuntimeError("roles parent changed during write")
+
+        try:
+            final_state = os.stat(filename, dir_fd=roles_fd, follow_symlinks=False)
+        except FileNotFoundError:
+            final_state = None
+        if final_state is not None and stat.S_ISLNK(final_state.st_mode):
+            raise RuntimeError(f"refusing symlinked role output: {filepath}")
+        if final_state is not None and not stat.S_ISREG(final_state.st_mode):
+            raise RuntimeError(f"role output is not a regular file: {filepath}")
+
+        os.replace(temp_name, filename, src_dir_fd=roles_fd, dst_dir_fd=roles_fd)
+        temp_name = None
+        os.fsync(roles_fd)
+    finally:
+        if temp_name is not None and roles_fd is not None:
+            try:
+                os.unlink(temp_name, dir_fd=roles_fd)
+            except FileNotFoundError:
+                pass
+        if roles_fd is not None:
+            os.close(roles_fd)
+        if target_fd is not None:
+            os.close(target_fd)
+
+try:
+    write_role_atomic()
+except (OSError, RuntimeError) as exc:
+    print(f"  ❌ Refusing unsafe role write: {exc}", file=sys.stderr)
+    sys.exit(1)
 print(f"  ✅ Created roles/{filename}")
 print(f"     Job ID: {job_id}")
 print(f"     Expires: {expiry.strftime('%Y-%m-%d')} (30 days — refresh to prevent ghost-job decay)")
