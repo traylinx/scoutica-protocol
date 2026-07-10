@@ -242,13 +242,14 @@ assert_publish_refusal_preserves_index employer "$employer_refusal" "$employer_r
     "$WORK/employer-refusal.out" "$WORK/employer-refusal.before" "$WORK/employer-refusal.after"
 t_end
 
-t_begin F-01 "candidate canonical-only publish commits and pushes to a local bare remote"
+t_begin F-01 "candidate publish stages canonical changes but leaves unrelated rules untracked"
 candidate_success="$WORK/candidate-success"
 candidate_success_remote="$WORK/candidate-success.git"
 make_candidate_repo "$candidate_success"
 attach_accepting_remote "$candidate_success" "$candidate_success_remote"
 candidate_success_before=$(git -C "$candidate_success" rev-parse HEAD)
 modify_candidate_card "$candidate_success"
+printf '%s\n' 'Mock private note that is not a protocol rule.' > "$candidate_success/rules/private-notes.md"
 rm -f "$SCOUTICA_HOME/registry.json"
 run_candidate_publish "$WORK/candidate-success.out" "$candidate_success"
 assert_eq 0 "$PUB_RC" "canonical candidate publish must succeed"
@@ -257,6 +258,12 @@ assert_ne "$candidate_success_before" "$candidate_success_after" "canonical chan
 assert_eq "$candidate_success_after" \
     "$(git --git-dir="$candidate_success_remote" rev-parse refs/heads/main)" "candidate commit must reach remote"
 assert_exit 0 git -C "$candidate_success" diff --cached --quiet
+candidate_success_status=$(git -C "$candidate_success" status --short --untracked-files=all)
+assert_grep '^\?\? rules/private-notes\.md$' "$candidate_success_status" \
+    "unrelated rule must remain untracked after publish"
+git --git-dir="$candidate_success_remote" cat-file -e main:rules/private-notes.md >/dev/null 2>&1
+candidate_private_remote_rc=$?
+assert_ne 0 "$candidate_private_remote_rc" "unrelated rule must be absent from the remote commit"
 assert_grep 'Successfully published' "$WORK/candidate-success.out"
 assert_exists "$SCOUTICA_HOME/registry.json" "successful candidate publish records its event"
 t_end
