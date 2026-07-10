@@ -541,8 +541,18 @@ function Invoke-Publish([string]$cardDir = ".") {
             # pre-existing index byte-for-byte unchanged.
             if (-not (Test-PublishIndex $allowedPaths "pre-staging check")) { exit 1 }
 
-            $origin = & git remote get-url origin 2>$null
-            if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace([string]$origin)) {
+            $savedErrorActionPreference = $ErrorActionPreference
+            try {
+                # Missing origin is an expected, explicitly diagnosed state.
+                # Windows PowerShell 5.1 otherwise promotes Git's stderr to a
+                # terminating NativeCommandError before this branch can run.
+                $ErrorActionPreference = "Continue"
+                $origin = & git remote get-url origin 2>$null
+                $originExit = $LASTEXITCODE
+            } finally {
+                $ErrorActionPreference = $savedErrorActionPreference
+            }
+            if ($originExit -ne 0 -or [string]::IsNullOrWhiteSpace([string]$origin)) {
                 Write-PublishError "No remote 'origin' configured."
                 [Console]::Error.WriteLine("     Run: git remote add origin https://github.com/YOU/YOUR-CARD.git")
                 exit 1
