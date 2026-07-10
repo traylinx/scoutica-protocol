@@ -158,7 +158,7 @@ t_end
 t_begin F-03 "switchAILocal adapter uses a bounded request body and never prompt argv"
 reset_provider_env
 make_source "$WORK/provider-ail-source"
-python3 "$SCAN_FIXTURES/ail_server.py" --ready-file "$WORK/provider-ail.ready" \
+"$FIXTURE_SERVER_PYTHON" "$SCAN_FIXTURES/ail_server.py" --ready-file "$WORK/provider-ail.ready" \
     --response-file "$VALID_RESPONSE" --payload-log "$WORK/provider-ail.payload" \
     >"$WORK/provider-ail.server.out" 2>&1 &
 ail_pid=$!

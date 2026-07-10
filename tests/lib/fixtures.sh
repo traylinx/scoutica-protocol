@@ -12,6 +12,19 @@ fi
 FIXTURE_ORIGINAL_PATH=${FIXTURE_ORIGINAL_PATH:-$PATH}
 FIXTURE_PIDS=${FIXTURE_PIDS:-}
 
+# Hosted macOS can block an unsigned setup-python interpreter while it opens a
+# listening socket. The fixture servers are stdlib-only, so use Apple's signed
+# system interpreter there; keep the configured test interpreter everywhere
+# else. Resolve once before fixture_isolated_env changes PATH.
+if [ -z "${FIXTURE_SERVER_PYTHON:-}" ]; then
+    if [ "$(uname -s 2>/dev/null)" = "Darwin" ] && [ -x /usr/bin/python3 ]; then
+        FIXTURE_SERVER_PYTHON=/usr/bin/python3
+    else
+        FIXTURE_SERVER_PYTHON=$(command -v python3 2>/dev/null || printf 'python3')
+    fi
+fi
+export FIXTURE_SERVER_PYTHON
+
 # fixture_isolated_env <root>
 # Export a clean user/runtime envelope while retaining host tools after the fake-command bin dir.
 fixture_isolated_env() {
@@ -157,7 +170,7 @@ fixture_start_http() {
     FIXTURE_HTTP_PORT_FILE="$_fhs_root/port"
     FIXTURE_HTTP_LOG="$_fhs_root/requests.log"
     rm -f "$FIXTURE_HTTP_READY" "$FIXTURE_HTTP_PORT_FILE" "$FIXTURE_HTTP_LOG"
-    python3 "$FIXTURES/http_server.py" \
+    "$FIXTURE_SERVER_PYTHON" "$FIXTURES/http_server.py" \
         --ready-file "$FIXTURE_HTTP_READY" \
         --port-file "$FIXTURE_HTTP_PORT_FILE" \
         --log-file "$FIXTURE_HTTP_LOG" \
@@ -165,7 +178,7 @@ fixture_start_http() {
     FIXTURE_HTTP_PID=$!
     fixture_register_pid "$FIXTURE_HTTP_PID"
     if ! fixture_wait_for_file "$FIXTURE_HTTP_READY" 200; then
-        printf '%s\n' "HTTP fixture failed to become ready; server stderr:" >&2
+        printf '%s\n' "HTTP fixture failed to become ready with $FIXTURE_SERVER_PYTHON; server stderr:" >&2
         if [ -s "$_fhs_root/stderr" ]; then
             sed 's/^/    /' "$_fhs_root/stderr" >&2
         else
