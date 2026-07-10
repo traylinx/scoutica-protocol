@@ -99,7 +99,10 @@ foreach ($candidate in @("python3.13", "python3.12", "python3.11", "python3", "p
     & $candidate -c "import sys; sys.exit(0 if sys.version_info >= (3, 11) else 1)" 2>$null
     if ($LASTEXITCODE -ne 0) { continue }
     $supportedPythonFound = $true
-    & $candidate -c 'import jsonschema,yaml,sys; c=jsonschema.FormatChecker(); bad=(("relative/path","uri"),("bad host","hostname"),("2024-99-99","date"),("not-a-date","date-time")); sys.exit(0 if all(not c.conforms(value,fmt) for value,fmt in bad) else 1)' 2>$null
+    # Keep Python literals single-quoted inside a PowerShell double-quoted
+    # argument. Windows PowerShell 5.1 otherwise strips the embedded double
+    # quotes while constructing the native command line.
+    & $candidate -c "import jsonschema,yaml,sys; c=jsonschema.FormatChecker(); bad=(('relative/path','uri'),('bad host','hostname'),('2024-99-99','date'),('not-a-date','date-time')); sys.exit(0 if all(not c.conforms(value,fmt) for value,fmt in bad) else 1)" 2>$null
     if ($LASTEXITCODE -eq 0) { $pythonCmd = $candidate; break }
 }
 

@@ -442,7 +442,7 @@ function Invoke-Validate([string]$cardDir = ".") {
         if (-not (Get-Command $candidate -ErrorAction SilentlyContinue)) { continue }
         & $candidate -c "import sys; sys.exit(0 if sys.version_info >= (3, 11) else 1)" 2>$null
         if ($LASTEXITCODE -ne 0) { continue }
-        & $candidate -c 'import jsonschema,yaml,sys; c=jsonschema.FormatChecker(); bad=(("relative/path","uri"),("bad host","hostname"),("2024-99-99","date"),("not-a-date","date-time")); sys.exit(0 if all(not c.conforms(value,fmt) for value,fmt in bad) else 1)' 2>$null
+        & $candidate -c "import jsonschema,yaml,sys; c=jsonschema.FormatChecker(); bad=(('relative/path','uri'),('bad host','hostname'),('2024-99-99','date'),('not-a-date','date-time')); sys.exit(0 if all(not c.conforms(value,fmt) for value,fmt in bad) else 1)" 2>$null
         if ($LASTEXITCODE -eq 0) { $pythonCmd = $candidate; break }
     }
     

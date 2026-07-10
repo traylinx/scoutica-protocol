@@ -165,6 +165,11 @@ ail_pid=$!
 fixture_register_pid "$ail_pid"
 if ! fixture_wait_for_file "$WORK/provider-ail.ready" 200; then
     t_fail "ail fixture did not become ready"
+    if [ -s "$WORK/provider-ail.server.out" ]; then
+        sed 's/^/    /' "$WORK/provider-ail.server.out" >&2
+    else
+        printf '%s\n' "    ail fixture stderr: <empty>" >&2
+    fi
 fi
 http_proxy="http://proxy.example.test:9999"; export http_proxy
 HTTP_PROXY="$http_proxy"; export HTTP_PROXY

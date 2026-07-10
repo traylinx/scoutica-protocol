@@ -165,6 +165,12 @@ fixture_start_http() {
     FIXTURE_HTTP_PID=$!
     fixture_register_pid "$FIXTURE_HTTP_PID"
     if ! fixture_wait_for_file "$FIXTURE_HTTP_READY" 200; then
+        printf '%s\n' "HTTP fixture failed to become ready; server stderr:" >&2
+        if [ -s "$_fhs_root/stderr" ]; then
+            sed 's/^/    /' "$_fhs_root/stderr" >&2
+        else
+            printf '%s\n' "    <empty>" >&2
+        fi
         fixture_stop_pid "$FIXTURE_HTTP_PID" TERM
         return 1
     fi
