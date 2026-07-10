@@ -12,6 +12,12 @@ import time
 from pathlib import Path
 
 
+def reset_target_signals() -> None:
+    """Make the child trappable even if the CI parent inherited SIGINT ignored."""
+    signal.signal(signal.SIGINT, signal.SIG_DFL)
+    signal.signal(signal.SIGTERM, signal.SIG_DFL)
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--signal", choices=("INT", "TERM"), required=True)
@@ -31,6 +37,8 @@ def main() -> int:
             stdout=output,
             stderr=subprocess.STDOUT,
             env=os.environ.copy(),
+            start_new_session=True,
+            preexec_fn=reset_target_signals,
         )
         deadline = time.monotonic() + args.timeout
         while time.monotonic() < deadline and not Path(args.ready_file).exists():
@@ -45,7 +53,8 @@ def main() -> int:
         try:
             return process.wait(timeout=args.timeout)
         except subprocess.TimeoutExpired:
-            process.kill()
+            # A timed-out harness must not strand the scan runtime or provider.
+            os.killpg(process.pid, signal.SIGKILL)
             process.wait()
             return 125
 
