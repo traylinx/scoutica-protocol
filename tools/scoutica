@@ -4224,424 +4224,147 @@ else:
 SEARCH_SCRIPT
 )
 
-# ─── SEND Command (Git-Native Messaging) ─────────────────────────────────────
+# ─── SEND / INBOX / REPLY (Trusted Message Runtime) ──────────────────────────
+
+_message_runtime_helper() {
+    local script_dir candidate
+    script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+    for candidate in \
+        "$script_dir/message_runtime.py" \
+        "$SCOUTICA_HOME/bin/message_runtime.py"; do
+        if [ -f "$candidate" ]; then
+            printf '%s\n' "$candidate"
+            return 0
+        fi
+    done
+    error "Message runtime helper not found (message_runtime.py)." >&2
+    return 1
+}
+
+_run_message_runtime() {
+    local helper schema
+    _require_validation_runtime 1>&2 || return 1
+    helper=$(_message_runtime_helper) || return 1
+    schema=$(_find_schema_file "recruiter/message.schema.json") || {
+        error "Trusted message schema not found (recruiter/message.schema.json)." >&2
+        return 1
+    }
+    "$VALIDATION_PYTHON" "$helper" "$1" --schema "$schema" --home "$SCOUTICA_HOME" "${@:2}"
+}
 
 cmd_send() {
-    local recipient_url=""
-    local msg_type="opportunity.pitch"
-    local role_path=""
-    local message_text=""
-    local card_dir="."
-    
+    local recipient_url="" msg_type="opportunity.pitch" role_path="" message_text="" card_dir=""
+
     while [[ $# -gt 0 ]]; do
         case "$1" in
-            --type)    msg_type="$2"; shift 2 ;;
-            --role)    role_path="$2"; shift 2 ;;
-            --message) message_text="$2"; shift 2 ;;
-            --card)    card_dir="$2"; shift 2 ;;
-            *)         recipient_url="$1"; shift ;;
+            --type|--role|--message|--card)
+                if [ $# -lt 2 ]; then
+                    error "Missing value for $1"
+                    return 1
+                fi
+                case "$1" in
+                    --type) msg_type="$2" ;;
+                    --role) role_path="$2" ;;
+                    --message) message_text="$2" ;;
+                    --card) card_dir="$2" ;;
+                esac
+                shift 2
+                ;;
+            --*) error "Unknown send option: $1"; return 1 ;;
+            *)
+                if [ -n "$recipient_url" ]; then
+                    error "Multiple recipients specified."
+                    return 1
+                fi
+                recipient_url="$1"
+                shift
+                ;;
         esac
     done
-    
+
     if [ -z "$recipient_url" ]; then
         error "No recipient specified."
         echo -e "  ${DIM}Usage: scoutica send <recipient_card_url> --type opportunity.offer --role role.json${NC}"
-        exit 1
+        return 1
     fi
-    
+
     header "Send Scoutica Message"
-    
-    python3 - "$recipient_url" "$msg_type" "$role_path" "$message_text" "$card_dir" <<'SEND_SCRIPT'
-import json, sys, os, hashlib
-from datetime import datetime, timezone
-
-recipient_url = sys.argv[1]
-msg_type = sys.argv[2]
-role_path = sys.argv[3]
-message_text = sys.argv[4]
-card_dir = sys.argv[5]
-
-now = datetime.now(timezone.utc)
-
-# Generate message ID
-msg_hash = hashlib.sha256(f"{recipient_url}:{now.isoformat()}".encode()).hexdigest()[:8]
-msg_id = f"msg_{msg_hash}"
-
-# Generate conversation ID (or use existing)
-conv_hash = hashlib.sha256(f"{recipient_url}:{card_dir}:{msg_type}".encode()).hexdigest()[:8]
-conv_id = f"conv_{conv_hash}"
-
-# Build sender info
-sender = {"card_url": ""}
-try:
-    scoutica_file = os.path.join(card_dir, "scoutica.json")
-    if os.path.exists(scoutica_file):
-        with open(scoutica_file) as f:
-            disc = json.load(f)
-        sender["card_url"] = disc.get("card_url", "")
-    elif os.path.exists(os.path.join(card_dir, "recruiter_profile.json")):
-        with open(os.path.join(card_dir, "recruiter_profile.json")) as f:
-            rp = json.load(f)
-        sender["card_url"] = rp.get("card_url", "")
-except Exception:
-    pass
-
-# Build payload
-payload = {}
-if message_text:
-    payload["message"] = message_text
-if role_path and os.path.exists(role_path):
-    payload["role_url"] = role_path
-    with open(role_path) as f:
-        role = json.load(f)
-    if "compensation" in role:
-        payload["compensation_summary"] = {
-            "base_min": role["compensation"].get("base_min"),
-            "base_max": role["compensation"].get("base_max"),
-            "currency": role["compensation"].get("currency"),
-        }
-
-# Build message envelope
-message = {
-    "message_id": msg_id,
-    "type": msg_type,
-    "sender": sender,
-    "recipient": recipient_url,
-    "conversation_id": conv_id,
-    "timestamp": now.strftime("%Y-%m-%dT%H:%M:%SZ"),
-    "ttl_hours": 168,
-    "transport_used": "git",
-    "payload": payload,
+    local args=(send --recipient "$recipient_url" --type "$msg_type" --message "$message_text" --cwd "$PWD")
+    [ -z "$role_path" ] || args+=(--role "$role_path")
+    [ -z "$card_dir" ] || args+=(--card "$card_dir")
+    _run_message_runtime "${args[@]}"
+    local rc=$?
+    [ "$rc" -ne 0 ] || echo ""
+    return "$rc"
 }
-
-# Store in local outbox
-outbox_dir = os.path.expanduser("~/.scoutica/outbox")
-os.makedirs(outbox_dir, exist_ok=True)
-
-msg_file = os.path.join(outbox_dir, f"{msg_id}.json")
-with open(msg_file, "w") as f:
-    json.dump(message, f, indent=2, ensure_ascii=False)
-    f.write("\n")
-
-# Also prepare for registry inbox deposit
-inbox_dir = os.path.expanduser("~/.scoutica/pending_delivery")
-os.makedirs(inbox_dir, exist_ok=True)
-
-# Recipient hash for inbox routing
-recipient_hash = hashlib.sha256(recipient_url.encode()).hexdigest()[:12]
-delivery_dir = os.path.join(inbox_dir, recipient_hash)
-os.makedirs(delivery_dir, exist_ok=True)
-
-delivery_file = os.path.join(delivery_dir, f"{msg_id}.json")
-with open(delivery_file, "w") as f:
-    json.dump(message, f, indent=2, ensure_ascii=False)
-    f.write("\n")
-
-# Log to transparency log
-log_dir = os.path.expanduser("~/.scoutica/privacy")
-os.makedirs(log_dir, exist_ok=True)
-log_entry = {
-    "event": "message_sent",
-    "message_id": msg_id,
-    "recipient": recipient_url,
-    "type": msg_type,
-    "timestamp": now.strftime("%Y-%m-%dT%H:%M:%SZ"),
-    "transport": "git",
-}
-log_file = os.path.join(log_dir, "access_log.jsonl")
-with open(log_file, "a") as f:
-    f.write(json.dumps(log_entry) + "\n")
-
-print(f"  ✅ Message created: {msg_id}")
-print(f"     Type: {msg_type}")
-print(f"     Recipient: {recipient_url}")
-print(f"     Conversation: {conv_id}")
-print(f"     Saved to: {msg_file}")
-print()
-print(f"  📬 Pending delivery at: {delivery_file}")
-print(f"     To deliver via Git registry:")
-print(f"     1. Copy to registry inbox: inbox/{recipient_hash}/{msg_id}.json")
-print(f"     2. Open PR on traylinx/scoutica-registry")
-print()
-print(f"  📋 Logged to: {log_file}")
-SEND_SCRIPT
-    
-    echo ""
-}
-
-# ─── INBOX Command (Check Messages) ──────────────────────────────────────────
 
 cmd_inbox() {
     local output_json=false
-    
     while [[ $# -gt 0 ]]; do
         case "$1" in
             --json) output_json=true; shift ;;
-            *)      shift ;;
+            *) printf '%s\n' "Unknown inbox option: $1" >&2; return 1 ;;
         esac
     done
-    
-    header "Scoutica Inbox"
-    
-    python3 - "$output_json" <<'INBOX_SCRIPT'
-import json, sys, os, glob
-from datetime import datetime, timezone
 
-output_json = sys.argv[1] == "true"
-
-inbox_dir = os.path.expanduser("~/.scoutica/inbox")
-outbox_dir = os.path.expanduser("~/.scoutica/outbox")
-
-messages = []
-
-# Check local inbox
-if os.path.exists(inbox_dir):
-    for root, dirs, files in os.walk(inbox_dir):
-        for fname in sorted(files):
-            if fname.endswith('.json'):
-                filepath = os.path.join(root, fname)
-                try:
-                    with open(filepath) as f:
-                        msg = json.load(f)
-                    msg["_source"] = "inbox"
-                    msg["_file"] = filepath
-                    messages.append(msg)
-                except Exception:
-                    pass
-
-# Check for pending delivery (outbox)
-pending_dir = os.path.expanduser("~/.scoutica/pending_delivery")
-pending_count = 0
-if os.path.exists(pending_dir):
-    for root, dirs, files in os.walk(pending_dir):
-        pending_count += sum(1 for f in files if f.endswith('.json'))
-
-if output_json:
-    print(json.dumps({
-        "messages": messages,
-        "count": len(messages),
-        "pending_delivery": pending_count,
-    }, indent=2))
-else:
-    if not messages and pending_count == 0:
-        print("  📭 No messages in your inbox.")
-        print()
-        print(f"  \033[2mMessages arrive when:")
-        print(f"    • Someone sends you an offer via the registry")
-        print(f"    • A Nostr relay delivers an event (Phase 3)")
-        print(f"  \033[0m")
-    else:
-        if messages:
-            print(f"  📬 {len(messages)} message(s) in inbox:")
-            print()
-            for msg in messages:
-                msg_type = msg.get("type", "unknown")
-                sender = msg.get("sender", {}).get("card_url", "unknown")
-                timestamp = msg.get("timestamp", "")[:16]
-                msg_id = msg.get("message_id", "")
-                conv_id = msg.get("conversation_id", "")
-                
-                # Icon by type
-                icons = {
-                    "opportunity.pitch": "💡",
-                    "opportunity.offer": "💰",
-                    "response.accept": "✅",
-                    "response.reject": "❌",
-                    "status.check": "❓",
-                    "rules.check": "📋",
-                    "response.withdraw": "🚪",
-                    "event.ghosting": "👻",
-                }
-                icon = icons.get(msg_type, "📩")
-                
-                print(f"  {icon} {msg_id} — {msg_type}")
-                print(f"     From: {sender}")
-                print(f"     Date: {timestamp}")
-                if conv_id:
-                    print(f"     Thread: {conv_id}")
-                
-                # Show payload summary
-                payload = msg.get("payload", {})
-                if "message" in payload:
-                    print(f"     Message: {payload['message'][:80]}")
-                if "role_url" in payload:
-                    print(f"     Role: {payload['role_url']}")
-                if "compensation_summary" in payload:
-                    comp = payload["compensation_summary"]
-                    print(f"     Compensation: {comp.get('base_min', '?')}-{comp.get('base_max', '?')} {comp.get('currency', '')}")
-                if "reasons" in payload:
-                    print(f"     Reasons: {', '.join(payload['reasons'][:3])}")
-                print()
-        
-        if pending_count > 0:
-            print(f"  📤 {pending_count} message(s) pending delivery (outbox)")
-            print(f"     Run 'scoutica deliver' to push to registry")
-    
-    print()
-INBOX_SCRIPT
+    $output_json || header "Scoutica Inbox"
+    if $output_json; then
+        _run_message_runtime inbox --json
+    else
+        _run_message_runtime inbox
+    fi
 }
-
-# ─── REPLY Command ───────────────────────────────────────────────────────────
 
 cmd_reply() {
-    local message_id=""
-    local action=""  # accept, reject, withdraw
-    local reply_message=""
-    
+    local message_id="" action="" reply_message="" card_dir="" action_count=0
+
     while [[ $# -gt 0 ]]; do
         case "$1" in
-            --accept)   action="accept"; shift ;;
-            --reject)   action="reject"; shift ;;
-            --withdraw) action="withdraw"; shift ;;
-            --message)  reply_message="$2"; shift 2 ;;
-            *)          message_id="$1"; shift ;;
+            --accept|--reject|--withdraw)
+                action_count=$((action_count + 1))
+                action=${1#--}
+                shift
+                ;;
+            --message|--card)
+                if [ $# -lt 2 ]; then
+                    error "Missing value for $1"
+                    return 1
+                fi
+                case "$1" in
+                    --message) reply_message="$2" ;;
+                    --card) card_dir="$2" ;;
+                esac
+                shift 2
+                ;;
+            --*) error "Unknown reply option: $1"; return 1 ;;
+            *)
+                if [ -n "$message_id" ]; then
+                    error "Multiple message IDs specified."
+                    return 1
+                fi
+                message_id="$1"
+                shift
+                ;;
         esac
     done
-    
+
     if [ -z "$message_id" ]; then
         error "No message ID specified."
-        echo -e "  ${DIM}Usage: scoutica reply <message_id> --accept${NC}"
-        echo -e "  ${DIM}       scoutica reply <message_id> --reject${NC}"
-        exit 1
+        echo -e "  ${DIM}Usage: scoutica reply <message_id> --accept --card <dir>${NC}"
+        return 1
     fi
-    
-    if [ -z "$action" ]; then
-        error "No action specified. Use --accept, --reject, or --withdraw"
-        exit 1
+    if [ "$action_count" -ne 1 ]; then
+        error "Specify exactly one of --accept, --reject, or --withdraw."
+        return 1
     fi
-    
-    header "Send Reply"
-    
-    python3 - "$message_id" "$action" "$reply_message" <<'REPLY_SCRIPT'
-import json, sys, os, hashlib
-from datetime import datetime, timezone
 
-message_id = sys.argv[1]
-action = sys.argv[2]
-reply_message = sys.argv[3] if len(sys.argv) > 3 else ""
-
-now = datetime.now(timezone.utc)
-
-# Find original message in inbox
-inbox_dir = os.path.expanduser("~/.scoutica/inbox")
-original = None
-original_file = None
-
-if os.path.exists(inbox_dir):
-    for root, dirs, files in os.walk(inbox_dir):
-        for fname in files:
-            if fname.endswith('.json'):
-                filepath = os.path.join(root, fname)
-                try:
-                    with open(filepath) as f:
-                        msg = json.load(f)
-                    if msg.get("message_id") == message_id:
-                        original = msg
-                        original_file = filepath
-                        break
-                except Exception:
-                    pass
-        if original:
-            break
-
-if not original:
-    print(f"  ❌ Message not found: {message_id}")
-    print(f"     Check your inbox with: scoutica inbox")
-    sys.exit(1)
-
-# Map action to response type
-type_map = {
-    "accept": "response.accept",
-    "reject": "response.reject",
-    "withdraw": "response.withdraw",
-}
-response_type = type_map.get(action, f"response.{action}")
-
-# Generate reply message ID
-reply_hash = hashlib.sha256(f"{message_id}:{action}:{now.isoformat()}".encode()).hexdigest()[:8]
-reply_id = f"msg_{reply_hash}"
-
-# Build response payload
-payload = {}
-if action == "reject":
-    payload["reasons"] = [reply_message] if reply_message else ["auto_rejected_by_rules"]
-    payload["auto_rejected"] = not bool(reply_message)
-elif action == "accept":
-    if reply_message:
-        payload["message"] = reply_message
-elif action == "withdraw":
-    if reply_message:
-        payload["reason"] = reply_message
-
-# Build response envelope
-response = {
-    "message_id": reply_id,
-    "type": response_type,
-    "sender": original.get("sender", {}),  # Will be overridden by actual sender
-    "recipient": original.get("sender", {}).get("card_url", ""),
-    "conversation_id": original.get("conversation_id", ""),
-    "in_reply_to": message_id,
-    "timestamp": now.strftime("%Y-%m-%dT%H:%M:%SZ"),
-    "ttl_hours": 168,
-    "transport_used": "git",
-    "payload": payload,
-}
-
-# Save to outbox
-outbox_dir = os.path.expanduser("~/.scoutica/outbox")
-os.makedirs(outbox_dir, exist_ok=True)
-reply_file = os.path.join(outbox_dir, f"{reply_id}.json")
-with open(reply_file, "w") as f:
-    json.dump(response, f, indent=2, ensure_ascii=False)
-    f.write("\n")
-
-# Prepare for delivery
-pending_dir = os.path.expanduser("~/.scoutica/pending_delivery")
-sender_url = original.get("sender", {}).get("card_url", "unknown")
-sender_hash = hashlib.sha256(sender_url.encode()).hexdigest()[:12]
-delivery_dir = os.path.join(pending_dir, sender_hash)
-os.makedirs(delivery_dir, exist_ok=True)
-delivery_file = os.path.join(delivery_dir, f"{reply_id}.json")
-with open(delivery_file, "w") as f:
-    json.dump(response, f, indent=2, ensure_ascii=False)
-    f.write("\n")
-
-# Log
-log_dir = os.path.expanduser("~/.scoutica/privacy")
-os.makedirs(log_dir, exist_ok=True)
-log_entry = {
-    "event": "reply_sent",
-    "message_id": reply_id,
-    "in_reply_to": message_id,
-    "type": response_type,
-    "recipient": sender_url,
-    "timestamp": now.strftime("%Y-%m-%dT%H:%M:%SZ"),
-    "transport": "git",
-}
-log_file = os.path.join(log_dir, "access_log.jsonl")
-with open(log_file, "a") as f:
-    f.write(json.dumps(log_entry) + "\n")
-
-# Move original to processed
-processed_dir = os.path.expanduser("~/.scoutica/inbox/processed")
-os.makedirs(processed_dir, exist_ok=True)
-processed_file = os.path.join(processed_dir, os.path.basename(original_file))
-os.rename(original_file, processed_file)
-
-icons = {"accept": "✅", "reject": "❌", "withdraw": "🚪"}
-icon = icons.get(action, "📩")
-
-print(f"  {icon} Reply sent: {reply_id}")
-print(f"     Action: {action}")
-print(f"     In reply to: {message_id}")
-print(f"     To: {sender_url}")
-print(f"     Conversation: {original.get('conversation_id', '')}")
-print()
-print(f"  📬 Pending delivery at: {delivery_file}")
-print(f"  📋 Original moved to: {processed_file}")
-REPLY_SCRIPT
-    
-    echo ""
+    header "Stage Reply"
+    local args=(reply --message-id "$message_id" --action "$action" --message "$reply_message" --cwd "$PWD")
+    [ -z "$card_dir" ] || args+=(--card "$card_dir")
+    _run_message_runtime "${args[@]}"
+    local rc=$?
+    [ "$rc" -ne 0 ] || echo ""
+    return "$rc"
 }
 
 # ─── IDENTITY Command (Nostr Keypair) ────────────────────────────────────────

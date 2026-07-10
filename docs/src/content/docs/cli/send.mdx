@@ -28,9 +28,9 @@ scoutica send <recipient_card_url> [options]
 | `--type <message_type>` | The message type. Defaults to `opportunity.pitch`. See the type table below. |
 | `--role <path>` | Path to a local `role.json`. Its `role_url` and a `compensation_summary` (base_min / base_max / currency) are attached to the payload. |
 | `--message <text>` | Free-text note added to `payload.message`. |
-| `--card <dir>` | Your own card directory, used to fill in the `sender.card_url`. Defaults to the current directory (`.`). |
+| `--card <dir>` | Your own card directory, used to fill in `sender.card_url`. When omitted, Scoutica uses the current directory only if it contains exactly one distinct local card identity. |
 
-The sender identity is read from `scoutica.json` (or `recruiter_profile.json`) in `--card`. If neither is present, `sender.card_url` is left empty — publish and point your card first so recipients know who you are.
+The sender identity is read from `scoutica.json` or `recruiter_profile.json`. Missing, empty, or conflicting `card_url` values fail closed before any outbox, pending-delivery, or log artifact is created. Publish and point your card first so recipients can verify who composed the message.
 
 ## Message types
 
@@ -61,11 +61,14 @@ A single `send` produces the message envelope in two places and appends one audi
 ~/.scoutica/privacy/access_log.jsonl                   # transparency log (appended)
 ```
 
-- `<msg_id>` is `msg_` followed by a short SHA-256 hash of the recipient and timestamp.
+- `<msg_id>` is `msg_` followed by 16 hexadecimal characters from a SHA-256 hash of the recipient and a microsecond-resolution composition time.
 - `<recipient_hash>` is a 12-char SHA-256 hash of the recipient URL — the routing key used by the Git registry.
-- The `conversation_id` (`conv_...`) is derived from the recipient, your card directory, and the message type, so repeated pitches on the same topic thread together.
+- The `conversation_id` (`conv_...`) is derived from the recipient URL, sender card URL, and message type, so repeated pitches on the same topic thread together.
 
 Every envelope also records `ttl_hours: 168` (7 days) and `transport_used: "git"`.
+The complete envelope is checked against the bundled trusted `message.schema.json`, including URI and date-time formats, before the first write. Each artifact is written atomically and symlinked destinations are refused.
+
+Writes are serialized across local Scoutica processes, then ordered as outbox, pending delivery, and transparency log. If an ordinary failure leaves exactly one validated outbox entry without its matching final log record, repeating the same sender, recipient, type, payload, and conversation resumes that message id and fills only its missing pending/log steps. Conflicting or multiple incomplete matches fail closed. A matching final log marks the send complete even after `deliver` removes its pending file; the same command then intentionally creates a fresh message instead of becoming permanent content deduplication.
 
 ## Example message envelope
 
@@ -105,6 +108,7 @@ scoutica deliver
 
 - **No auto-send.** `send` only writes local files. The recipient is never contacted and no data leaves your machine at this step — delivery is a separate, explicit action.
 - **Transparency log.** Every send appends a `message_sent` record to `~/.scoutica/privacy/access_log.jsonl`, so you always have an auditable trail of what you sent, to whom, and when.
+- **Fail-closed generation.** Invalid message types, sender identities, recipient URIs, or malformed role attachments create no outbound artifacts.
 - **Safe fetching downstream.** When the recipient's card URL is later resolved, that fetch runs through Scoutica's URL guard — HTTPS is enforced and `localhost`, private, link-local, and reserved addresses are rejected (SSRF prevention). See [`scoutica resolve`](/cli/resolve).
 
 ## The message flow

@@ -108,6 +108,7 @@ assert_exists "$_install/bin/validate_card.py"
 assert_exists "$_install/bin/scoring.py"
 assert_exists "$_install/bin/import_aijs.py"
 assert_exists "$_install/bin/safe_fetch.py"
+assert_exists "$_install/bin/message_runtime.py"
 assert_exists "$_install/protocol/examples/sample_card/profile.json"
 assert_exists "$_install/protocol/examples/employer_card/roles/senior-ai-architect.json"
 t_end

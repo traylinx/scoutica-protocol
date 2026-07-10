@@ -124,6 +124,7 @@ curl -fsSL "$REPO_RAW/tools/scoring.py" -o "$BIN_DIR/scoring.py"
 curl -fsSL "$REPO_RAW/tools/import_aijs.py" -o "$BIN_DIR/import_aijs.py"
 curl -fsSL "$REPO_RAW/tools/scan_runtime.py" -o "$BIN_DIR/scan_runtime.py"
 curl -fsSL "$REPO_RAW/tools/safe_fetch.py" -o "$BIN_DIR/safe_fetch.py"
+curl -fsSL "$REPO_RAW/tools/message_runtime.py" -o "$BIN_DIR/message_runtime.py"
 
 # --- Step 6c: Download the bounded offline registry fallback ---
 # `scoutica jobs search` uses these two public examples only when the registry is
