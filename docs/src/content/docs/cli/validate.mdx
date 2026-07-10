@@ -3,21 +3,29 @@ title: "scoutica validate"
 description: "Run rigorous JSON-Schema checks against your Skill Card securely offline."
 ---
 
-Before you ever push your internal profile configuration to a recruiter, API gateway, or public GitHub repo via `scoutica publish`, it **must** rigorously conform to the Scoutica Protocol v1 specifications.
+Before you publish a card, validate it against the shipped Scoutica schemas.
 
 The `validate` command acts as a localized type-checker for your professional identity.
 
 ## Command Syntax
 ```bash
-scoutica validate [directory]
+scoutica validate [directory] [--schema-dir /absolute/path]
 ```
 
 ## Under the Hood
 
-When executed, `validate` uses a custom Python module embedded in the CLI to:
-1. Load the official v1 schemas from `~/.scoutica/schemas/`.
+When executed, `validate` uses the installed `validate_card.py` helper to:
+1. Load trusted schemas from the checkout or `~/.scoutica/schemas/`. A custom schema root is accepted only through the explicit absolute-path override.
 2. Inspect `profile.json`, `evidence.json`, and `rules.yaml` in the target directory.
-3. Verify that all nested structures precisely match expected properties (e.g., ensuring `years_experience` is an Integer, `domains` is an Array of strings, and `rules.remote.policy` matches the Enum `["hybrid", "remote", "onsite", "unknown"]`).
+3. Enforce JSON Schema structure and formats plus the candidate `SKILL.md` frontmatter contract.
+
+Validation requires Python 3.11+, `jsonschema[format]`, and PyYAML. Install them explicitly with:
+
+```bash
+python3 -m pip install 'jsonschema[format]' PyYAML
+```
+
+Scoutica reports missing prerequisites and exits nonzero; it never installs packages during validation.
 
 If it encounters an error, it will immediately exit with a non-zero exit code (`1`) and meticulously print out the precise nesting path where your data failed.
 

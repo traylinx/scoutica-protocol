@@ -18,8 +18,11 @@ import CodeGroup from '@components/CodeGroup.astro';
 Before installing, make sure you have:
 
 - **Git** — required to publish your card to GitHub
-- **Python 3** — required for card validation (`python3 --version` to check)
+- **Python 3.11 or newer** — required for supported validation and scoring paths
+- **Strict validation dependencies** — install explicitly with `python3 -m pip install 'jsonschema[format]' PyYAML`
 - **An AI CLI provider** — at least one of the providers below must be installed for `scoutica scan` to work
+
+The installers check Python and these packages before creating files. They do not run `pip` or mutate a global Python environment for you.
 
 ### Supported AI providers
 

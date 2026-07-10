@@ -30,6 +30,35 @@ BIN_DIR="$INSTALL_DIR/bin"
 SCHEMAS_DIR="$INSTALL_DIR/schemas"
 TEMPLATES_DIR="$INSTALL_DIR/templates"
 
+# Validation is a supported core command, so a fresh install must not finish in
+# a state where it can only work after silently mutating the user's global
+# Python environment. Check before creating or downloading anything.
+PYTHON_CMD=""
+SUPPORTED_PYTHON_FOUND=false
+for python_candidate in python3.13 python3.12 python3.11 python3 python; do
+    if ! command -v "$python_candidate" >/dev/null 2>&1 \
+        || ! "$python_candidate" -c 'import sys; sys.exit(0 if sys.version_info >= (3, 11) else 1)' >/dev/null 2>&1; then
+        continue
+    fi
+    SUPPORTED_PYTHON_FOUND=true
+    if "$python_candidate" -c 'import jsonschema,yaml,sys; c=jsonschema.FormatChecker(); bad=(("relative/path","uri"),("bad host","hostname"),("2024-99-99","date"),("not-a-date","date-time")); sys.exit(0 if all(not c.conforms(value,fmt) for value,fmt in bad) else 1)' >/dev/null 2>&1; then
+        PYTHON_CMD="$python_candidate"
+        break
+    fi
+done
+
+PYTHON_PREREQ="python3 -m pip install 'jsonschema[format]' PyYAML"
+if [ -z "$PYTHON_CMD" ]; then
+    if $SUPPORTED_PYTHON_FOUND; then
+        echo "Scoutica requires jsonschema format support and PyYAML." >&2
+        echo "Run: $PYTHON_PREREQ" >&2
+    else
+        echo "Scoutica requires Python 3.11 or newer." >&2
+        echo "Install Python 3.11+, then run: $PYTHON_PREREQ" >&2
+    fi
+    exit 1
+fi
+
 echo ""
 echo -e "${CYAN}╔═══════════════════════════════════════════════════════╗${NC}"
 echo -e "${CYAN}║                                                       ║${NC}"

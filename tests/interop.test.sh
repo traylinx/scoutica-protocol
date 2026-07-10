@@ -109,7 +109,7 @@ t_end
 # ── T-B3-YAML-001 — a YAML-metachar skill can't corrupt or inject into SKILL.md frontmatter ──
 # The hostile fixture's skill set includes "Go: bad". build_skill_md serializes the frontmatter
 # (never string-interpolates), so it must remain well-formed YAML with EXACTLY the expected keys.
-# validate_card.py does not parse SKILL.md frontmatter, so this test is the only guard for it.
+# The importer-level assertion complements validate_card.py's strict whole-card check.
 t_begin T-B3-YAML-001 "hostile skill (\"Go: bad\") -> SKILL.md frontmatter stays valid YAML, no injection"
 yout="$WORK/yaml_host"
 "$SCOUTICA" import aijs "$FIXTURES/aijs_hostile" --to "$yout" </dev/null >/dev/null 2>&1
@@ -127,6 +127,8 @@ doc = yaml.safe_load(fm)                      # raises on corruption -> non-zero
 assert isinstance(doc, dict), "frontmatter is not a mapping"
 assert set(doc) == {"name", "description", "metadata"}, "unexpected/injected frontmatter keys: %s" % sorted(doc)
 assert doc["name"] == "scoutica"
+assert set(doc["metadata"]) == {"tags", "author", "version"}
+assert isinstance(doc["metadata"]["author"], str) and doc["metadata"]["author"]
 assert "Go: bad" in doc["metadata"]["tags"], "hostile skill was dropped, not neutralised"
 PY
 t_end

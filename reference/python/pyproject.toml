@@ -4,13 +4,13 @@ version = "0.1.0"
 description = "Shared data models and schemas for Scoutica agents"
 authors = ["Scoutica Team"]
 readme = "README.md"
-packages = [{include = "*.py"}]
+packages = [{include = "models.py"}]
 
 [tool.poetry.dependencies]
 python = "^3.11"
 pydantic = "^2.0.0"
+jsonschema = {version = "^4.23.0", extras = ["format"]}
 
 [build-system]
 requires = ["poetry-core"]
 build-backend = "poetry.core.masonry.api"
-

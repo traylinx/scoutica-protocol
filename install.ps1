@@ -17,6 +17,31 @@ $SCHEMAS_DIR = Join-Path $INSTALL_DIR "schemas"
 $TEMPLATES_DIR = Join-Path $INSTALL_DIR "templates"
 $RULES_DIR = Join-Path $TEMPLATES_DIR "rules"
 
+# Fail before creating/downloading anything if the supported validation
+# runtime is unavailable. The installer never mutates global Python packages.
+$pythonCmd = $null
+$supportedPythonFound = $false
+foreach ($candidate in @("python3.13", "python3.12", "python3.11", "python3", "python", "py")) {
+    if (-not (Get-Command $candidate -ErrorAction SilentlyContinue)) { continue }
+    & $candidate -c "import sys; sys.exit(0 if sys.version_info >= (3, 11) else 1)" 2>$null
+    if ($LASTEXITCODE -ne 0) { continue }
+    $supportedPythonFound = $true
+    & $candidate -c 'import jsonschema,yaml,sys; c=jsonschema.FormatChecker(); bad=(("relative/path","uri"),("bad host","hostname"),("2024-99-99","date"),("not-a-date","date-time")); sys.exit(0 if all(not c.conforms(value,fmt) for value,fmt in bad) else 1)' 2>$null
+    if ($LASTEXITCODE -eq 0) { $pythonCmd = $candidate; break }
+}
+
+$pythonPrereq = "python3 -m pip install 'jsonschema[format]' PyYAML"
+if (-not $pythonCmd) {
+    if ($supportedPythonFound) {
+        [Console]::Error.WriteLine("Scoutica requires jsonschema format support and PyYAML.")
+        [Console]::Error.WriteLine("Run: $pythonPrereq")
+    } else {
+        [Console]::Error.WriteLine("Scoutica requires Python 3.11 or newer.")
+        [Console]::Error.WriteLine("Install Python 3.11+, then run: $pythonPrereq")
+    }
+    exit 1
+}
+
 Write-Host ""
 Write-Host "  ╔═══════════════════════════════════════════════════════╗" -ForegroundColor Cyan
 Write-Host "  ║                                                       ║" -ForegroundColor Cyan

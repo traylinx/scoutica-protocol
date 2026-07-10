@@ -125,6 +125,14 @@ scoutica scan .
 
 ### Option 2: Manual CLI Install (Recommended for Devs)
 
+Requires Python 3.11+ with the strict validation dependencies installed:
+
+```bash
+python3 -m pip install 'jsonschema[format]' PyYAML
+```
+
+The installer verifies these prerequisites before writing files. It never installs Python packages into your global environment.
+
 **macOS / Linux:**
 
 ```bash
@@ -139,7 +147,7 @@ curl -fsSL https://raw.githubusercontent.com/traylinx/scoutica-protocol/main/ins
 ║                                                       ║
 ╚═══════════════════════════════════════════════════════╝
 
-→ Creating directories in /Users/sebastian/.scoutica...
+→ Creating directories in ~/.scoutica...
 → Downloading scoutica CLI...
 → Downloading JSON schemas...
 → Downloading card templates...
@@ -183,7 +191,7 @@ Usage:  scoutica <command> [options] [directory]
 🔧 Manage your card:
   info     [dir]       View your card summary
   preview  [dir]       Build HTML layout and publish to here.now
-  validate [dir]       Validate card against protocol schemas
+  validate [dir] [--schema-dir /abs]  Validate against trusted or explicit schemas
   publish  [dir]       Push card to GitHub
   resolve  <url>       Fetch and display any card from a URL
 

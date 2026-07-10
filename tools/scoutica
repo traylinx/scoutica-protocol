@@ -191,6 +191,118 @@ _refuse_if_symlink() {
     return 0
 }
 
+# Promote a validated generated card into its final directory. Validation must
+# happen before this helper is called; Phase 2 upgrades these bounded copies to
+# atomic no-follow writes.
+_promote_generated_card() {
+    local _stage="$1" _destination="$2" _generated_file
+    _refuse_if_symlink \
+        "$_destination" "$_destination/rules" \
+        "$_destination/profile.json" "$_destination/rules.yaml" \
+        "$_destination/evidence.json" "$_destination/SKILL.md" \
+        "$_destination/README.md" "$_destination/.gitignore" || return 1
+
+    mkdir -p "$_destination/rules" || return 1
+    for _generated_file in profile.json rules.yaml evidence.json SKILL.md README.md; do
+        [ -f "$_stage/$_generated_file" ] || continue
+        cp "$_stage/$_generated_file" "$_destination/$_generated_file" || return 1
+    done
+    if [ -d "$_stage/rules" ]; then
+        cp "$_stage/rules/"*.md "$_destination/rules/" 2>/dev/null || true
+    fi
+    if [ ! -f "$_destination/.gitignore" ] && [ -f "$_stage/.gitignore" ]; then
+        cp "$_stage/.gitignore" "$_destination/.gitignore" || return 1
+    fi
+}
+
+# Print a supported Python executable. Scoutica's strict runtime starts at 3.11.
+_supported_python() {
+    local _python
+    for _python in python3.13 python3.12 python3.11 python3 python; do
+        if command -v "$_python" >/dev/null 2>&1 \
+            && "$_python" -c 'import sys; raise SystemExit(0 if sys.version_info >= (3, 11) else 1)' >/dev/null 2>&1; then
+            printf '%s\n' "$_python"
+            return 0
+        fi
+    done
+    return 1
+}
+
+_python_has_strict_validation_deps() {
+    "$1" - <<'PY' >/dev/null 2>&1
+import sys
+import yaml
+from jsonschema import FormatChecker
+from jsonschema.exceptions import FormatError
+
+if sys.version_info < (3, 11):
+    raise SystemExit(1)
+checker = FormatChecker()
+for format_name, invalid_value in (
+    ("uri", "not a uri"),
+    ("hostname", "bad host!"),
+    ("date", "not-date"),
+    ("date-time", "not-date-time"),
+):
+    if format_name not in checker.checkers:
+        raise SystemExit(1)
+    try:
+        checker.check(invalid_value, format_name)
+    except FormatError:
+        continue
+    raise SystemExit(1)
+PY
+}
+
+_supported_validation_python() {
+    local _python
+    for _python in python3.13 python3.12 python3.11 python3 python; do
+        if command -v "$_python" >/dev/null 2>&1 \
+            && _python_has_strict_validation_deps "$_python"; then
+            printf '%s\n' "$_python"
+            return 0
+        fi
+    done
+    return 1
+}
+
+_python_prerequisite_guidance() {
+    echo -e "  ${DIM}Install Python 3.11+, then run: python3 -m pip install 'jsonschema[format]' PyYAML${NC}" >&2
+}
+
+# Resolve a schema only from the installed bundle or this checkout, never from cwd.
+_find_schema_file() {
+    local _schema_rel="$1"
+    local _schema_script_dir _schema_path
+    _schema_script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+    for _schema_path in \
+        "$_schema_script_dir/../schemas/$_schema_rel" \
+        "$_schema_script_dir/schemas/$_schema_rel"; do
+        if [ -f "$_schema_path" ]; then
+            printf '%s\n' "$_schema_path"
+            return 0
+        fi
+    done
+    return 1
+}
+
+# Export VALIDATION_PYTHON for generation/validation commands without mutating global Python.
+_require_validation_runtime() {
+    VALIDATION_PYTHON=$(_supported_validation_python) || {
+        local _version_python=""
+        _version_python=$(_supported_python) || true
+        if [ -n "$_version_python" ]; then
+            error "Missing required Python dependencies: jsonschema[format] and PyYAML."
+            _python_prerequisite_guidance
+            return 1
+        fi
+        error "Python 3.11+ is required."
+        _python_prerequisite_guidance
+        return 1
+    }
+    export VALIDATION_PYTHON
+}
+
 success() {
     echo -e "  ${GREEN}✅ $1${NC}"
 }
@@ -474,6 +586,11 @@ cmd_init() {
             engagement_types+="$etype"
         fi
     done
+
+    if [ -z "$engagement_types" ]; then
+        error "Select at least one supported engagement type."
+        return 1
+    fi
     
     echo ""
     
@@ -538,8 +655,19 @@ cmd_init() {
     
     # ── Generate Files ──
     header "Generating Your Skill Card"
+
+    _require_validation_runtime || return 1
+    local script_dir
+    script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
     
-    mkdir -p "$target_dir/rules"
+    local generation_dir
+    generation_dir=$(mktemp -d "${TMPDIR:-/tmp}/scoutica-init.XXXXXX") || {
+        error "Could not create a private generation directory."
+        return 1
+    }
+    chmod 700 "$generation_dir" 2>/dev/null || true
+    mkdir -p "$generation_dir/rules"
+    trap 'rm -rf "$generation_dir" 2>/dev/null' EXIT INT TERM
     
     # ── Symlink protection ──
     for f in profile.json rules.yaml evidence.json SKILL.md; do
@@ -556,8 +684,8 @@ cmd_init() {
         ev_lines+="${entry}"$'\n'
     done
     
-    python3 << 'GENERATE_SCRIPT' - \
-        "$target_dir" \
+    "$VALIDATION_PYTHON" << 'GENERATE_SCRIPT' - \
+        "$generation_dir" \
         "$name" "$title" "$seniority" "$years" "$availability" \
         "$domains" "$skills" "$tools" "$certs" "$specializations" \
         "$languages_json" "$education" "$summary" \
@@ -565,7 +693,7 @@ cmd_init() {
         "$remote_policy" "$hybrid_locations" \
         "$blocked" "$preferred_stack" "$stack_min" \
         "$ev_lines"
-import json, sys, os, re
+import json, sys, os, re, yaml
 
 args = sys.argv[1:]
 target_dir = args[0]
@@ -613,7 +741,7 @@ with open(os.path.join(target_dir, "profile.json"), "w") as f:
 print("  ✅ Created profile.json")
 
 # ── rules.yaml ──
-# Build rules as a dict, write with yaml or manual safe format
+# Build rules as a dict and serialize it structurally.
 rules = {"schema_version": "0.1.0"}
 engagement = {"allowed_types": csv_to_list(engagement_csv)}
 comp = {}
@@ -639,16 +767,9 @@ rules["privacy"] = {
     "zone_3_private": ["email", "phone", "exact_salary"]
 }
 
-try:
-    import yaml
-    with open(os.path.join(target_dir, "rules.yaml"), "w") as f:
-        yaml.dump(rules, f, default_flow_style=False, allow_unicode=True, sort_keys=False)
-    print("  ✅ Created rules.yaml")
-except ImportError:
-    with open(os.path.join(target_dir, "rules.yaml"), "w") as f:
-        json.dump(rules, f, indent=2, ensure_ascii=False)
-        f.write("\n")
-    print("  ✅ Created rules.yaml (as JSON — install pyyaml for proper YAML)")
+with open(os.path.join(target_dir, "rules.yaml"), "w") as f:
+    yaml.safe_dump(rules, f, default_flow_style=False, allow_unicode=True, sort_keys=False)
+print("  ✅ Created rules.yaml")
 
 # ── evidence.json ──
 evidence_items = []
@@ -671,19 +792,37 @@ with open(os.path.join(target_dir, "evidence.json"), "w") as f:
 print("  ✅ Created evidence.json")
 
 # ── SKILL.md ──
-tags = ", ".join(csv_to_list(skills_csv)).lower()
+def single_line(value, fallback):
+    text = re.sub(r"[\r\n\t]+", " ", str(value or ""))
+    text = re.sub(r"\s+", " ", text).strip()
+    return text or fallback
+
+def markdown_inline(value, fallback):
+    text = single_line(value, fallback)
+    return re.sub(r"([\\`*_\[\]<>])", r"\\\1", text)
+
+frontmatter_name = single_line(name, "Unknown")
+frontmatter = {
+    "name": "scoutica",
+    "description": f"{frontmatter_name} — AI-readable professional profile with automated opportunity filtering",
+    "metadata": {
+        "tags": ", ".join(csv_to_list(skills_csv)).lower(),
+        "author": frontmatter_name,
+        "version": "0.1.0",
+    },
+}
+frontmatter_yaml = yaml.safe_dump(
+    frontmatter, allow_unicode=True, sort_keys=False, default_flow_style=False
+).rstrip()
+prose_name = markdown_inline(name, "Unknown")
+prose_title = markdown_inline(title, "Professional")
 skill_md = f"""---
-name: scoutica
-description: {name} — AI-readable professional profile with automated opportunity filtering
-metadata:
-  tags: {tags}
-  author: {name}
-  version: 0.1.0
+{frontmatter_yaml}
 ---
 
 # Scoutica
 
-This skill provides an AI-readable professional profile for **{name}** — {title}.
+This skill provides an AI-readable professional profile for **{prose_name}** — {prose_title}.
 
 It allows any AI agent to:
 - Understand this candidate's capabilities and experience
@@ -727,7 +866,7 @@ GENERATE_SCRIPT
     
     # --- Copy rule templates ---
     if [ -d "$TEMPLATES_DIR/rules" ]; then
-        cp "$TEMPLATES_DIR/rules/"*.md "$target_dir/rules/" 2>/dev/null || true
+        cp "$TEMPLATES_DIR/rules/"*.md "$generation_dir/rules/" 2>/dev/null || true
         success "Copied evaluation rule templates"
     else
         warn "Rule templates not found — run 'scoutica init' from an installed CLI"
@@ -742,10 +881,28 @@ GENERATE_SCRIPT
             gi_src="$script_dir/../protocol/templates/card.gitignore"
         fi
         if [ -n "$gi_src" ]; then
-            cp "$gi_src" "$target_dir/.gitignore"
+            cp "$gi_src" "$generation_dir/.gitignore"
             success "Created .gitignore (protects secrets from accidental commits)"
         fi
     fi
+
+    # Generated cards are not reported ready until the same strict consumer
+    # validation path accepts the complete artifact set.
+    if ! cmd_validate "$generation_dir"; then
+        error "Generated card failed strict validation; not reporting it ready."
+        rm -rf "$generation_dir"
+        trap - EXIT INT TERM
+        return 1
+    fi
+
+    if ! _promote_generated_card "$generation_dir" "$target_dir"; then
+        error "Could not promote the validated generated card."
+        rm -rf "$generation_dir"
+        trap - EXIT INT TERM
+        return 1
+    fi
+    rm -rf "$generation_dir"
+    trap - EXIT INT TERM
     
     echo ""
     echo -e "${GREEN}╔═══════════════════════════════════════════════════════╗${NC}"
@@ -808,7 +965,51 @@ cmd_init_ai() {
 # ─── VALIDATE Command ────────────────────────────────────────────────────────
 
 cmd_validate() {
-    local card_dir="${1:-}"
+    local card_dir=""
+    local schema_dir=""
+
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --schema-dir)
+                if [ $# -lt 2 ] || [ -z "$2" ]; then
+                    error "--schema-dir requires an absolute directory path."
+                    return 1
+                fi
+                schema_dir="$2"
+                shift 2
+                ;;
+            --schema-dir=*)
+                schema_dir="${1#--schema-dir=}"
+                shift
+                ;;
+            --*)
+                error "Unknown validate option: $1"
+                return 1
+                ;;
+            *)
+                if [ -n "$card_dir" ]; then
+                    error "Validate accepts only one card directory."
+                    return 1
+                fi
+                card_dir="$1"
+                shift
+                ;;
+        esac
+    done
+
+    if [ -n "$schema_dir" ]; then
+        case "$schema_dir" in
+            /*) : ;;
+            *)
+                error "--schema-dir must be an absolute directory path."
+                return 1
+                ;;
+        esac
+        if [ ! -d "$schema_dir" ]; then
+            error "Schema directory not found: $schema_dir"
+            return 1
+        fi
+    fi
     
     # Smart context resolution
     if [ -z "$card_dir" ]; then
@@ -836,26 +1037,18 @@ cmd_validate() {
         exit 1
     fi
     
-    # Check if Python is available
-    local python_cmd=""
-    if command -v python3 &>/dev/null; then
-        python_cmd="python3"
-    elif command -v python &>/dev/null; then
-        python_cmd="python"
-    else
-        error "Python is required for schema validation"
-        echo -e "  ${DIM}Install Python 3 and run: pip install jsonschema pyyaml${NC}"
-        exit 1
-    fi
+    # Validate prerequisites without mutating the user's global Python environment.
+    _require_validation_runtime || return 1
+    local python_cmd="$VALIDATION_PYTHON"
     
     # Check for validation script in multiple locations
     local validator=""
     local script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
     
-    if [ -f "$SCOUTICA_HOME/bin/validate_card.py" ]; then
-        validator="$SCOUTICA_HOME/bin/validate_card.py"
-    elif [ -f "$script_dir/validate_card.py" ]; then
+    if [ -f "$script_dir/validate_card.py" ]; then
         validator="$script_dir/validate_card.py"
+    elif [ -f "$SCOUTICA_HOME/bin/validate_card.py" ]; then
+        validator="$SCOUTICA_HOME/bin/validate_card.py"
     elif [ -f "$SCOUTICA_HOME/tools/validate_card.py" ]; then
         validator="$SCOUTICA_HOME/tools/validate_card.py"
     fi
@@ -865,18 +1058,12 @@ cmd_validate() {
         exit 1
     fi
     
-    # Check for dependencies
-    if ! $python_cmd -c "import jsonschema, yaml" 2>/dev/null; then
-        warn "Missing Python dependencies. Installing..."
-        $python_cmd -m pip install jsonschema pyyaml --quiet 2>/dev/null || {
-            error "Failed to install dependencies"
-            echo -e "  ${DIM}Run manually: pip install jsonschema pyyaml${NC}"
-            exit 1
-        }
-    fi
-    
     # Run validation
-    $python_cmd "$validator" "$card_dir"
+    local validator_args=("$card_dir")
+    if [ -n "$schema_dir" ]; then
+        validator_args+=(--schema-dir "$schema_dir")
+    fi
+    "$python_cmd" "$validator" "${validator_args[@]}"
 }
 
 # ─── PUBLISH Command ─────────────────────────────────────────────────────────
@@ -1254,12 +1441,24 @@ cmd_doctor() {
         errors=$((errors+1))
     fi
 
-    # 5. Python 3
-    if command -v python3 >/dev/null 2>&1; then
-        local py_ver=$(python3 --version 2>&1)
-        success "$py_ver"
+    # 5. Strict Python runtime and dependencies
+    local doctor_python=""
+    doctor_python=$(_supported_validation_python) || doctor_python=$(_supported_python) || true
+    if [ -n "$doctor_python" ]; then
+        local py_ver
+        py_ver=$("$doctor_python" --version 2>&1)
+        success "$py_ver (supported: 3.11+)"
+
+        if ! _python_has_strict_validation_deps "$doctor_python"; then
+            error "Missing required Python dependencies: jsonschema[format] and PyYAML"
+            _python_prerequisite_guidance
+            errors=$((errors+1))
+        else
+            success "Python dependencies present (jsonschema[format], PyYAML)"
+        fi
     else
-        error "Python 3 not found (Required for JSON generation)"
+        error "Python 3.11+ not found (required for validation and generation)"
+        _python_prerequisite_guidance
         errors=$((errors+1))
     fi
 
@@ -1335,7 +1534,7 @@ cmd_help() {
     echo -e "${BOLD}🔧 Manage your card:${NC}"
     echo -e "  ${CYAN}info${NC}     [dir]       View your card summary"
     echo -e "  ${CYAN}preview${NC}  [dir]       Build HTML layout and publish to here.now"
-    echo -e "  ${CYAN}validate${NC} [dir]       Validate card against protocol schemas"
+    echo -e "  ${CYAN}validate${NC} [dir] [--schema-dir /abs]  Validate against trusted or explicit schemas"
     echo -e "  ${CYAN}publish${NC}  [dir]       Push card to GitHub"
     echo -e "  ${CYAN}resolve${NC}  <url>       Fetch and display any card from a URL"
     echo ""
@@ -1821,6 +2020,9 @@ cmd_scan() {
         error "Directory not found: $source_dir"
         exit 1
     fi
+
+    # Scan emits strict YAML artifacts and structured SKILL frontmatter.
+    _require_validation_runtime || return 1
     
     # If no explicit --output, default to source_dir (will be redirected to subfolder after AI generation)
     if [ -z "$output_dir" ]; then
@@ -2151,14 +2353,14 @@ $all_text"
     
     # ── Step 5: Call local AI CLI ──
     local response=""
-    local payload_file="" scan_raw_file=""
+    local payload_file="" scan_raw_file="" generation_dir=""
     local tmp_prompt=$(mktemp /tmp/scoutica_prompt.XXXXXX)
     local tmp_resp=$(mktemp /tmp/scoutica_resp.XXXXXX)
     local tmp_log=$(mktemp /tmp/scoutica_log.XXXXXX)
     # Clean ALL temp + PII files (prompt, response, request payload, raw AI response) on
     # success/failure/interrupt. Single quotes defer expansion so the late-assigned
     # payload_file / scan_raw_file are picked up at trap time (F-HIGH-TEMP-001).
-    trap 'rm -f "$tmp_prompt" "$tmp_resp" "$tmp_log" "$payload_file" "$scan_raw_file" 2>/dev/null' EXIT INT TERM
+    trap 'rm -f "$tmp_prompt" "$tmp_resp" "$tmp_log" "$payload_file" "$scan_raw_file" 2>/dev/null; [ -z "$generation_dir" ] || rm -rf "$generation_dir" 2>/dev/null' EXIT INT TERM
     echo "$full_prompt" > "$tmp_prompt"
     
     local prompt_size=$(wc -c < "$tmp_prompt" | tr -d ' ')
@@ -2433,14 +2635,11 @@ PARSE_NAME
             local slug=$(_slugify_name "$card_name")
             local card_subdir="$source_dir/${slug}-card"
             
-            # Create the subfolder
-            mkdir -p "$card_subdir/rules"
             output_dir="$card_subdir"
             echo -e "  ${BLUE}→${NC} Creating card directory: ${BOLD}${slug}-card/${NC}"
         else
             # Fallback: use a generic name
             local card_subdir="$source_dir/scoutica-card"
-            mkdir -p "$card_subdir/rules"
             output_dir="$card_subdir"
             echo -e "  ${BLUE}→${NC} Creating card directory: ${BOLD}scoutica-card/${NC}"
         fi
@@ -2449,15 +2648,21 @@ PARSE_NAME
     # ── Step 7: Parse response and write files ──
     echo -e "  ${BLUE}→${NC} Writing card files to ${BOLD}$output_dir${NC}..."
     
-    mkdir -p "$output_dir/rules"
+    local generation_dir
+    generation_dir=$(mktemp -d "${TMPDIR:-/tmp}/scoutica-scan.XXXXXX") || {
+        error "Could not create a private generation directory."
+        exit 1
+    }
+    chmod 700 "$generation_dir" 2>/dev/null || true
+    mkdir -p "$generation_dir/rules"
     
     # Save raw response for debugging
-    scan_raw_file="$output_dir/.scan_response_raw.txt"
+    scan_raw_file="$generation_dir/.scan_response_raw.txt"
     echo "$response" > "$scan_raw_file"
     
     # Use Python to extract JSON, parse it, and write files
-    if ! python3 << 'PARSE_SCRIPT' - "$output_dir" "$response"
-import json, sys, os, re
+    if ! "$VALIDATION_PYTHON" << 'PARSE_SCRIPT' - "$generation_dir" "$response"
+import json, sys, os, re, yaml
 
 output_dir = sys.argv[1]
 raw = sys.argv[2].strip()
@@ -2492,10 +2697,26 @@ def find_scoutica_json(text):
 
 data = find_scoutica_json(raw)
 
-if data is None:
+if not isinstance(data, dict):
     print("  ❌ Could not parse JSON from AI response.", file=sys.stderr)
-    print(f"  Raw response saved to {output_dir}/.scan_response_raw.txt", file=sys.stderr)
+    print("  Raw response rejected before card promotion.", file=sys.stderr)
     sys.exit(1)
+
+# Canonicalize and require a meaningful Rules of Engagement policy before any files are written.
+rules = data.get("rules")
+engagement = rules.get("engagement") if isinstance(rules, dict) else None
+allowed = engagement.get("allowed_types") if isinstance(engagement, dict) else None
+valid_engagements = {"permanent", "contract", "fractional", "advisory", "internship"}
+canonical_engagements = []
+if isinstance(allowed, list):
+    for item in allowed:
+        canonical = "contract" if item == "freelance" else item
+        if canonical in valid_engagements and canonical not in canonical_engagements:
+            canonical_engagements.append(canonical)
+if not canonical_engagements:
+    print("  ❌ AI response must contain at least one supported rules.engagement.allowed_types value.", file=sys.stderr)
+    sys.exit(1)
+engagement["allowed_types"] = canonical_engagements
 
 # Write profile.json
 if "profile" in data:
@@ -2505,15 +2726,9 @@ if "profile" in data:
 
 # Write rules.yaml
 if "rules" in data:
-    try:
-        import yaml
-        with open(os.path.join(output_dir, "rules.yaml"), "w") as f:
-            yaml.dump(data["rules"], f, default_flow_style=False, allow_unicode=True, sort_keys=False)
-        print("  ✅ Created rules.yaml")
-    except ImportError:
-        with open(os.path.join(output_dir, "rules.yaml"), "w") as f:
-            json.dump(data["rules"], f, indent=2, ensure_ascii=False)
-        print("  ✅ Created rules.yaml (as JSON — install pyyaml for proper YAML)")
+    with open(os.path.join(output_dir, "rules.yaml"), "w") as f:
+        yaml.safe_dump(data["rules"], f, default_flow_style=False, allow_unicode=True, sort_keys=False)
+    print("  ✅ Created rules.yaml")
 
 # Write evidence.json
 if "evidence" in data:
@@ -2524,22 +2739,47 @@ if "evidence" in data:
 # Write SKILL.md
 sm = data.get("skill_md", {})
 profile = data.get("profile", {})
-name = sm.get("name", profile.get("name", "Unknown"))
-title = sm.get("title", profile.get("title", "Professional"))
-tags = sm.get("tags", "")
+sm = sm if isinstance(sm, dict) else {}
+profile = profile if isinstance(profile, dict) else {}
 
+def single_line(value, fallback):
+    text = re.sub(r"[\r\n\t]+", " ", str(value or ""))
+    text = re.sub(r"\s+", " ", text).strip()
+    return text or fallback
+
+def markdown_inline(value, fallback):
+    text = single_line(value, fallback)
+    return re.sub(r"([\\`*_\[\]<>])", r"\\\1", text)
+
+name = single_line(sm.get("name", profile.get("name")), "Unknown")
+title = single_line(sm.get("title", profile.get("title")), "Professional")
+raw_tags = sm.get("tags", "")
+if isinstance(raw_tags, list):
+    tags = ", ".join(single_line(item, "") for item in raw_tags if single_line(item, ""))
+else:
+    tags = single_line(raw_tags, "")
+
+frontmatter = {
+    "name": "scoutica",
+    "description": f"{name} — AI-readable professional profile with automated opportunity filtering",
+    "metadata": {
+        "tags": tags,
+        "author": name,
+        "version": "0.1.0",
+    },
+}
+frontmatter_yaml = yaml.safe_dump(
+    frontmatter, allow_unicode=True, sort_keys=False, default_flow_style=False
+).rstrip()
+prose_name = markdown_inline(name, "Unknown")
+prose_title = markdown_inline(title, "Professional")
 skill_content = f"""---
-name: scoutica
-description: {name} — AI-readable professional profile with automated opportunity filtering
-metadata:
-  tags: {tags}
-  author: {name}
-  version: 0.1.0
+{frontmatter_yaml}
 ---
 
 # Scoutica
 
-This skill provides an AI-readable professional profile for **{name}** — {title}.
+This skill provides an AI-readable professional profile for **{prose_name}** — {prose_title}.
 
 It allows any AI agent to:
 - Understand this candidate's capabilities and experience
@@ -2575,9 +2815,9 @@ summary = profile.get("summary", "")
 skills = profile.get("skills", [])
 skills_str = ", ".join(skills) if skills else "Not specified"
 
-readme_content = f"""# {name}
+readme_content = f"""# {prose_name}
 
-## {title}
+## {prose_title}
 
 {summary}
 
@@ -2606,11 +2846,11 @@ PARSE_SCRIPT
     fi
     
     # Clean up raw response (contains PII)
-    rm -f "$output_dir/.scan_response_raw.txt"
+    rm -f "$generation_dir/.scan_response_raw.txt"
     
     # Copy rule templates
     if [ -d "$TEMPLATES_DIR/rules" ]; then
-        cp "$TEMPLATES_DIR/rules/"*.md "$output_dir/rules/" 2>/dev/null || true
+        cp "$TEMPLATES_DIR/rules/"*.md "$generation_dir/rules/" 2>/dev/null || true
         success "Copied evaluation rule templates"
     fi
     
@@ -2623,10 +2863,30 @@ PARSE_SCRIPT
             gi_src="$script_dir/../protocol/templates/card.gitignore"
         fi
         if [ -n "$gi_src" ]; then
-            cp "$gi_src" "$output_dir/.gitignore"
+            cp "$gi_src" "$generation_dir/.gitignore"
             success "Created .gitignore (protects secrets from accidental commits)"
         fi
     fi
+
+    # Validate the complete generated card before registration or the ready
+    # banner. Phase 3 moves these writes into an invocation staging directory;
+    # this phase establishes the artifact contract now.
+    if ! cmd_validate "$generation_dir"; then
+        error "Generated card failed strict validation; not registering it."
+        rm -f "$tmp_prompt" "$tmp_resp" "$tmp_log" "$payload_file" "$scan_raw_file" 2>/dev/null
+        rm -rf "$generation_dir"
+        trap - EXIT INT TERM
+        return 1
+    fi
+
+    if ! _promote_generated_card "$generation_dir" "$output_dir"; then
+        error "Could not promote the validated generated card."
+        rm -f "$tmp_prompt" "$tmp_resp" "$tmp_log" "$payload_file" "$scan_raw_file" 2>/dev/null
+        rm -rf "$generation_dir"
+        trap - EXIT INT TERM
+        return 1
+    fi
+    rm -rf "$generation_dir"
     
     _scan_log "WRITE" "all card files written to $output_dir"
     
@@ -2661,6 +2921,11 @@ PARSE_SCRIPT
     local src_abs
     src_abs=$(cd "$source_dir" && pwd)
     _register_card "$abs_output_dir" "scan" '{"provider": "'"$provider"'", "source_dir": "'"$src_abs"'"}'
+
+    # All scan temporaries are gone on the success path. Clear the function-local EXIT trap
+    # before returning so `set -u` cannot expand locals after their scope has ended.
+    rm -f "$tmp_prompt" "$tmp_resp" "$tmp_log" "$payload_file" "$scan_raw_file" 2>/dev/null
+    trap - EXIT INT TERM
 }
 
 # ─── RESOLVE Command ──────────────────────────────────────────────────────────
@@ -3461,9 +3726,25 @@ cmd_org_init() {
     echo -e "  ${BOLD}Which engagement types do you offer?${NC}"
     for etype in "${eng_items[@]}"; do
         if confirm "  Offer $etype?"; then
-            if [ -n "$engagement_types" ]; then engagement_types+=",$etype"; else engagement_types="$etype"; fi
+            local canonical_etype="$etype"
+            [ "$canonical_etype" = "freelance" ] && canonical_etype="contract"
+            case ",$engagement_types," in
+                *",$canonical_etype,"*) : ;;
+                *)
+                    if [ -n "$engagement_types" ]; then
+                        engagement_types+=",$canonical_etype"
+                    else
+                        engagement_types="$canonical_etype"
+                    fi
+                    ;;
+            esac
         fi
     done
+
+    if [ -z "$engagement_types" ]; then
+        error "Select at least one supported engagement type."
+        return 1
+    fi
     
     echo ""
     
@@ -3500,12 +3781,23 @@ cmd_org_init() {
     
     # ── Generate Files ──
     header "Generating Employer Identity Card"
+
+    _require_validation_runtime || return 1
+    local recruiter_schema hiring_rules_schema
+    recruiter_schema=$(_find_schema_file "recruiter/recruiter_profile.schema.json") || {
+        error "Recruiter profile schema not found. Re-run the installer."
+        return 1
+    }
+    hiring_rules_schema=$(_find_schema_file "recruiter/hiring_rules.schema.json") || {
+        error "Hiring rules schema not found. Re-run the installer."
+        return 1
+    }
     
     mkdir -p "$target_dir/roles"
     
     _refuse_if_symlink "$target_dir/recruiter_profile.json" "$target_dir/hiring_rules.yaml" || exit 1
     # Generate recruiter_profile.json and hiring_rules.yaml via Python
-    python3 << 'ORG_GENERATE_SCRIPT' - \
+    "$VALIDATION_PYTHON" << 'ORG_GENERATE_SCRIPT' - \
         "$target_dir" \
         "$org_name" "$org_domain" "$org_description" "$org_team_size" "$org_hq" "$org_founded" \
         "$entity_type" "$team_model" \
@@ -3513,8 +3805,9 @@ cmd_org_init() {
         "$agent_endpoint" "$human_email" "$careers_page" \
         "$max_response_days" "$salary_transparent" "$feedback_on_reject" "$gdpr_compliance" \
         "$max_interview_rounds" "$response_sla_hours" "$max_pings_week" "$max_active_roles" \
-        "$pref_seniority" "$pref_regions"
-import json, sys, os
+        "$pref_seniority" "$pref_regions" \
+        "$recruiter_schema" "$hiring_rules_schema"
+import json, sys, os, yaml, jsonschema
 from datetime import datetime, timezone
 
 args = sys.argv[1:]
@@ -3526,6 +3819,7 @@ agent_endpoint, human_email, careers_page = args[12:15]
 max_resp_days, salary_trans, feedback_rej, gdpr = args[15:19]
 max_rounds, resp_sla, max_pings, max_roles = args[19:23]
 pref_seniority_csv, pref_regions_csv = args[23:25]
+recruiter_schema_path, hiring_rules_schema_path = args[25:27]
 
 def csv_to_list(s):
     return [x.strip() for x in s.split(',') if x.strip()] if s else []
@@ -3533,6 +3827,17 @@ def csv_to_list(s):
 def safe_int(s, default=0):
     try: return int(s)
     except: return default
+
+def canonical_engagements(csv):
+    valid = {"permanent", "contract", "fractional", "advisory", "internship"}
+    result = []
+    for item in csv_to_list(csv):
+        canonical = "contract" if item == "freelance" else item
+        if canonical in valid and canonical not in result:
+            result.append(canonical)
+    if not result:
+        raise ValueError("at least one supported engagement type is required")
+    return result
 
 now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
@@ -3547,9 +3852,7 @@ profile = {
         "description": org_desc,
         "team_size": org_team_size,
     },
-    "industries": csv_to_list(industries_csv),
-    "engagement_types": csv_to_list(engagement_csv),
-    "tech_stack": csv_to_list(tech_csv),
+    "engagement_types": canonical_engagements(engagement_csv),
     "team": {
         "model": team_model,
         "members_can_post_roles": True,
@@ -3560,6 +3863,10 @@ profile = {
     "updated_at": now,
 }
 
+if csv_to_list(industries_csv):
+    profile["industries"] = csv_to_list(industries_csv)
+if csv_to_list(tech_csv):
+    profile["tech_stack"] = csv_to_list(tech_csv)
 if org_hq:
     profile["organization"]["headquarters"] = org_hq
 if org_founded:
@@ -3570,11 +3877,6 @@ if human_email:
     profile["contact"]["human_fallback"] = human_email
 if careers_page:
     profile["contact"]["careers_page"] = careers_page
-
-with open(os.path.join(target_dir, "recruiter_profile.json"), "w") as f:
-    json.dump(profile, f, indent=2, ensure_ascii=False)
-    f.write("\n")
-print("  ✅ Created recruiter_profile.json")
 
 # ── hiring_rules.yaml ──
 rules = {
@@ -3592,21 +3894,29 @@ rules = {
     },
     "preferences": {
         "preferred_seniority": csv_to_list(pref_seniority_csv),
-        "preferred_engagement": csv_to_list(engagement_csv),
+        "preferred_engagement": canonical_engagements(engagement_csv),
         "preferred_regions": csv_to_list(pref_regions_csv),
     },
 }
 
-try:
-    import yaml
-    with open(os.path.join(target_dir, "hiring_rules.yaml"), "w") as f:
-        yaml.dump(rules, f, default_flow_style=False, allow_unicode=True, sort_keys=False)
-    print("  ✅ Created hiring_rules.yaml")
-except ImportError:
-    with open(os.path.join(target_dir, "hiring_rules.yaml"), "w") as f:
-        json.dump(rules, f, indent=2, ensure_ascii=False)
-        f.write("\n")
-    print("  ✅ Created hiring_rules.yaml (as JSON — install pyyaml for proper YAML)")
+# Validate both complete artifacts in memory before persistence or success output.
+with open(recruiter_schema_path, encoding="utf-8") as f:
+    recruiter_schema = json.load(f)
+with open(hiring_rules_schema_path, encoding="utf-8") as f:
+    hiring_rules_schema = json.load(f)
+jsonschema.Draft7Validator.check_schema(recruiter_schema)
+jsonschema.Draft7Validator.check_schema(hiring_rules_schema)
+format_checker = jsonschema.FormatChecker()
+jsonschema.validate(profile, recruiter_schema, format_checker=format_checker)
+jsonschema.validate(rules, hiring_rules_schema, format_checker=format_checker)
+
+with open(os.path.join(target_dir, "recruiter_profile.json"), "w") as f:
+    json.dump(profile, f, indent=2, ensure_ascii=False)
+    f.write("\n")
+with open(os.path.join(target_dir, "hiring_rules.yaml"), "w") as f:
+    yaml.safe_dump(rules, f, default_flow_style=False, allow_unicode=True, sort_keys=False)
+print("  ✅ Created recruiter_profile.json")
+print("  ✅ Created hiring_rules.yaml")
 
 # ── Empty roles/ directory message ──
 print("  ✅ Created roles/ directory")
@@ -3855,6 +4165,14 @@ cmd_role_create() {
     echo -e "  ${MAGENTA}━━━ 📅 Engagement ━━━${NC}"
     echo ""
     local engagement_type=$(ask_choice "Engagement type" "permanent" "contract" "fractional" "freelance")
+    [ "$engagement_type" = "freelance" ] && engagement_type="contract"
+    case "$engagement_type" in
+        permanent|contract|fractional|advisory|internship) : ;;
+        *)
+            error "Select a supported engagement type."
+            return 1
+            ;;
+    esac
     local start_date=$(ask "Start date (YYYY-MM-DD)" "")
     local duration_months=""
     if [ "$engagement_type" != "permanent" ]; then
@@ -3874,18 +4192,25 @@ cmd_role_create() {
     
     # ── Generate ──
     header "Generating Role Posting"
+
+    _require_validation_runtime || return 1
+    local role_schema
+    role_schema=$(_find_schema_file "recruiter/role.schema.json") || {
+        error "Role schema not found. Re-run the installer."
+        return 1
+    }
     
     mkdir -p "$target_dir/roles"
     
-    python3 << 'ROLE_GENERATE_SCRIPT' - \
+    "$VALIDATION_PYTHON" << 'ROLE_GENERATE_SCRIPT' - \
         "$target_dir" \
         "$role_title" "$role_description" "$role_seniority" "$min_years" \
         "$hard_skills" "$preferred_skills" "$soft_skills" "$languages_required" \
         "$currency" "$base_min" "$base_max" "$equity" \
         "$location_type" "$regions" "$tz_overlap" "$office_location" \
         "$engagement_type" "$start_date" "$duration_months" \
-        "$recruiter_card_url"
-import json, sys, os, re, hashlib
+        "$recruiter_card_url" "$role_schema"
+import json, sys, os, re, hashlib, jsonschema
 from datetime import datetime, timezone, timedelta
 
 args = sys.argv[1:]
@@ -3896,6 +4221,7 @@ currency, base_min_str, base_max_str, equity_str = args[9:13]
 location_type, regions_csv, tz_overlap, office_loc = args[13:17]
 engagement_type, start_date, duration_str = args[17:20]
 recruiter_card_url = args[20] if len(args) > 20 else ""
+role_schema_path = args[21]
 
 def csv_to_list(s):
     return [x.strip() for x in s.split(',') if x.strip()] if s else []
@@ -3934,7 +4260,7 @@ role = {
         "type": location_type,
     },
     "engagement": {
-        "type": engagement_type,
+        "type": "contract" if engagement_type == "freelance" else engagement_type,
     },
     "description": role_desc,
 }
@@ -3963,6 +4289,12 @@ if recruiter_card_url:
 filename = re.sub(r'[^a-z0-9]+', '-', role_title.lower()).strip('-') + '.json'
 filepath = os.path.join(target_dir, 'roles', filename)
 
+# Validate the complete role against the canonical schema before persistence or success output.
+with open(role_schema_path, encoding="utf-8") as f:
+    role_schema = json.load(f)
+jsonschema.Draft7Validator.check_schema(role_schema)
+jsonschema.validate(role, role_schema, format_checker=jsonschema.FormatChecker())
+
 with open(filepath, 'w') as f:
     json.dump(role, f, indent=2, ensure_ascii=False)
     f.write('\n')
@@ -3983,25 +4315,18 @@ cmd_role_validate() {
     
     header "Validate Role Postings"
     
-    # Find Python
-    local python_cmd=""
-    if command -v python3 &>/dev/null; then
-        python_cmd="python3"
-    elif command -v python &>/dev/null; then
-        python_cmd="python"
-    else
-        error "Python is required for schema validation"
-        exit 1
-    fi
+    # Validate prerequisites without mutating the user's global Python environment.
+    _require_validation_runtime || return 1
+    local python_cmd="$VALIDATION_PYTHON"
     
     # Find validator script
     local validator=""
     local script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
     
-    if [ -f "$SCOUTICA_HOME/bin/validate_card.py" ]; then
-        validator="$SCOUTICA_HOME/bin/validate_card.py"
-    elif [ -f "$script_dir/validate_card.py" ]; then
+    if [ -f "$script_dir/validate_card.py" ]; then
         validator="$script_dir/validate_card.py"
+    elif [ -f "$SCOUTICA_HOME/bin/validate_card.py" ]; then
+        validator="$SCOUTICA_HOME/bin/validate_card.py"
     elif [ -f "$SCOUTICA_HOME/tools/validate_card.py" ]; then
         validator="$SCOUTICA_HOME/tools/validate_card.py"
     fi
@@ -4011,16 +4336,7 @@ cmd_role_validate() {
         exit 1
     fi
     
-    # Check for dependencies
-    if ! $python_cmd -c "import jsonschema, yaml" 2>/dev/null; then
-        warn "Missing Python dependencies. Installing..."
-        $python_cmd -m pip install jsonschema pyyaml --quiet 2>/dev/null || {
-            error "Failed to install dependencies"
-            exit 1
-        }
-    fi
-    
-    $python_cmd "$validator" "$card_dir" --type employer
+    "$python_cmd" "$validator" "$card_dir" --type employer
 }
 
 # ─── EVALUATE Command (Fit Scoring) ───────────────────────────────────────────
@@ -5178,6 +5494,3 @@ main() {
 }
 
 main "$@"
-
-
-

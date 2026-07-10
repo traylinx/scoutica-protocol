@@ -69,6 +69,6 @@ assert_grep "scan_raw_file" "$_trapline"
 t_end
 
 # ---- F-MED-PARSE-001: parse-failure branch reachable under set -e ----
-t_begin F-MED-PARSE-001 "parse-failure branch is reachable (if ! python3, not post-hoc \$?)"
-assert_grep "if ! python3 << 'PARSE_SCRIPT'" "$SCOUTICA"
+t_begin F-MED-PARSE-001 "parse-failure branch is reachable (if ! strict Python, not post-hoc \$?)"
+assert_grep "if ! \"\\\$VALIDATION_PYTHON\" << 'PARSE_SCRIPT'" "$SCOUTICA"
 t_end
