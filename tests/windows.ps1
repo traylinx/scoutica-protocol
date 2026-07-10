@@ -41,12 +41,22 @@ function Write-Utf8NoBom([string]$path, [string]$content) {
 }
 
 function Invoke-Scoutica([string[]]$arguments, [AllowNull()][string]$stdinText = $null) {
-    if ($null -eq $stdinText) {
-        $output = (& $HostExe -NoProfile -ExecutionPolicy Bypass -File $Cli @arguments 2>&1 | Out-String)
-    } else {
-        $output = ($stdinText | & $HostExe -NoProfile -ExecutionPolicy Bypass -File $Cli @arguments 2>&1 | Out-String)
+    $savedErrorActionPreference = $ErrorActionPreference
+    try {
+        # Windows PowerShell 5.1 wraps a child process's stderr as a
+        # NativeCommandError. Expected negative-path invocations must capture
+        # that diagnostic without the harness's Stop preference aborting first.
+        $ErrorActionPreference = "Continue"
+        if ($null -eq $stdinText) {
+            $output = (& $HostExe -NoProfile -ExecutionPolicy Bypass -File $Cli @arguments 2>&1 | Out-String)
+        } else {
+            $output = ($stdinText | & $HostExe -NoProfile -ExecutionPolicy Bypass -File $Cli @arguments 2>&1 | Out-String)
+        }
+        $exitCode = $LASTEXITCODE
+    } finally {
+        $ErrorActionPreference = $savedErrorActionPreference
     }
-    return [PSCustomObject]@{ ExitCode = $LASTEXITCODE; Output = $output }
+    return [PSCustomObject]@{ ExitCode = $exitCode; Output = $output }
 }
 
 function Resolve-InstalledResource([string]$relativePath) {
@@ -86,9 +96,11 @@ function Invoke-InstallerContractFixture(
 
     $savedHome = $env:SCOUTICA_HOME
     $savedSource = $env:SCOUTICA_INSTALL_SOURCE_ROOT
+    $savedErrorActionPreference = $ErrorActionPreference
     try {
         $env:SCOUTICA_HOME = $fixtureHome
         $env:SCOUTICA_INSTALL_SOURCE_ROOT = $sourceRoot
+        $ErrorActionPreference = "Continue"
         if ($invokeGlobalFunction) {
             $escapedInstaller = $Installer.Replace("'", "''")
             $harnessPath = Join-Path $Work ("global-function-" + $name + ".ps1")
@@ -107,6 +119,7 @@ scoutica probe
     } finally {
         $env:SCOUTICA_HOME = $savedHome
         $env:SCOUTICA_INSTALL_SOURCE_ROOT = $savedSource
+        $ErrorActionPreference = $savedErrorActionPreference
     }
     return [PSCustomObject]@{
         ExitCode = $exitCode
@@ -137,16 +150,19 @@ exit /b 0
     $savedPath = $env:Path
     $savedHome = $env:SCOUTICA_HOME
     $savedSource = $env:SCOUTICA_INSTALL_SOURCE_ROOT
+    $savedErrorActionPreference = $ErrorActionPreference
     try {
         $env:Path = "$fakeBin;$savedPath"
         $env:SCOUTICA_HOME = $fixtureHome
         $env:SCOUTICA_INSTALL_SOURCE_ROOT = $RepoRoot
+        $ErrorActionPreference = "Continue"
         $output = (& $HostExe -NoProfile -ExecutionPolicy Bypass -File $Installer 2>&1 | Out-String)
         $exitCode = $LASTEXITCODE
     } finally {
         $env:Path = $savedPath
         $env:SCOUTICA_HOME = $savedHome
         $env:SCOUTICA_INSTALL_SOURCE_ROOT = $savedSource
+        $ErrorActionPreference = $savedErrorActionPreference
     }
     return [PSCustomObject]@{ ExitCode = $exitCode; Output = $output; Home = $fixtureHome }
 }

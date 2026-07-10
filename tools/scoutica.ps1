@@ -468,7 +468,10 @@ function Invoke-Validate([string]$cardDir = ".") {
         exit 1
     }
     
-    & $pythonCmd $validator $cardDir
+    # PowerShell can redirect the validator through a cp1252 console even on
+    # modern Windows. Force Python's UTF-8 mode so its Unicode diagnostics do
+    # not crash before validation begins.
+    & $pythonCmd -X utf8 $validator $cardDir
     $validationExit = $LASTEXITCODE
     if ($validationExit -ne 0) { exit $validationExit }
 }
