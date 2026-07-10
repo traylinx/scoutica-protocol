@@ -21,6 +21,9 @@ _fake_signal() {
     if [ -n "${FAKE_PROVIDER_SIGNAL_FILE:-}" ]; then
         printf '%s\n' "$1" > "$FAKE_PROVIDER_SIGNAL_FILE"
     fi
+    if [ "${FAKE_PROVIDER_SIGNAL_DELAY_SECONDS:-}" = 1 ]; then
+        sleep 1
+    fi
 }
 trap '_fake_signal INT; exit 130' INT
 trap '_fake_signal TERM; exit 143' TERM

@@ -53,6 +53,7 @@ reset_provider_env() {
     unset FAKE_PROVIDER_SIGNAL_FILE FAKE_PROVIDER_ARGV_LOG FAKE_PROVIDER_STDIN_LOG
     unset FAKE_PROVIDER_RESPONSE_FILE FAKE_PROVIDER_RESPONSE FAKE_PROVIDER_OUTPUT_FILE
     unset FAKE_PROVIDER_EXIT FAKE_PROVIDER_COUNT_FILE FAKE_PROVIDER_FORK_PID_FILE
+    unset FAKE_PROVIDER_SIGNAL_DELAY_SECONDS
 }
 
 prepare_provider() {
@@ -232,7 +233,8 @@ for answer in yes no eof; do
     reset_provider_env
     make_source "$WORK/interactive-$answer-source"
     prepare_provider gemini "$WORK/interactive-$answer"
-    python3 "$SCAN_FIXTURES/pty_run.py" --answer "$answer" --output "$WORK/interactive-$answer.out" -- \
+    python3 "$SCAN_FIXTURES/pty_run.py" --nonleader --answer "$answer" \
+        --output "$WORK/interactive-$answer.out" -- \
         "$SCOUTICA" scan "$WORK/interactive-$answer-source" --output "$WORK/interactive-$answer-card" \
         --with gemini --force
     SCAN_RC=$?
@@ -245,6 +247,43 @@ for answer in yes no eof; do
         assert_ne 0 "$SCAN_RC" "interactive $answer refuses"
         assert_eq 0 "$(provider_count "$FAKE_PROVIDER_COUNT_FILE")"
     fi
+done
+t_end
+
+t_begin F-06 "parent signals during interactive consent stop the runtime with exact status"
+for signal_name in INT TERM; do
+    reset_provider_env
+    make_source "$WORK/consent-signal-$signal_name-source"
+    prepare_provider gemini "$WORK/consent-signal-$signal_name"
+    python3 "$SCAN_FIXTURES/pty_signal_run.py" --signal "$signal_name" \
+        --wait-for 'Continue for this invocation?' --output "$WORK/consent-signal-$signal_name.out" -- \
+        "$SCOUTICA" scan "$WORK/consent-signal-$signal_name-source" \
+        --output "$WORK/consent-signal-$signal_name-card" --with gemini --force
+    SCAN_RC=$?
+    if [ "$signal_name" = INT ]; then expected_signal_rc=130; else expected_signal_rc=143; fi
+    assert_eq "$expected_signal_rc" "$SCAN_RC" "$signal_name consent signal status"
+    assert_eq 0 "$(provider_count "$FAKE_PROVIDER_COUNT_FILE")" \
+        "$signal_name consent signal stops before provider invocation"
+    assert_no_scan_temps
+done
+t_end
+
+t_begin F-06 "TTY nonleader signals preserve status, cleanup, and foreground ownership"
+for delivery in pid tty; do
+    reset_provider_env
+    make_source "$WORK/tty-nonleader-$delivery-source"
+    prepare_provider gemini "$WORK/tty-nonleader-$delivery"
+    python3 "$SCAN_FIXTURES/pty_signal_run.py" --signal INT --delivery "$delivery" --nonleader \
+        --target-pid-file "$WORK/tty-nonleader-$delivery.pid" \
+        --wait-for 'Continue for this invocation?' --output "$WORK/tty-nonleader-$delivery.out" -- \
+        "$SCOUTICA" scan "$WORK/tty-nonleader-$delivery-source" \
+        --output "$WORK/tty-nonleader-$delivery-card" --with gemini --force
+    SCAN_RC=$?
+    assert_eq 130 "$SCAN_RC" "TTY nonleader $delivery INT status and foreground restore"
+    assert_eq 0 "$(provider_count "$FAKE_PROVIDER_COUNT_FILE")" \
+        "TTY nonleader $delivery INT stops before provider invocation"
+    assert_not_exists "$WORK/tty-nonleader-$delivery-card/profile.json"
+    assert_no_scan_temps
 done
 t_end
 
@@ -270,6 +309,80 @@ SCAN_RC=$?
 assert_eq 0 "$SCAN_RC" "clipboard mode needs no remote-consent flag"
 assert_grep 'system clipboard|clipboard.*user' "$WORK/clipboard.out"
 assert_grep "$SENSITIVE_MARKER" "$FAKE_PROVIDER_STDIN_LOG" "full prompt reaches clipboard command stdin"
+t_end
+
+t_begin F-06 "INT during grouped-helper startup cannot strand a nonleader CLI"
+reset_provider_env
+make_source "$WORK/group-startup-source"
+prepare_provider gemini "$WORK/group-startup"
+SCOUTICA_GROUP_START_MARKER="$WORK/group-startup.ready"
+export SCOUTICA_GROUP_START_MARKER
+PYTHONPATH="$SCAN_FIXTURES/startup_delay"
+export PYTHONPATH
+python3 "$SCAN_FIXTURES/nonleader_signal_run.py" --signal INT \
+    --ready-file "$SCOUTICA_GROUP_START_MARKER" --output "$WORK/group-startup.out" \
+    --target-pid-file "$WORK/group-startup.pid" --timeout 5 -- \
+    "$SCOUTICA" scan "$WORK/group-startup-source" \
+    --output "$WORK/group-startup-card" --with gemini --force --allow-remote-provider
+SCAN_RC=$?
+unset PYTHONPATH SCOUTICA_GROUP_START_MARKER
+assert_eq 130 "$SCAN_RC" "grouped-helper startup INT status"
+assert_eq 0 "$(provider_count "$FAKE_PROVIDER_COUNT_FILE")" \
+    "startup INT stops before provider invocation"
+assert_not_exists "$WORK/group-startup-card/profile.json"
+assert_no_scan_temps
+t_end
+
+t_begin F-06 "INT during a pre-provider subprocess cannot strand the Bash 3.2 runtime"
+reset_provider_env
+make_source "$WORK/pre-provider-signal-source"
+prepare_provider gemini "$WORK/pre-provider-signal"
+cp "$SCAN_FIXTURES/slow_wc.py" "$FIXTURE_BIN/wc"
+chmod +x "$FIXTURE_BIN/wc"
+FAKE_WC_READY_FILE="$WORK/pre-provider-signal.ready"
+FAKE_WC_PID_FILE="$WORK/pre-provider-signal.pid"
+FAKE_WC_IGNORE_SIGNALS=1
+export FAKE_WC_READY_FILE FAKE_WC_PID_FILE FAKE_WC_IGNORE_SIGNALS
+python3 "$SCAN_FIXTURES/signal_run.py" --signal INT \
+    --ready-file "$FAKE_WC_READY_FILE" --output "$WORK/pre-provider-signal.out" -- \
+    "$SCOUTICA" scan "$WORK/pre-provider-signal-source" \
+    --output "$WORK/pre-provider-signal-card" --with gemini --force --allow-remote-provider
+SCAN_RC=$?
+unset FAKE_WC_READY_FILE FAKE_WC_PID_FILE FAKE_WC_IGNORE_SIGNALS
+rm -f "$FIXTURE_BIN/wc"
+assert_eq 130 "$SCAN_RC" "pre-provider INT status"
+assert_eq 0 "$(provider_count "$FAKE_PROVIDER_COUNT_FILE")" \
+    "pre-provider INT stops before provider invocation"
+assert_exists "$WORK/pre-provider-signal.pid"
+assert_pid_stopped "$(cat "$WORK/pre-provider-signal.pid")"
+assert_not_exists "$WORK/pre-provider-signal-card/profile.json"
+assert_no_scan_temps
+t_end
+
+t_begin F-06 "INT cannot advance from a short pre-provider child into clipboard transfer"
+reset_provider_env
+make_source "$WORK/pre-provider-short-source"
+prepare_provider pbcopy "$WORK/pre-provider-short"
+cp "$SCAN_FIXTURES/slow_wc.py" "$FIXTURE_BIN/wc"
+chmod +x "$FIXTURE_BIN/wc"
+FAKE_WC_READY_FILE="$WORK/pre-provider-short.ready"
+FAKE_WC_PID_FILE="$WORK/pre-provider-short.pid"
+FAKE_WC_DELAY_SECONDS=0.2
+export FAKE_WC_READY_FILE FAKE_WC_PID_FILE FAKE_WC_DELAY_SECONDS
+python3 "$SCAN_FIXTURES/signal_run.py" --signal INT \
+    --ready-file "$FAKE_WC_READY_FILE" --output "$WORK/pre-provider-short.out" -- \
+    "$SCOUTICA" scan "$WORK/pre-provider-short-source" \
+    --output "$WORK/pre-provider-short-card" --clipboard --force
+SCAN_RC=$?
+unset FAKE_WC_READY_FILE FAKE_WC_PID_FILE FAKE_WC_DELAY_SECONDS
+rm -f "$FIXTURE_BIN/wc"
+assert_eq 130 "$SCAN_RC" "short pre-provider INT status"
+assert_eq 0 "$(provider_count "$FAKE_PROVIDER_COUNT_FILE")" \
+    "INT prevents later clipboard invocation"
+assert_exists "$WORK/pre-provider-short.pid"
+assert_pid_stopped "$(cat "$WORK/pre-provider-short.pid")"
+assert_not_exists "$WORK/pre-provider-short-card/scoutica_prompt.txt"
+assert_no_scan_temps
 t_end
 
 # Provider failure, timeout, and parent signals must reap the provider and remove the owned run dir.
@@ -332,13 +445,17 @@ for signal_name in INT TERM; do
     FAKE_PROVIDER_RELEASE_FILE="$WORK/signal-$signal_name.release"
     FAKE_PROVIDER_SIGNAL_FILE="$WORK/signal-$signal_name.seen"
     FAKE_PROVIDER_PID_FILE="$WORK/signal-$signal_name.pid"
+    FAKE_PROVIDER_SIGNAL_DELAY_SECONDS=1
     export FAKE_PROVIDER_READY_FILE FAKE_PROVIDER_RELEASE_FILE FAKE_PROVIDER_SIGNAL_FILE FAKE_PROVIDER_PID_FILE
+    export FAKE_PROVIDER_SIGNAL_DELAY_SECONDS
     python3 "$SCAN_FIXTURES/signal_run.py" --signal "$signal_name" \
         --ready-file "$FAKE_PROVIDER_READY_FILE" --output "$WORK/signal-$signal_name.out" -- \
         "$SCOUTICA" scan "$WORK/signal-$signal_name-source" --output "$WORK/signal-$signal_name-card" \
         --with gemini --force --allow-remote-provider
     SCAN_RC=$?
-    assert_ne 0 "$SCAN_RC" "$signal_name returns nonzero"
+    unset FAKE_PROVIDER_SIGNAL_DELAY_SECONDS
+    if [ "$signal_name" = INT ]; then expected_signal_rc=130; else expected_signal_rc=143; fi
+    assert_eq "$expected_signal_rc" "$SCAN_RC" "$signal_name provider signal status"
     assert_grep "^$signal_name$" "$FAKE_PROVIDER_SIGNAL_FILE"
     assert_pid_stopped "$(cat "$FAKE_PROVIDER_PID_FILE")"
     assert_not_exists "$WORK/signal-$signal_name-card/profile.json"

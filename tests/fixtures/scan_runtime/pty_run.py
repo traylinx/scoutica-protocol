@@ -8,6 +8,7 @@ import os
 import pty
 import select
 import signal
+import subprocess
 import sys
 import time
 from pathlib import Path
@@ -16,6 +17,7 @@ from pathlib import Path
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--answer", choices=("yes", "no", "eof"), required=True)
+    parser.add_argument("--nonleader", action="store_true")
     parser.add_argument("--output", required=True)
     parser.add_argument("--timeout", type=float, default=30.0)
     parser.add_argument("command", nargs=argparse.REMAINDER)
@@ -26,6 +28,11 @@ def main() -> int:
 
     pid, master = pty.fork()
     if pid == 0:
+        if args.nonleader:
+            completed = subprocess.run(command, check=False, env=os.environ.copy())
+            if os.tcgetpgrp(0) != os.getpgrp():
+                os._exit(125)
+            os._exit(completed.returncode)
         os.execvpe(command[0], command, os.environ)
 
     answer = {"yes": b"y\n", "no": b"n\n", "eof": b"\x04"}[args.answer]

@@ -140,6 +140,54 @@ def cmd_provider_info(args: argparse.Namespace) -> int:
     return 0
 
 
+def _exec_command(args: argparse.Namespace, *, create_group: bool) -> int:
+    command = args.argv[1:] if args.argv[:1] == ["--"] else args.argv
+    if not command:
+        return 2
+    environment = os.environ.copy()
+    signal.signal(signal.SIGINT, signal.SIG_DFL)
+    signal.signal(signal.SIGTERM, signal.SIG_DFL)
+    if create_group:
+        try:
+            os.setpgid(0, 0)
+        except OSError as exc:
+            print(f"Could not create scan process group: {exc}", file=sys.stderr)
+            return 1
+        tty_fd_raw = os.environ.get("SCOUTICA_SCAN_TTY_FD", "")
+        if tty_fd_raw:
+            tty_fd = int(tty_fd_raw)
+            old_ttou = signal.signal(signal.SIGTTOU, signal.SIG_IGN)
+            try:
+                os.tcsetpgrp(tty_fd, os.getpid())
+            finally:
+                signal.signal(signal.SIGTTOU, old_ttou)
+            environment.pop("SCOUTICA_SCAN_TTY_FD", None)
+    os.execvpe(command[0], command, environment)
+
+
+def cmd_exec_group(args: argparse.Namespace) -> int:
+    """Re-exec a command as its own process-group leader."""
+    return _exec_command(args, create_group=True)
+
+
+def cmd_exec_signals(args: argparse.Namespace) -> int:
+    """Re-exec a command with default termination signals in the same group."""
+    return _exec_command(args, create_group=False)
+
+
+def cmd_tty_foreground(args: argparse.Namespace) -> int:
+    """Give a terminal back to an existing process group."""
+    old_ttou = signal.signal(signal.SIGTTOU, signal.SIG_IGN)
+    try:
+        os.tcsetpgrp(args.fd, args.pgid)
+    except OSError as exc:
+        print(f"Could not restore terminal process group: {exc}", file=sys.stderr)
+        return 1
+    finally:
+        signal.signal(signal.SIGTTOU, old_ttou)
+    return 0
+
+
 def _kill_process_group(process: subprocess.Popen[bytes], sig: int) -> None:
     try:
         os.killpg(process.pid, sig)
@@ -951,6 +999,19 @@ def build_parser() -> argparse.ArgumentParser:
     provider = subparsers.add_parser("provider-info")
     provider.add_argument("provider")
     provider.set_defaults(func=cmd_provider_info)
+
+    exec_group = subparsers.add_parser("_exec-group")
+    exec_group.add_argument("argv", nargs=argparse.REMAINDER)
+    exec_group.set_defaults(func=cmd_exec_group)
+
+    exec_signals = subparsers.add_parser("_exec-signals")
+    exec_signals.add_argument("argv", nargs=argparse.REMAINDER)
+    exec_signals.set_defaults(func=cmd_exec_signals)
+
+    tty_foreground = subparsers.add_parser("_tty-foreground")
+    tty_foreground.add_argument("--fd", type=int, required=True)
+    tty_foreground.add_argument("--pgid", type=int, required=True)
+    tty_foreground.set_defaults(func=cmd_tty_foreground)
 
     run = subparsers.add_parser("run-provider")
     run.add_argument("provider")

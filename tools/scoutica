@@ -1982,9 +1982,9 @@ except: print('')
 
 # ─── SCAN Command ─────────────────────────────────────────────────────────────
 
-# Phase 3 scan runtime. This subshell owns exactly one private directory and
-# keeps its EXIT/signal handlers in scope until every child has been reaped.
-_cmd_scan_runtime() (
+# Phase 3 scan runtime. cmd_scan always invokes this function asynchronously,
+# so that one subshell owns the private directory and all lifecycle handlers.
+_cmd_scan_runtime() {
     local source_dir="" output_dir="" provider="" explicit_output=false
     local force=false allow_remote=false
     while [ "$#" -gt 0 ]; do
@@ -2129,7 +2129,10 @@ SCAN_HELP
         fi
     fi
 
-    local _SCAN_RUN_DIR _SCAN_CHILD_PID=""
+    # These remain process-scoped so the EXIT trap can still read them after
+    # the function returns inside cmd_scan's dedicated background subshell.
+    _SCAN_RUN_DIR=""
+    _SCAN_CHILD_PID=""
     _SCAN_RUN_DIR=$(mktemp -d "${TMPDIR:-/tmp}/scoutica-scan.XXXXXX") || {
         error "Could not create private scan runtime directory."
         return 1
@@ -2357,22 +2360,176 @@ DOCX_EXTRACT
     success "Your validated Scoutica Protocol Skill Card is ready: $output_dir"
     echo -e "  ${DIM}Private state: $output_dir/.scoutica/state.json${NC}"
     return 0
-)
+}
 
 # Keep the public command in the top-level shell so signals sent to the CLI PID
 # are forwarded to the lifecycle-owning scan subshell. The wrapper clears its
 # handlers before every return; no function-local EXIT trap escapes scope.
 cmd_scan() {
-    local scan_runtime_pid scan_runtime_rc=0 scan_direct_child
-    _cmd_scan_runtime "$@" <&0 &
+    local scan_runtime_pid scan_runtime_rc=0 scan_signal_rc=0
+    local scan_direct_child scan_signal_children scan_wrapper_pgid
+    local scan_group_helper scan_group_python scan_group_pid scan_group_rc=0
+    local scan_group_signal_rc=0 scan_group_tty=0 scan_script
+    scan_wrapper_pgid=$(ps -o pgid= -p $$ 2>/dev/null | tr -d '[:space:]' || true)
+    if [ "${1:-}" != "--help" ] && [ "${1:-}" != "-h" ] \
+        && [ "$scan_wrapper_pgid" != "$$" ] \
+        && [ "${SCOUTICA_SCAN_GROUPED:-0}" != 1 ]; then
+        scan_group_python=$(_supported_python) || {
+            error "Python 3.11+ is required."
+            return 1
+        }
+        scan_group_helper=$(_scan_runtime_helper) || {
+            error "Scan runtime helper not found. Re-run the installer."
+            return 1
+        }
+        scan_script="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/$(basename "${BASH_SOURCE[0]}")"
+        if [ "${SCOUTICA_SCAN_SIGNALS_RESET:-0}" != 1 ]; then
+            SCOUTICA_SCAN_SIGNALS_RESET=1
+            export SCOUTICA_SCAN_SIGNALS_RESET
+            exec "$scan_group_python" "$scan_group_helper" _exec-signals -- \
+                "${BASH:-/bin/bash}" "$scan_script" scan "$@" || {
+                error "Could not reset scan signal handling."
+                return 1
+            }
+        fi
+        if [ -t 0 ]; then
+            SCOUTICA_SCAN_TTY_FD=0
+            export SCOUTICA_SCAN_TTY_FD
+            scan_group_tty=1
+        fi
+        SCOUTICA_SCAN_GROUPED=1 "$scan_group_python" "$scan_group_helper" _exec-group -- \
+            "${BASH:-/bin/bash}" "$scan_script" scan "$@" <&0 &
+        scan_group_pid=$!
+        unset SCOUTICA_SCAN_TTY_FD
+        _scan_group_forward() {
+            local scan_group_signal="$1" scan_group_exit="$2" scan_group_child_pgid
+            trap '' INT TERM
+            scan_group_child_pgid=$(ps -o pgid= -p "$scan_group_pid" 2>/dev/null \
+                | tr -d '[:space:]' || true)
+            if [ "$scan_group_child_pgid" = "$scan_group_pid" ]; then
+                # _exec-group resets INT/TERM before becoming group leader, so
+                # the requested signal is now guaranteed to be observable.
+                kill -s "$scan_group_signal" "$scan_group_pid" 2>/dev/null || true
+            else
+                # A just-forked background helper can still inherit INT ignored
+                # while Python starts. TERM closes that window without changing
+                # the public signal status returned below.
+                kill -TERM "$scan_group_pid" 2>/dev/null || true
+            fi
+            wait "$scan_group_pid" 2>/dev/null || true
+            scan_group_signal_rc="$scan_group_exit"
+        }
+        trap '_scan_group_forward INT 130' INT
+        trap '_scan_group_forward TERM 143' TERM
+        wait "$scan_group_pid" || scan_group_rc=$?
+        trap - INT TERM
+        if [ "$scan_group_tty" -eq 1 ]; then
+            "$scan_group_python" "$scan_group_helper" _tty-foreground \
+                --fd 0 --pgid "$scan_wrapper_pgid" || true
+        fi
+        [ "$scan_group_signal_rc" -eq 0 ] || return "$scan_group_signal_rc"
+        return "$scan_group_rc"
+    fi
+    ( _cmd_scan_runtime "$@" ) <&0 &
     scan_runtime_pid=$!
+    scan_wrapper_pgid=$(ps -o pgid= -p $$ 2>/dev/null | tr -d '[:space:]' || true)
+    _scan_wrapper_descendants() {
+        local scan_tree_root="$1"
+        ps -eo pid=,ppid= 2>/dev/null | awk -v root="$scan_tree_root" '
+            { pid[NR] = $1; parent[NR] = $2 }
+            END {
+                known[root] = 1
+                do {
+                    changed = 0
+                    for (i = 1; i <= NR; i++) {
+                        if (known[parent[i]] && !known[pid[i]]) {
+                            known[pid[i]] = 1
+                            changed = 1
+                        }
+                    }
+                } while (changed)
+                for (i = NR; i >= 1; i--) {
+                    if (pid[i] != root && known[pid[i]]) print pid[i]
+                }
+            }
+        '
+    }
+    _scan_wrapper_group_members() {
+        [ "$scan_wrapper_pgid" = "$$" ] || return 0
+        # A descendant that exited its parent during signal handling is
+        # reparented to PID 1 but retains the CLI-owned process group.
+        ps -eo pid=,ppid=,pgid= 2>/dev/null | awk \
+            -v group="$scan_wrapper_pgid" -v wrapper="$$" -v runtime="$scan_runtime_pid" \
+            '$3 == group && $2 == 1 && $1 != wrapper && $1 != runtime {print $1}'
+    }
+    _scan_wrapper_owned_pids() {
+        _scan_wrapper_descendants "$scan_runtime_pid"
+        _scan_wrapper_group_members
+    }
+    _scan_wrapper_stop_tree() {
+        local scan_tree_root="$1" scan_tree_pid scan_tree_pids scan_freeze_pass
+        scan_freeze_pass=0
+        while [ "$scan_freeze_pass" -lt 3 ]; do
+            scan_tree_pids=$(_scan_wrapper_owned_pids)
+            for scan_tree_pid in $scan_tree_pids; do
+                kill -STOP "$scan_tree_pid" 2>/dev/null || true
+            done
+            sleep 0.05
+            scan_freeze_pass=$((scan_freeze_pass + 1))
+        done
+        # The requested signal already had a bounded grace period. KILL the
+        # frozen descendants so TERM handlers cannot fork new orphaned work.
+        scan_tree_pids=$(_scan_wrapper_owned_pids)
+        for scan_tree_pid in $scan_tree_pids; do
+            kill -STOP "$scan_tree_pid" 2>/dev/null || true
+            kill -KILL "$scan_tree_pid" 2>/dev/null || true
+        done
+        kill -TERM "$scan_tree_root" 2>/dev/null || true
+    }
+    _scan_wrapper_forward() {
+        local scan_signal="$1" scan_exit="$2" scan_attempts scan_child_state
+        # Cleanup is bounded below; ignore repeated parent signals so shared
+        # trap state cannot be re-entered and the first signal owns the status.
+        trap '' INT TERM
+        # Freeze the lifecycle shell before forwarding so it cannot advance to
+        # another provider, clipboard transfer, or promotion after interrupt.
+        kill -STOP "$scan_runtime_pid" 2>/dev/null || true
+        scan_signal_children=""
+        for scan_direct_child in $(ps -eo pid=,ppid= 2>/dev/null | awk -v parent="$scan_runtime_pid" '$2 == parent {print $1}'); do
+            if kill -s "$scan_signal" "$scan_direct_child" 2>/dev/null; then
+                scan_signal_children="$scan_signal_children $scan_direct_child"
+            fi
+        done
+        scan_attempts=40
+        while [ -n "$scan_signal_children" ] && [ "$scan_attempts" -gt 0 ]; do
+            scan_signal_children=""
+            for scan_direct_child in $(ps -eo pid=,ppid= 2>/dev/null | awk -v parent="$scan_runtime_pid" '$2 == parent {print $1}'); do
+                scan_child_state=$(ps -o stat= -p "$scan_direct_child" 2>/dev/null | tr -d '[:space:]' || true)
+                case "$scan_child_state" in
+                    ""|Z*) : ;;
+                    *) scan_signal_children="$scan_signal_children $scan_direct_child" ;;
+                esac
+            done
+            [ -z "$scan_signal_children" ] || sleep 0.05
+            scan_attempts=$((scan_attempts - 1))
+        done
+        _scan_wrapper_stop_tree "$scan_runtime_pid"
+        kill -CONT "$scan_runtime_pid" 2>/dev/null || true
+        wait "$scan_runtime_pid" 2>/dev/null || true
+        scan_signal_rc="$scan_exit"
+    }
     # While the runtime is waiting, its direct child is the Python lifecycle
     # helper. Signal that helper first so it can forward to and reap the actual
     # provider; the runtime then observes failure and removes its private dir.
-    trap 'for scan_direct_child in $(ps -eo pid=,ppid= 2>/dev/null | awk -v parent="$scan_runtime_pid" '\''$2 == parent {print $1}'\''); do kill -INT "$scan_direct_child" 2>/dev/null || true; done; wait "$scan_runtime_pid" 2>/dev/null || true; trap - INT TERM; return 130' INT
-    trap 'for scan_direct_child in $(ps -eo pid=,ppid= 2>/dev/null | awk -v parent="$scan_runtime_pid" '\''$2 == parent {print $1}'\''); do kill -TERM "$scan_direct_child" 2>/dev/null || true; done; wait "$scan_runtime_pid" 2>/dev/null || true; trap - INT TERM; return 143' TERM
+    # With no child (for example, while reading consent), terminate the runtime
+    # itself. The runtime stays stopped while a requested signal drains; its
+    # live tree and owned process-group orphans are frozen/killed before
+    # TERM/CONT runs EXIT cleanup.
+    trap '_scan_wrapper_forward INT 130' INT
+    trap '_scan_wrapper_forward TERM 143' TERM
     wait "$scan_runtime_pid" || scan_runtime_rc=$?
     trap - INT TERM
+    [ "$scan_signal_rc" -eq 0 ] || return "$scan_signal_rc"
     return "$scan_runtime_rc"
 }
 
