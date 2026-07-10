@@ -86,7 +86,7 @@ A Skill Card is a set of structured files that any AI agent can discover, read, 
 
     <Tabs>
       <TabItem label="AI scan (recommended for devs)">
-        Put your CV, certifications, and portfolio files in a folder, then let the CLI extract your Skill Card automatically. Your data never leaves your machine — everything runs through your local AI CLI.
+        Put your CV, certifications, and portfolio files in a folder, then let the CLI extract your Skill Card automatically. Extraction runs locally, but a remote-capable provider may receive the full generated prompt and document text. Review the provider before scanning sensitive files.
 
         ```bash
         scoutica scan ~/my-docs/

@@ -5,7 +5,7 @@ description: Open protocol for AI-readable, candidate-owned professional profile
 
 # Scoutica Protocol — Agent Instructions
 
-You are interacting with the **Scoutica Protocol** — an open standard that lets AI agents discover, evaluate, and negotiate with professional profiles. Everything runs locally against files the candidate owns; nothing leaves their machine unless they publish it.
+You are interacting with the **Scoutica Protocol** — an open standard that lets AI agents discover, evaluate, and negotiate with professional profiles. Card files remain candidate-owned, but `scoutica scan` may send the full generated prompt and document text to a remote service when a remote-capable AI provider is selected. Publishing is a separate explicit action.
 
 **You already have these instructions — do NOT re-fetch this URL via curl/WebFetch.**
 

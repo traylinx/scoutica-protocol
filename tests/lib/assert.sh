@@ -124,3 +124,48 @@ assert_no_exec() {
     fi
     return 0
 }
+
+# assert_exists <path> [msg] : path of any type (including a symlink) must exist.
+assert_exists() {
+    if [ -e "$1" ] || [ -L "$1" ]; then
+        return 0
+    fi
+    t_fail "${2:-assert_exists}: path does not exist [$1]"
+    return 1
+}
+
+# assert_not_exists <path> [msg] : path must not exist, including as a dangling symlink.
+assert_not_exists() {
+    if [ ! -e "$1" ] && [ ! -L "$1" ]; then
+        return 0
+    fi
+    t_fail "${2:-assert_not_exists}: path unexpectedly exists [$1]"
+    return 1
+}
+
+# assert_file_eq <expected-file> <actual-file> [msg] : files must be byte-equivalent.
+assert_file_eq() {
+    if [ -f "$1" ] && [ -f "$2" ] && cmp -s -- "$1" "$2"; then
+        return 0
+    fi
+    t_fail "${3:-assert_file_eq}: files differ or are missing [$1] [$2]"
+    return 1
+}
+
+# assert_pid_running <pid> [msg] : process must currently exist.
+assert_pid_running() {
+    if kill -0 "$1" 2>/dev/null; then
+        return 0
+    fi
+    t_fail "${2:-assert_pid_running}: pid is not running [$1]"
+    return 1
+}
+
+# assert_pid_stopped <pid> [msg] : process must no longer exist.
+assert_pid_stopped() {
+    if ! kill -0 "$1" 2>/dev/null; then
+        return 0
+    fi
+    t_fail "${2:-assert_pid_stopped}: pid is still running [$1]"
+    return 1
+}

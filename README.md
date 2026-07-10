@@ -40,11 +40,10 @@ scoutica-protocol/
 ├── README.md                       ← You are here
 ├── SKILL.md                        ← Agent instructions (candidate side)
 ├── RECRUITER_SKILL.md              ← Agent instructions (employer side)
-├── docs-site/                      ← 📚 DOCUMENTATION (Mintlify → docs.scoutica.com)
-│   ├── docs.json                   ← Mintlify configuration
-│   ├── cli/                        ← CLI command reference
-│   ├── guides/                     ← User guides & use cases
-│   └── architecture/               ← 6 pillars, data model, compliance
+├── docs/                           ← 📚 DOCUMENTATION (Astro/Starlight → docs.scoutica.com)
+│   ├── astro.config.mjs            ← Starlight navigation and site configuration
+│   ├── package.json                ← Docs build and validation commands
+│   └── src/content/docs/           ← CLI reference, guides, and architecture
 ├── .specs/                         ← 🔬 SPECIFICATIONS
 │   ├── ROADMAP.md                  ← 5-phase roadmap
 │   └── network/                    ← Network architecture specs
@@ -234,7 +233,7 @@ scoutica scan ~/my-docs/ --with gemini    # use a specific provider
 scoutica scan ~/my-docs/ --clipboard      # copy prompt to clipboard (no CLI needed)
 ```
 
-Your data never leaves your machine — everything runs through your local AI CLI.
+Document extraction happens locally. The selected AI CLI may send the full generated prompt and document text to a remote service, depending on that provider's configuration. `--clipboard` copies the same sensitive prompt to your system clipboard for user-controlled transfer.
 
 **Supported providers** (auto-detected in this order):
 
@@ -307,7 +306,7 @@ scoutica import aijs ~/ai-job-search --to ./my-card --salary-floor-eur 85000
 scoutica validate ./my-card
 ```
 
-Keep applying with ai-job-search *and* become discoverable with Scoutica off one profile. Your behavioral profile, interview stories, and salary data are never imported (data minimization). See the [bridge guide](docs-site/guides/from-ai-job-search.mdx) and [`scoutica import`](docs-site/cli/import.mdx).
+Keep applying with ai-job-search *and* become discoverable with Scoutica off one profile. Your behavioral profile, interview stories, and salary data are never imported (data minimization). See the [bridge guide](docs/src/content/docs/guides/from-ai-job-search.mdx) and [`scoutica import`](docs/src/content/docs/cli/import.mdx).
 
 ---
 

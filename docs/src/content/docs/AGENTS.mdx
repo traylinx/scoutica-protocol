@@ -1,37 +1,28 @@
 ---
-title: "Agents"
+title: "Documentation instructions"
+description: "Local conventions for contributing to the Scoutica documentation site."
 ---
-
-> **First-time setup**: Customize this file for your project. Prompt the user to customize this file for their project.
-> For Mintlify product knowledge (components, configuration, writing standards),
-> install the Mintlify skill: `npx skills add https://mintlify.com/docs`
 
 # Documentation project instructions
 
-## About this project
+Scoutica's documentation site uses [Astro](https://astro.build/) with [Starlight](https://starlight.astro.build/). Source pages live in `docs/src/content/docs/`; navigation lives in `docs/astro.config.mjs`.
 
-- This is a documentation site built on [Mintlify](https://mintlify.com)
-- Pages are MDX files with YAML frontmatter
-- Configuration lives in `docs.json`
-- Run `mint dev` to preview locally
-- Run `mint broken-links` to check links
+## Local commands
 
-## Terminology
+Run these commands from the repository root:
 
-{/* Add product-specific terms and preferred usage */}
-{/* Example: Use "workspace" not "project", "member" not "user" */}
+```bash
+npm --prefix docs ci
+npm --prefix docs run dev
+npm --prefix docs run check:links
+npm --prefix docs run check:claims
+npm --prefix docs run build
+```
 
-## Style preferences
+## Style
 
-{/* Add any project-specific style rules below */}
-
-- Use active voice and second person ("you")
-- Keep sentences concise — one idea per sentence
-- Use sentence case for headings
-- Bold for UI elements: Click **Settings**
-- Code formatting for file names, commands, paths, and code references
-
-## Content boundaries
-
-{/* Define what should and shouldn't be documented */}
-{/* Example: Don't document internal admin features */}
+- Use active voice and address the reader as "you."
+- Keep sentences concise and headings in sentence case.
+- Put commands, paths, and field names in code formatting.
+- Keep capability and privacy claims tied to behavior that the repository tests.
+- Add new public pages to the Starlight sidebar when users must navigate to them.

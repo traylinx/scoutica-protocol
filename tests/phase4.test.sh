@@ -39,9 +39,18 @@ t_begin F-MED-EXAMPLES-001 "examples use mock names, not real-looking ones"
 assert_exit 1 grep -rq "Alex Chen" "$REPO_ROOT/protocol"
 t_end
 
-t_begin F-MED-AGENTS-001 "AGENTS.md line count corrected; docs path fixed; CLAUDE.md symlink kept"
+t_begin F-MED-AGENTS-001 "AGENTS.md line count corrected; Astro docs path fixed; CLAUDE.md symlink kept"
 assert_no_grep "3,900 lines" "$REPO_ROOT/AGENTS.md"
-assert_grep "docs-site/" "$REPO_ROOT/AGENTS.md"
+assert_grep 'Docs:.*`docs/`' "$REPO_ROOT/AGENTS.md"
+assert_no_grep "docs-site/" "$REPO_ROOT/AGENTS.md"
+assert_exit 0 test -L "$REPO_ROOT/CLAUDE.md"
+t_end
+
+t_begin F-MED-DOCS-003 "Astro docs expose executable link and claim gates"
+assert_grep '"check:links"' "$REPO_ROOT/docs/package.json"
+assert_grep '"check:claims"' "$REPO_ROOT/docs/package.json"
+assert_exit 0 test -f "$REPO_ROOT/docs/scripts/check-links.mjs"
+assert_exit 0 test -f "$REPO_ROOT/docs/scripts/check-claims.mjs"
 t_end
 
 t_begin F-LOW-DOCS-002 "README tree references protocol/templates, not a nonexistent root templates/"

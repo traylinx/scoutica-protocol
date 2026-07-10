@@ -10,7 +10,7 @@ import Card from '@components/Card.astro';
 import CodeGroup from '@components/CodeGroup.astro';
 
 <Note>
-  Everything runs locally. Your documents and data never leave your machine — the scan command pipes your files to a local AI CLI with no cloud API calls.
+  Installation and document extraction run locally. During `scoutica scan`, a remote-capable AI provider may send the full generated prompt and document text to its configured service. Review the provider and endpoint before scanning sensitive files.
 </Note>
 
 ## Prerequisites
@@ -30,9 +30,9 @@ Before installing, make sure you have:
 | Gemini CLI | `gemini` | [google-gemini/gemini-cli](https://github.com/google-gemini/gemini-cli) | Best for multimodal analysis (e.g., parsing PDFs directly) |
 | Claude Code | `claude` | [anthropics/claude-code](https://github.com/anthropics/claude-code) | Best for strict JSON adhering and rigorous schema compliance |
 | OpenAI Codex | `codex` | [openai/codex](https://github.com/openai/codex) | Solid standard API toolchain integration |
-| Mistral Vibe | `vibe` | [mistralai/mistral-vibe](https://github.com/mistralai/mistral-vibe) | Quick, local, specialized tasks without high compute |
+| Mistral Vibe | `vibe` | [mistralai/mistral-vibe](https://github.com/mistralai/mistral-vibe) | Interactive CLI provider for focused tasks |
 | OpenCode | `opencode` | [opencode-ai/opencode](https://github.com/opencode-ai/opencode) | Open source LLM bridging via bash |
-| Ollama | `ollama` | [ollama.com](https://ollama.com) | 100% offline local models for absolute privacy |
+| Ollama | `ollama` | [ollama.com](https://ollama.com) | Local when its configured endpoint is loopback |
 | switchAILocal | `ail` | [traylinx/switchAILocal](https://github.com/traylinx/switchAILocal) | Fallback routing through your own AI proxy |
 | OpenClaw | `openclaw` | [openclaw/openclaw](https://github.com/openclaw/openclaw) | Deep AI agent integrations and swarm coordination |
 

@@ -10,7 +10,7 @@ import Card from '@components/Card.astro';
 The Scoutica CLI is a single Bash script installed to `~/.scoutica/bin/scoutica`. It handles the full lifecycle of a Skill Card — from creation to validation, publishing, discovery, and now agent-to-agent messaging across the network.
 
 <Note>
-Scoutica is **server-less**. Every command runs locally against files you own; the network layer moves data through public Git repositories and pull requests, never a central broker. Your data never leaves your machine unless you publish it.
+Scoutica has no central application server. Commands operate on files you own, but network-capable commands contact configured services. In particular, `scan` may send the full generated prompt and document text to a remote-capable AI provider; `publish`, registry, and messaging commands have their own network boundaries.
 </Note>
 
 ## Help output

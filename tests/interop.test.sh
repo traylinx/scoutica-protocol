@@ -205,13 +205,14 @@ t_end
 
 # ── T-A2-DOCS-001 — import docs exist, credit upstream, are registered in nav, leak no PII ──
 t_begin T-A2-DOCS-001 "import docs present + credited + navigable, no fixture PII"
-DOCS="$REPO_ROOT/docs-site"
+DOCS="$REPO_ROOT/docs/src/content/docs"
+ASTRO_CONFIG="$REPO_ROOT/docs/astro.config.mjs"
 assert_exit 0 test -f "$DOCS/cli/import.mdx"
 assert_exit 0 test -f "$DOCS/guides/from-ai-job-search.mdx"
 assert_grep "import aijs" "$DOCS/cli/import.mdx"
 assert_grep "MadsLorentzen/ai-job-search" "$DOCS/cli/import.mdx"
-assert_grep "cli/import" "$DOCS/docs.json"
-assert_grep "guides/from-ai-job-search" "$DOCS/docs.json"
+assert_grep 'slug: "cli/import"' "$ASTRO_CONFIG"
+assert_grep 'slug: "guides/from-ai-job-search"' "$ASTRO_CONFIG"
 assert_no_grep "alice@example" "$DOCS/cli/import.mdx"
 assert_no_grep "alice@example" "$DOCS/guides/from-ai-job-search.mdx"
 t_end

@@ -24,8 +24,8 @@ assert_eq "8.8.8.8 8443 8.8.8.8" "$(_validate_url https://8.8.8.8:8443/x 2>/dev/
 assert_grep 'resolve_args "\$base_url' "$SCOUTICA" "fetches pinned to validated IP via --resolve"
 t_end
 
-# ---- F-HIGH-FS-001: shared symlink-safe write guard ----
-t_begin F-HIGH-FS-001 "refuse_if_symlink refuses a symlinked target, allows a normal path"
+# ---- F-HIGH-FS-001: supplemental helper probe (not command-level closure) ----
+t_begin F-HIGH-FS-001 "supplemental helper probe: refuse_if_symlink rejects a target symlink"
 ln -sf /etc/passwd "$WORK/evil.json" 2>/dev/null
 assert_exit 1 _refuse_if_symlink "$WORK/evil.json"
 assert_exit 0 _refuse_if_symlink "$WORK/normal.json"
@@ -55,14 +55,14 @@ assert_grep "--max-filesize 2097152" "$SCOUTICA"
 assert_grep "_json_ok" "$SCOUTICA"
 t_end
 
-# ---- F-HIGH-PUBLISH-001: no auto-publish, no false local-only claim ----
-t_begin F-HIGH-PUBLISH-001 "scan never auto-publishes and makes no false 'stays on your machine' claim"
+# ---- F-HIGH-PUBLISH-001: supplemental copy markers (not provider-consent closure) ----
+t_begin F-HIGH-PUBLISH-001 "supplemental copy probe: no auto-publish or categorical locality marker"
 assert_no_grep "your data stays on your machine" "$SCOUTICA"
 assert_no_grep "Auto-deploying live preview" "$SCOUTICA"
 t_end
 
-# ---- F-HIGH-TEMP-001: trap cleans payload + raw response ----
-t_begin F-HIGH-TEMP-001 "scan trap cleans request payload + raw AI response"
+# ---- F-HIGH-TEMP-001: supplemental trap marker (not lifecycle closure) ----
+t_begin F-HIGH-TEMP-001 "supplemental marker probe: scan trap names payload and raw response"
 _trapline=$(grep -E "^[[:space:]]*trap " "$SCOUTICA" | grep payload_file)
 assert_grep "payload_file" "$_trapline"
 assert_grep "scan_raw_file" "$_trapline"

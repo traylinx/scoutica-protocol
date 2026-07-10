@@ -8,7 +8,7 @@ import Warning from '@components/Warning.astro';
 The `scan` command is the powerhouse of the Scoutica Protocol. It takes any directory of unstructured text, PDFs, or code and compresses it into a high-fidelity, machine-readable professional profile.
 
 <Warning>
-`scan` is incredibly powerful but demands a properly configured local AI provider in your PATH (e.g. `gemini`, `claude`, or `ollama`).
+`scan` requires a configured AI provider in your PATH (for example, `gemini`, `claude`, or `ollama`). A remote-capable provider may receive the full generated prompt and document text. `--clipboard` places that same sensitive payload on your system clipboard for user-controlled transfer.
 </Warning>
 
 ## Command Syntax

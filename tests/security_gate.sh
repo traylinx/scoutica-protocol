@@ -12,10 +12,9 @@
 # line's finding-id against tests/EXPECTED_FAIL.txt (open findings ⇒ XFAIL).
 #
 # STATIC gates are authoritative for the interpolation/injection classes (a runtime test
-# cannot prove absence of injection). RUNTIME-PROBE gates are fix-marker heuristics: they
-# FAIL until the remediation marker (a named helper / trap coverage / corrected copy) lands,
-# then flip to PASS — at which point the finding-id is removed from EXPECTED_FAIL. Later
-# phases add behavioral tests/*.test.sh that supplement (never replace) these probes.
+# cannot prove absence of injection). SUPPLEMENTAL-PROBE gates are marker heuristics only.
+# They catch accidental removal of a named helper/trap/copy guard, but PASS never proves command
+# behavior or closes a finding. Closure requires a command-level behavioral regression.
 #
 # POSIX sh; no bashisms; no external deps beyond grep/awk/sed (python/jq not required here).
 
@@ -164,16 +163,16 @@ inv_ps_interp() {
 }
 
 # =========================================================================
-# RUNTIME-PROBE invariants (fix-marker heuristics; behavioral tests supplement these per phase)
+# SUPPLEMENTAL-PROBE invariants (marker heuristics; never authoritative behavioral closure)
 # =========================================================================
 
 inv_symlink_helper() {
     # F-HIGH-FS-001: a shared symlink-safe write helper applied to org/role/identity/state writers.
     # Marker: a reusable helper function definition. Ad-hoc inline `[ -L ]` guards do not satisfy this.
     if grep -qE '^[[:space:]]*(_?safe_write|write_file_safe|_?refuse_if_symlink|assert_not_symlink|_write_safe|_?safe_write_file)[[:space:]]*\(\)' "$CLI" 2>/dev/null; then
-        emit PASS F-HIGH-FS-001 INV-RUNTIME-SYMLINK-HELPER RUNTIME-PROBE "shared symlink-safe write helper present"
+        emit PASS F-HIGH-FS-001 INV-RUNTIME-SYMLINK-HELPER SUPPLEMENTAL-PROBE "shared symlink-safe write helper marker present; command behavior checked elsewhere"
     else
-        emit FAIL F-HIGH-FS-001 INV-RUNTIME-SYMLINK-HELPER RUNTIME-PROBE "no shared symlink-safe write helper; org/role/identity/state writes unguarded"
+        emit FAIL F-HIGH-FS-001 INV-RUNTIME-SYMLINK-HELPER SUPPLEMENTAL-PROBE "shared symlink-safe write helper marker absent"
     fi
 }
 
@@ -181,9 +180,9 @@ inv_url_validator() {
     # F-HIGH-SSRF-001: ONE reusable URL validator used by all fetches incl. discovered card_url.
     # Marker: a reusable validator function definition.
     if grep -qE '^[[:space:]]*(_?validate_url|_?is_safe_url|_?url_is_safe|_?safe_fetch|check_fetch_url|_?validate_fetch_url)[[:space:]]*\(\)' "$CLI" 2>/dev/null; then
-        emit PASS F-HIGH-SSRF-001 INV-RUNTIME-URL-VALIDATOR RUNTIME-PROBE "reusable URL validator present"
+        emit PASS F-HIGH-SSRF-001 INV-RUNTIME-URL-VALIDATOR SUPPLEMENTAL-PROBE "reusable URL validator marker present; fetch behavior checked elsewhere"
     else
-        emit FAIL F-HIGH-SSRF-001 INV-RUNTIME-URL-VALIDATOR RUNTIME-PROBE "no reusable URL validator; discovered card_url fetch bypasses validation"
+        emit FAIL F-HIGH-SSRF-001 INV-RUNTIME-URL-VALIDATOR SUPPLEMENTAL-PROBE "reusable URL validator marker absent"
     fi
 }
 
@@ -191,9 +190,9 @@ inv_temp_trap() {
     # F-HIGH-TEMP-001: scan raw-response + request payload cleaned via trap on success/fail/interrupt.
     # Marker: a trap whose cleanup references the scan raw response or the request payload file.
     if grep -E '^[[:space:]]*trap ' "$CLI" 2>/dev/null | grep -qE 'scan_response_raw|payload_file|payload_'; then
-        emit PASS F-HIGH-TEMP-001 INV-RUNTIME-TEMP-TRAP RUNTIME-PROBE "scan payload/raw-response covered by trap cleanup"
+        emit PASS F-HIGH-TEMP-001 INV-RUNTIME-TEMP-TRAP SUPPLEMENTAL-PROBE "scan cleanup trap marker present; lifecycle behavior checked elsewhere"
     else
-        emit FAIL F-HIGH-TEMP-001 INV-RUNTIME-TEMP-TRAP RUNTIME-PROBE "scan raw-response/payload not covered by any trap cleanup"
+        emit FAIL F-HIGH-TEMP-001 INV-RUNTIME-TEMP-TRAP SUPPLEMENTAL-PROBE "scan cleanup trap marker absent"
     fi
 }
 
@@ -202,9 +201,9 @@ inv_consent_copy() {
     # claims "your data stays on your machine" even when routing to a provider. Marker: absence of
     # the unqualified claim.
     if grep -qE 'your data stays on your machine' "$CLI" 2>/dev/null; then
-        emit FAIL F-HIGH-PUBLISH-001 INV-RUNTIME-CONSENT-COPY RUNTIME-PROBE "unverified privacy claim 'your data stays on your machine' present in scan path"
+        emit FAIL F-HIGH-PUBLISH-001 INV-RUNTIME-CONSENT-COPY SUPPLEMENTAL-PROBE "unverified privacy claim 'your data stays on your machine' present in scan path"
     else
-        emit PASS F-HIGH-PUBLISH-001 INV-RUNTIME-CONSENT-COPY RUNTIME-PROBE "no unverified 'data stays on your machine' claim"
+        emit PASS F-HIGH-PUBLISH-001 INV-RUNTIME-CONSENT-COPY SUPPLEMENTAL-PROBE "privacy-claim marker absent; provider disclosure/consent behavior checked elsewhere"
     fi
 }
 

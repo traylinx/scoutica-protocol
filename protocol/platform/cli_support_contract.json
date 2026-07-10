@@ -1,0 +1,50 @@
+{
+  "contract_version": "1.0.0",
+  "protocol_version": "0.4.0",
+  "implementations": {
+    "posix": {
+      "implementation_version": "0.4.0",
+      "entrypoint": "tools/scoutica"
+    },
+    "windows": {
+      "implementation_version": "0.1.0",
+      "entrypoint": "tools/scoutica.ps1",
+      "capability_set": "windows-subset-v1",
+      "supported_commands": [
+        "init",
+        "init --ai",
+        "validate",
+        "publish",
+        "info",
+        "help",
+        "version"
+      ]
+    }
+  },
+  "runtime_support": {
+    "python": {
+      "minimum_version": "3.11",
+      "platforms": ["posix", "windows"]
+    },
+    "bash": {
+      "minimum_version": "3.2",
+      "platforms": ["linux", "macos"]
+    },
+    "powershell": {
+      "supported_versions": ["5.1", "7"],
+      "platforms": ["windows"]
+    }
+  },
+  "python_dependencies": [
+    {
+      "distribution": "jsonschema[format]",
+      "import_name": "jsonschema",
+      "required_for": ["validate"]
+    },
+    {
+      "distribution": "PyYAML",
+      "import_name": "yaml",
+      "required_for": ["validate", "evaluate"]
+    }
+  ]
+}
