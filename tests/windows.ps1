@@ -465,9 +465,25 @@ try {
         (Get-FileHash -Algorithm SHA256 (Join-Path $initCard ".gitignore")).Hash `
         "init installs the canonical card.gitignore"
 
-    $result = Invoke-Scoutica @("validate", $initCard)
+    # Windows can expose python3* Store aliases ahead of setup-python's working
+    # python.exe. Runtime validation must probe and skip those aliases instead
+    # of treating command-name presence as a usable interpreter.
+    $shadowPythonBin = Join-Path $Work "shadow-python-aliases"
+    New-Item -ItemType Directory -Force -Path $shadowPythonBin | Out-Null
+    foreach ($candidate in @("python3.13", "python3.12", "python3.11", "python3")) {
+        Set-Content -LiteralPath (Join-Path $shadowPythonBin ($candidate + ".cmd")) `
+            -Value "@echo off`r`nexit /b 1`r`n" -Encoding ASCII
+    }
+    $savedPath = $env:Path
+    try {
+        $env:Path = "$shadowPythonBin;$savedPath"
+        $result = Invoke-Scoutica @("validate", $initCard)
+    } finally {
+        $env:Path = $savedPath
+    }
+    if ($result.ExitCode -ne 0) { Write-Host $result.Output }
     Assert-Equal 0 $result.ExitCode "installed validate accepts the initialized card"
-    Assert-True ($result.Output -match "valid") "validation reports success"
+    Assert-True ($result.Output -match "Candidate Card is valid!") "validation reports success"
 
     $invalidCard = Join-Path $Work "invalid-card"
     New-Item -ItemType Directory -Force -Path $invalidCard | Out-Null

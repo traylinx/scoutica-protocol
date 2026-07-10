@@ -717,9 +717,14 @@ cmd_init() {
     # ── Generate all files safely via Python ──
     # Build evidence entries as newline-separated, tab-delimited lines
     local ev_lines=""
-    for entry in "${ev_entries[@]}"; do
-        ev_lines+="${entry}"$'\n'
-    done
+    # Bash 3.2 with `set -u` treats an expansion of an empty array as an
+    # unbound variable. Guard the expansion so candidate generation without
+    # evidence works on the supported macOS system shell.
+    if [ "${#ev_entries[@]}" -gt 0 ]; then
+        for entry in "${ev_entries[@]}"; do
+            ev_lines+="${entry}"$'\n'
+        done
+    fi
     
     "$VALIDATION_PYTHON" << 'GENERATE_SCRIPT' - \
         "$generation_dir" \

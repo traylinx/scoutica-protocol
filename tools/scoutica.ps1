@@ -1,4 +1,4 @@
-# ============================================================================
+﻿# ============================================================================
 # Scoutica CLI — Windows PowerShell Edition
 #
 # Commands:
@@ -434,15 +434,21 @@ function Invoke-InitAI([string]$targetDir = ".") {
 function Invoke-Validate([string]$cardDir = ".") {
     Write-Header "Validate Skill Card"
     
-    # Find Python
+    # Select a runnable validation interpreter, not merely the first command
+    # name present on PATH. Windows can expose python3.exe as a non-functional
+    # Store alias even when setup-python installed a working python.exe.
     $pythonCmd = $null
-    if (Get-Command python3 -ErrorAction SilentlyContinue) { $pythonCmd = "python3" }
-    elseif (Get-Command python -ErrorAction SilentlyContinue) { $pythonCmd = "python" }
-    elseif (Get-Command py -ErrorAction SilentlyContinue) { $pythonCmd = "py" }
+    foreach ($candidate in @("python3.13", "python3.12", "python3.11", "python3", "python", "py")) {
+        if (-not (Get-Command $candidate -ErrorAction SilentlyContinue)) { continue }
+        & $candidate -c "import sys; sys.exit(0 if sys.version_info >= (3, 11) else 1)" 2>$null
+        if ($LASTEXITCODE -ne 0) { continue }
+        & $candidate -c 'import jsonschema,yaml,sys; c=jsonschema.FormatChecker(); bad=(("relative/path","uri"),("bad host","hostname"),("2024-99-99","date"),("not-a-date","date-time")); sys.exit(0 if all(not c.conforms(value,fmt) for value,fmt in bad) else 1)' 2>$null
+        if ($LASTEXITCODE -eq 0) { $pythonCmd = $candidate; break }
+    }
     
     if (-not $pythonCmd) {
-        Write-Err "Python is required for schema validation"
-        Write-Host "  Install Python from https://www.python.org/downloads/" -ForegroundColor DarkGray
+        Write-Err "Python 3.11+, jsonschema, and PyYAML are required for schema validation"
+        Write-Host "  Run: python3 -m pip install 'jsonschema[format]' PyYAML" -ForegroundColor DarkGray
         exit 1
     }
     
