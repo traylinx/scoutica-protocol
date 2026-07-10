@@ -30,9 +30,19 @@ function Assert-Equal($expected, $actual, [string]$message) {
 }
 
 function Invoke-TestGit([string]$directory, [string[]]$gitArguments) {
-    & git -C $directory @gitArguments >$null 2>&1
-    if ($LASTEXITCODE -ne 0) {
-        throw "git -C '$directory' $($gitArguments -join ' ') failed with $LASTEXITCODE"
+    $savedErrorActionPreference = $ErrorActionPreference
+    try {
+        # Successful Git commands such as push write progress to stderr.
+        # Windows PowerShell 5.1 promotes that stream to NativeCommandError
+        # under Stop even when Git exits zero.
+        $ErrorActionPreference = "Continue"
+        & git -C $directory @gitArguments >$null 2>&1
+        $exitCode = $LASTEXITCODE
+    } finally {
+        $ErrorActionPreference = $savedErrorActionPreference
+    }
+    if ($exitCode -ne 0) {
+        throw "git -C '$directory' $($gitArguments -join ' ') failed with $exitCode"
     }
 }
 

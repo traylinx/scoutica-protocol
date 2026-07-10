@@ -62,7 +62,10 @@ jobs:
 
   macos-bash32:
     name: macos-bash32
-    runs-on: macos-latest
+    # This lane characterizes the supported system Bash 3.2 runtime. Pin the
+    # host because the current macos-26-arm64 `macos-latest` image hangs Python
+    # loopback-listener startup before the network fixtures can become ready.
+    runs-on: macos-15
     steps:
       - uses: actions/checkout@v4
 

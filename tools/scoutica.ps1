@@ -455,9 +455,9 @@ function Invoke-Validate([string]$cardDir = ".") {
     # Find validator — use $SCRIPT_ROOT captured at top level (not $MyInvocation which is empty in functions)
     $validator = $null
     $candidates = @(
-        (Join-Path $SCOUTICA_HOME "bin" "validate_card.py"),
+        (Join-Path (Join-Path $SCOUTICA_HOME "bin") "validate_card.py"),
         (Join-Path $SCRIPT_ROOT "validate_card.py"),
-        (Join-Path $SCOUTICA_HOME "tools" "validate_card.py")
+        (Join-Path (Join-Path $SCOUTICA_HOME "tools") "validate_card.py")
     )
     foreach ($c in $candidates) {
         if (Test-Path $c) { $validator = $c; break }
