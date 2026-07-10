@@ -43,22 +43,23 @@ Do not draft until the deterministic scorer has run. The candidate's `rules.yaml
 scoutica evaluate --json <card-dir> --role <role.json>
 # or directly. The `--json` form is required to get a parseable result. Pass the recruiter/org card as
 # the optional 4th arg so recruiter-scoped rules (e.g. blocked_industries, which need the role/org's
-# industry metadata) also fire. Accurate rule parsing requires PyYAML — install it if scoring warns,
-# otherwise list-valued rules (allowed_types, blocked_industries) may be read as empty and skip the gate.
+# industry metadata) also fire. PyYAML is required for YAML rules; the scorer fails closed with an
+# installation command rather than approximating nested policy.
 python3 tools/scoring.py --json <card>/profile.json <card>/rules.yaml <role.json> [recruiter_profile.json]
 ```
 
-Read the JSON result and branch on its actual fields (`hard_filters_passed`, `candidate_accepts`,
-`verdict`, `rejection_reasons`, `candidate_reasons`):
+Read the JSON result and branch first on `decision` (`pass`, `reject`, or `needs_context`).
+`candidate_accepts` is retained for compatibility but is true only when the decision is `pass`.
 
-- **`hard_filters_passed: false`** (verdict `HARD_REJECT`), or **`candidate_accepts: false`** →
+- **`decision: reject`** →
   **REFUSE to draft.** Quote the offending entries from `rejection_reasons` / `candidate_reasons` so the
   candidate sees exactly which rule rejected the role (salary floor, remote policy, blocked industry,
   engagement type) and stop. Respecting the candidate's own rules is the entire point of the protocol —
   do not override them to "get the application out".
-- **Soft reject** — any entry in `candidate_reasons` beginning `manual_review:` → surface that reason
-  **verbatim** to the candidate and ask whether to proceed. Do not silently draft past a soft reject.
-- **Otherwise** → continue to Step 2.
+- **`decision: needs_context`** → **STOP.** Surface the exact context reasons (for example missing
+  recruiter industry, required language, currency conversion, or a `manual_review:` signal). Obtain and
+  re-run with the missing structured context; do not draft from an unresolved result.
+- **`decision: pass`** → continue to Step 2.
 
 ## Step 2: draft (drafter role)
 
@@ -111,8 +112,8 @@ the candidate's own toolchain (for example, the ai-job-search LaTeX pipeline).
   `phone`, `exact_salary`) must NOT appear in a draft unless the candidate explicitly approves it for this
   application. Draft primarily from Zone 1 (public) and Zone 2 data.
 - Never fabricate. A visible gap is always better than a fabricated match.
-- **The scorer's decision is final.** If `candidate_accepts` is false or a hard filter failed, this skill
-  does not talk the candidate past their own rules.
+- **The scorer's decision is final.** This skill drafts only on `decision: pass`; it does not talk the
+  candidate past `reject` or `needs_context`.
 
 ## Attribution
 

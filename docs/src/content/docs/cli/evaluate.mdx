@@ -20,7 +20,7 @@ import Step from '@components/Step.astro';
 scoutica evaluate <card> <role.json> [options]
 ```
 
-`<card>` is either a **card directory** (containing `profile.json` and, optionally, `rules.yaml`) or a direct path to a `profile.json`. If you point at a directory, `evaluate` auto-detects `profile.json` and `rules.yaml` inside it. If you point at a `profile.json` file, it looks for a `rules.yaml` sibling next to it. When `<card>` is omitted, it defaults to the current directory (`.`).
+`<card>` is either a **card directory** containing both `profile.json` and `rules.yaml`, or a direct path to a `profile.json` with a `rules.yaml` sibling. Missing, empty, or malformed rules fail closed; `evaluate` never substitutes an empty policy. When `<card>` is omitted, it defaults to the current directory (`.`).
 
 An `evidence.json` sitting next to the profile is picked up automatically and can contribute a bonus (see below).
 
@@ -30,7 +30,7 @@ An `evidence.json` sitting next to the profile is picked up automatically and ca
 |--------|----------|
 | `--json` | Emit a clean, parseable JSON result to stdout and **suppress the decorative header**. Use this when an agent (e.g. an apply-to-role gate) needs to parse the verdict. |
 | `--role <path>` | Explicitly specify the role file instead of passing it positionally. |
-| `--recruiter <path>` | Provide the employer's `recruiter_profile.json` so industry-based filters (blocked industries) can be checked. Ignored if the file does not exist. |
+| `--recruiter <path>` | Provide the employer's `recruiter_profile.json` so industry-based filters can be checked. A missing file is treated as absent context; when blocked industries are configured, the result is `needs_context`, never a pass. |
 
 The card and role may also be supplied positionally: the first bare argument is the card, the second is the role.
 
@@ -43,8 +43,8 @@ The card and role may also be supplied positionally: the first bare argument is 
 The engine runs a fixed four-step pipeline:
 
 <Steps>
-  <Step title="Hard filters (pass/fail)">
-    Boolean gates from the employer's perspective: engagement-type match, compensation floor (annual-to-annual only), remote/onsite policy, blocked industries (needs `--recruiter`), and required-language overlap. If **any** filter fails, the verdict is `HARD_REJECT` with a score of `0` and the reasons listed.
+  <Step title="Hard filters (tri-state)">
+    Employer-side gates check engagement type, an engagement-derived compensation unit (annual for permanent, daily for contract, monthly for fractional, hourly for advisory), remote/onsite policy, blocked industries, and required-language overlap. A confirmed mismatch produces `HARD_REJECT`; missing or malformed required context produces `NEEDS_CONTEXT`. Both stop autonomous action with a score of `0`.
   </Step>
   <Step title="Skill score (0–100)">
     `hard_ratio × 70 + preferred_ratio × 30`. Hard and preferred skills from the role are matched against the candidate's `skills`, `tools_and_platforms`, `specializations`, and `primary_domains`. When a role lists no preferred skills, the preferred component is treated as neutral (0.5).
@@ -53,7 +53,8 @@ The engine runs a fixed four-step pipeline:
     `+10` when the candidate's `evidence.json` demonstrates at least 50% of the role's hard skills, and `+5` for an exact seniority match. The final score is capped at 100.
   </Step>
   <Step title="Verdict + candidate-side check">
-    The score maps to a verdict, and the candidate's `rules.yaml` is replayed to produce `candidate_accepts`.
+    The score maps to a verdict, and the candidate's `rules.yaml` is replayed to produce a tri-state
+    `decision`: `pass`, `reject`, or `needs_context`.
   </Step>
 </Steps>
 
@@ -62,6 +63,7 @@ The engine runs a fixed four-step pipeline:
 | Score | Verdict |
 |-------|---------|
 | Any hard filter failed | `HARD_REJECT` |
+| Required filter context missing or malformed | `NEEDS_CONTEXT` |
 | ≥ 80 | `STRONG_MATCH` |
 | 60–79 | `MODERATE_MATCH` |
 | 40–59 | `WEAK_MATCH` |
@@ -86,6 +88,8 @@ In `--json` mode, stdout is pure JSON — nothing else is printed — so it's sa
     "preferred_total": 4
   },
   "bonuses": ["seniority_match"],
+  "decision": "pass",
+  "candidate_decision": "pass",
   "candidate_accepts": true,
   "candidate_reasons": ["all_rules_passed"]
 }
@@ -99,11 +103,16 @@ In `--json` mode, stdout is pure JSON — nothing else is printed — so it's sa
 | `rejection_reasons` | Human-readable strings for each failed hard filter (empty when passed). |
 | `skill_breakdown` | Hard/preferred match ratios and counts (`null` on a hard reject). |
 | `bonuses` | List of applied bonuses, e.g. `evidence`, `seniority_match`. |
-| `candidate_accepts` | Whether the candidate's own `rules.yaml` would auto-accept the role. |
+| `decision` | Authoritative combined gate: `pass`, `reject`, or `needs_context`. |
+| `candidate_decision` | Candidate-policy side of the tri-state gate. |
+| `candidate_accepts` | Compatibility boolean; true only when `candidate_decision` is `pass`. |
 | `candidate_reasons` | Why the candidate side accepted or rejected — including opt-in `manual_review:` signals. |
 
 <Warning>
-`candidate_accepts` is the candidate's **authoritative** gate. It is computed from the candidate's own `rules.yaml` (engagement types, compensation floor, remote policy, blocked industries), not from the employer's wishes. A high `score` with `candidate_accepts: false` means the role is a skills fit but violates the candidate's stated policy — respect it.
+`decision` is the **authoritative** gate. It is computed from the candidate's own `rules.yaml`
+(engagement types, compensation floor, remote policy, blocked industries) and required role context, not
+from the employer's wishes. `needs_context` is not a pass: missing recruiter industries, required-language
+data, compensation currency, or a manual-review signal must be resolved before an autonomous action.
 </Warning>
 
 ## Examples
@@ -120,7 +129,7 @@ scoutica evaluate ./alice-card/profile.json --role roles/senior-engineer.json \
   --recruiter ./acme-card/recruiter_profile.json
 
 # Gate an apply decision from a script
-if [ "$(scoutica evaluate ./alice-card role.json --json | jq -r '.candidate_accepts')" = "true" ]; then
+if [ "$(scoutica evaluate ./alice-card role.json --json | jq -r '.decision')" = "pass" ]; then
   echo "Candidate rules accept — proceed to apply."
 fi
 ```
@@ -143,7 +152,7 @@ fi
 ```
 
 <Note>
-The scoring engine is **zero-dependency** and ships with the CLI. **PyYAML is recommended, not required** — it is used to parse `rules.yaml` accurately, including list rules such as `allowed_types` and `blocked_industries`. Without PyYAML the engine falls back to a JSON parser and then a minimal built-in YAML reader, which may miss some list-shaped rules. Install PyYAML for the most faithful candidate-side evaluation.
+The scoring engine ships with the CLI. **PyYAML is required for YAML-form rules** so nested policy is never parsed lossily. Without PyYAML, evaluation fails with an installation hint. A rules file deliberately encoded as JSON remains supported through Python's standard JSON parser.
 </Note>
 
 ## Determinism and privacy posture

@@ -197,10 +197,13 @@ assert_exit 0 python3 -c "import json,jsonschema,sys; jsonschema.validate(json.l
 assert_eq 0 "$?" "scoutica evaluate --json emits parseable JSON"
 # SEMANTIC funnel proof (not just "no crash"): a matching role is accepted; a contract role is rejected
 # by the candidate's own permanent-only rule — the gate the apply-to-role skill relies on actually fires.
-_acc=$(python3 "$REPO_ROOT/tools/scoring.py" --json "$out/profile.json" "$out/rules.yaml" "$FIXTURES/sample_role.json" 2>/dev/null \
+printf '%s\n' '{"industries":["software"]}' > "$WORK/e2e_recruiter.json"
+_acc=$(python3 "$REPO_ROOT/tools/scoring.py" --json "$out/profile.json" "$out/rules.yaml" \
+       "$FIXTURES/sample_role.json" "$WORK/e2e_recruiter.json" 2>/dev/null \
        | python3 -c "import sys,json; print(json.load(sys.stdin)['candidate_accepts'])")
 assert_eq "True" "$_acc" "matching role accepted (candidate_accepts)"
-_rej=$(python3 "$REPO_ROOT/tools/scoring.py" --json "$out/profile.json" "$out/rules.yaml" "$FIXTURES/sample_role_reject.json" 2>/dev/null \
+_rej=$(python3 "$REPO_ROOT/tools/scoring.py" --json "$out/profile.json" "$out/rules.yaml" \
+       "$FIXTURES/sample_role_reject.json" "$WORK/e2e_recruiter.json" 2>/dev/null \
        | python3 -c "import sys,json; print(json.load(sys.stdin)['candidate_accepts'])")
 assert_eq "False" "$_rej" "contract role rejected by candidate's permanent-only rule"
 t_end

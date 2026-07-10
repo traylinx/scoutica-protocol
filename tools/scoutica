@@ -4667,6 +4667,15 @@ cmd_evaluate() {
         exit 1
     fi
     
+    if [ -z "$rules_path" ] || [ ! -f "$rules_path" ]; then
+        if $output_json; then
+            printf '%s\n' "scoutica evaluate: Rules file not found next to candidate profile: rules.yaml" >&2
+        else
+            error "Rules file not found next to candidate profile: rules.yaml"
+        fi
+        exit 1
+    fi
+
     if [ ! -f "$role_path" ]; then
         error "Role file not found: $role_path"
         exit 1
@@ -4678,7 +4687,7 @@ cmd_evaluate() {
         args+=("--json")
     fi
     args+=("$profile_path")
-    args+=("${rules_path:-/dev/null}")
+    args+=("$rules_path")
     args+=("$role_path")
     if [ -n "$recruiter_path" ] && [ -f "$recruiter_path" ]; then
         args+=("$recruiter_path")
