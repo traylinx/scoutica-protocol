@@ -109,7 +109,7 @@ t_end
 # ── T-B3-YAML-001 — a YAML-metachar skill can't corrupt or inject into SKILL.md frontmatter ──
 # The hostile fixture's skill set includes "Go: bad". build_skill_md serializes the frontmatter
 # (never string-interpolates), so it must remain well-formed YAML with EXACTLY the expected keys.
-# validate_card.py does not parse SKILL.md frontmatter, so this test is the only guard for it.
+# The importer-level assertion complements validate_card.py's strict whole-card check.
 t_begin T-B3-YAML-001 "hostile skill (\"Go: bad\") -> SKILL.md frontmatter stays valid YAML, no injection"
 yout="$WORK/yaml_host"
 "$SCOUTICA" import aijs "$FIXTURES/aijs_hostile" --to "$yout" </dev/null >/dev/null 2>&1
@@ -127,6 +127,8 @@ doc = yaml.safe_load(fm)                      # raises on corruption -> non-zero
 assert isinstance(doc, dict), "frontmatter is not a mapping"
 assert set(doc) == {"name", "description", "metadata"}, "unexpected/injected frontmatter keys: %s" % sorted(doc)
 assert doc["name"] == "scoutica"
+assert set(doc["metadata"]) == {"tags", "author", "version"}
+assert isinstance(doc["metadata"]["author"], str) and doc["metadata"]["author"]
 assert "Go: bad" in doc["metadata"]["tags"], "hostile skill was dropped, not neutralised"
 PY
 t_end
@@ -195,23 +197,27 @@ assert_exit 0 python3 -c "import json,jsonschema,sys; jsonschema.validate(json.l
 assert_eq 0 "$?" "scoutica evaluate --json emits parseable JSON"
 # SEMANTIC funnel proof (not just "no crash"): a matching role is accepted; a contract role is rejected
 # by the candidate's own permanent-only rule — the gate the apply-to-role skill relies on actually fires.
-_acc=$(python3 "$REPO_ROOT/tools/scoring.py" --json "$out/profile.json" "$out/rules.yaml" "$FIXTURES/sample_role.json" 2>/dev/null \
+printf '%s\n' '{"industries":["software"]}' > "$WORK/e2e_recruiter.json"
+_acc=$(python3 "$REPO_ROOT/tools/scoring.py" --json "$out/profile.json" "$out/rules.yaml" \
+       "$FIXTURES/sample_role.json" "$WORK/e2e_recruiter.json" 2>/dev/null \
        | python3 -c "import sys,json; print(json.load(sys.stdin)['candidate_accepts'])")
 assert_eq "True" "$_acc" "matching role accepted (candidate_accepts)"
-_rej=$(python3 "$REPO_ROOT/tools/scoring.py" --json "$out/profile.json" "$out/rules.yaml" "$FIXTURES/sample_role_reject.json" 2>/dev/null \
+_rej=$(python3 "$REPO_ROOT/tools/scoring.py" --json "$out/profile.json" "$out/rules.yaml" \
+       "$FIXTURES/sample_role_reject.json" "$WORK/e2e_recruiter.json" 2>/dev/null \
        | python3 -c "import sys,json; print(json.load(sys.stdin)['candidate_accepts'])")
 assert_eq "False" "$_rej" "contract role rejected by candidate's permanent-only rule"
 t_end
 
 # ── T-A2-DOCS-001 — import docs exist, credit upstream, are registered in nav, leak no PII ──
 t_begin T-A2-DOCS-001 "import docs present + credited + navigable, no fixture PII"
-DOCS="$REPO_ROOT/docs-site"
+DOCS="$REPO_ROOT/docs/src/content/docs"
+ASTRO_CONFIG="$REPO_ROOT/docs/astro.config.mjs"
 assert_exit 0 test -f "$DOCS/cli/import.mdx"
 assert_exit 0 test -f "$DOCS/guides/from-ai-job-search.mdx"
 assert_grep "import aijs" "$DOCS/cli/import.mdx"
 assert_grep "MadsLorentzen/ai-job-search" "$DOCS/cli/import.mdx"
-assert_grep "cli/import" "$DOCS/docs.json"
-assert_grep "guides/from-ai-job-search" "$DOCS/docs.json"
+assert_grep 'slug: "cli/import"' "$ASTRO_CONFIG"
+assert_grep 'slug: "guides/from-ai-job-search"' "$ASTRO_CONFIG"
 assert_no_grep "alice@example" "$DOCS/cli/import.mdx"
 assert_no_grep "alice@example" "$DOCS/guides/from-ai-job-search.mdx"
 t_end

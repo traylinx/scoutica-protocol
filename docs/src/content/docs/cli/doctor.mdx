@@ -1,6 +1,6 @@
 ---
 title: "scoutica doctor"
-description: "Run diagnostic system checks to ensure Scoutica Protocol is functioning securely and offline."
+description: "Run diagnostic system checks for Scoutica's local runtime and configured providers."
 ---
 
 The `doctor` command acts as your infrastructure diagnostic tool. High-fidelity protocols like Scoutica rely heavily on local machine tools (CLI LLMs, Python libraries, standard shell binaries). 
@@ -14,7 +14,7 @@ scoutica doctor
 
 `scoutica doctor` aggressively scopes your active `$PATH` and underlying host system:
 1. **Core Verification:** Checks if `~/.scoutica/bin`, `schemas`, and `templates` exist and possess exact protocol files.
-2. **Library Constraints:** Scans for `Python 3` and ensures core Unix dependencies (like `git` required for `scoutica publish`) exist. 
+2. **Library Constraints:** Requires Python 3.11+ plus `jsonschema[format]` and PyYAML, and checks core Unix dependencies such as `git`. Missing Python packages are reported with `python3 -m pip install 'jsonschema[format]' PyYAML`; `doctor` does not install them.
 3. **AI Discovery:** Iterates through supported AI CLIs (`gemini`, `claude`, `codex`, `ollama`, `ail`, `openclaw`) to ensure `scoutica scan` has a proper intelligence backplane available.
 4. **Toolchain Modules:** Scans optionally for `pdftotext` required to parse resume PDF blobs.
 
@@ -33,7 +33,7 @@ scoutica doctor
 ✔ Template Directory: Found (3 files)
 ✔ Schema Directory  : Found (5 schema files)
 
-✔ Python Toolkit    : python3 installed
+✔ Python Toolkit    : Python 3.11+ with jsonschema and PyYAML
 ✔ Git               : git installed
 ✔ PDF Extractor     : pdftotext installed
 

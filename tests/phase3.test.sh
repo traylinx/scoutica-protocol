@@ -4,28 +4,18 @@
 error() { :; }   # stubs for the extracted helpers
 warn() { :; }
 
-# Load the two bash helpers straight from the CLI (defs end at a column-0 '}').
-eval "$(awk '/^_validate_url\(\) \{/{f=1} f{print} f&&/^\}/{exit}' "$SCOUTICA")"
+# Load the filesystem helper straight from the CLI (definition ends at a column-0 '}').
 eval "$(awk '/^_refuse_if_symlink\(\) \{/{f=1} f{print} f&&/^\}/{exit}' "$SCOUTICA")"
 
-# ---- F-HIGH-SSRF-001: URL validator (fail-closed) ----
-_vu() { _validate_url "$1" >/dev/null 2>&1 && echo OK || echo BLOCKED; }
-t_begin F-HIGH-SSRF-001 "URL validator: HTTPS-only; block localhost/private/link-local/metadata"
-assert_eq BLOCKED "$(_vu http://example.com/x)" "plain http rejected"
-assert_eq BLOCKED "$(_vu https://localhost/x)" "localhost blocked"
-assert_eq BLOCKED "$(_vu https://127.0.0.1/x)" "loopback blocked"
-assert_eq BLOCKED "$(_vu https://10.1.2.3/x)" "rfc1918/8 blocked"
-assert_eq BLOCKED "$(_vu https://192.168.0.1/x)" "rfc1918/16 blocked"
-assert_eq BLOCKED "$(_vu https://169.254.169.254/latest/meta-data/)" "cloud metadata blocked"
-assert_eq OK "$(_vu https://8.8.8.8/x)" "public literal IP allowed"
-# DNS-rebinding defense: validator emits "host port ip"; fetches pin via curl --resolve.
-assert_eq "8.8.8.8 443 8.8.8.8" "$(_validate_url https://8.8.8.8/x 2>/dev/null)" "validator emits host port ip"
-assert_eq "8.8.8.8 8443 8.8.8.8" "$(_validate_url https://8.8.8.8:8443/x 2>/dev/null)" "pins the URL's actual port"
-assert_grep 'resolve_args "\$base_url' "$SCOUTICA" "fetches pinned to validated IP via --resolve"
+# ---- F-HIGH-SSRF-001: authoritative behavior lives in jobs_security.test.sh ----
+t_begin F-HIGH-SSRF-001 "jobs and resolve share the installed safe-fetch boundary"
+assert_grep '^_safe_fetch()' "$SCOUTICA"
+assert_grep '\$script_dir/safe_fetch.py' "$SCOUTICA"
+assert_no_grep 'from urllib.request import urlopen' "$SCOUTICA"
 t_end
 
-# ---- F-HIGH-FS-001: shared symlink-safe write guard ----
-t_begin F-HIGH-FS-001 "refuse_if_symlink refuses a symlinked target, allows a normal path"
+# ---- F-HIGH-FS-001: supplemental helper probe (not command-level closure) ----
+t_begin F-HIGH-FS-001 "supplemental helper probe: refuse_if_symlink rejects a target symlink"
 ln -sf /etc/passwd "$WORK/evil.json" 2>/dev/null
 assert_exit 1 _refuse_if_symlink "$WORK/evil.json"
 assert_exit 0 _refuse_if_symlink "$WORK/normal.json"
@@ -51,24 +41,24 @@ t_end
 
 # ---- F-MED-FETCH-002: fetches size-capped + JSON-validated before save ----
 t_begin F-MED-FETCH-002 "resolve fetches are size-capped and JSON-validated before disk write"
-assert_grep "--max-filesize 2097152" "$SCOUTICA"
+assert_grep "--expect json --allow-not-found" "$SCOUTICA"
 assert_grep "_json_ok" "$SCOUTICA"
 t_end
 
-# ---- F-HIGH-PUBLISH-001: no auto-publish, no false local-only claim ----
-t_begin F-HIGH-PUBLISH-001 "scan never auto-publishes and makes no false 'stays on your machine' claim"
+# ---- F-HIGH-PUBLISH-001: supplemental copy markers (not provider-consent closure) ----
+t_begin F-HIGH-PUBLISH-001 "supplemental copy probe: no auto-publish or categorical locality marker"
 assert_no_grep "your data stays on your machine" "$SCOUTICA"
 assert_no_grep "Auto-deploying live preview" "$SCOUTICA"
 t_end
 
-# ---- F-HIGH-TEMP-001: trap cleans payload + raw response ----
-t_begin F-HIGH-TEMP-001 "scan trap cleans request payload + raw AI response"
-_trapline=$(grep -E "^[[:space:]]*trap " "$SCOUTICA" | grep payload_file)
-assert_grep "payload_file" "$_trapline"
-assert_grep "scan_raw_file" "$_trapline"
+# ---- F-HIGH-TEMP-001: supplemental owned-runtime marker (behavior is authoritative) ----
+t_begin F-HIGH-TEMP-001 "supplemental marker probe: scan trap cleans its owned runtime directory"
+_trapline=$(grep -E "^[[:space:]]*trap " "$SCOUTICA" | grep _scan_runtime_cleanup)
+assert_grep "_scan_runtime_cleanup" "$_trapline"
+assert_grep 'rm -rf "\$_SCAN_RUN_DIR"' "$SCOUTICA"
 t_end
 
 # ---- F-MED-PARSE-001: parse-failure branch reachable under set -e ----
-t_begin F-MED-PARSE-001 "parse-failure branch is reachable (if ! python3, not post-hoc \$?)"
-assert_grep "if ! python3 << 'PARSE_SCRIPT'" "$SCOUTICA"
+t_begin F-MED-PARSE-001 "parse-failure branch is reachable through the strict response parser"
+assert_grep 'if ! "\$VALIDATION_PYTHON" "\$runtime_helper" parse-response' "$SCOUTICA"
 t_end

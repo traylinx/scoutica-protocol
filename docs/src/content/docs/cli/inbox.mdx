@@ -29,7 +29,7 @@ scoutica inbox [--json]
 
 | Location | Meaning |
 |----------|---------|
-| `~/.scoutica/inbox/` | Incoming messages addressed to you. Walked recursively; every `.json` is loaded. |
+| `~/.scoutica/inbox/` | Incoming actionable messages. Walked recursively, except that the `processed/` subtree is pruned. |
 | `~/.scoutica/pending_delivery/` | Your own outgoing messages not yet delivered. Counted and surfaced as a reminder. |
 
 ## Human view
@@ -81,10 +81,13 @@ scoutica inbox --json
 
 Each entry is annotated with `_source` and the absolute `_file` path so an agent can act on the exact message on disk — for example, feed the `message_id` straight into [`scoutica reply`](/cli/reply).
 
+JSON mode writes exactly one JSON document and no banner or ANSI sequences. If an actionable inbox file is malformed or violates the trusted message schema, the command exits nonzero, writes the diagnostic only to stderr, and leaves stdout empty.
+
 ## Security posture
 
 - **Local and read-only.** `inbox` only lists files already on your machine. It opens no sockets and fetches nothing, so simply checking your mail cannot leak data or trigger a request.
 - **You stay in control.** Reading a message does nothing on its own. No response is sent, and the message is not consumed until you act — it is only moved to `inbox/processed/` when you answer it with [`scoutica reply`](/cli/reply).
+- **Processed means closed.** Processed messages are not listed as actionable and cannot create a new response. An exact retry can only verify or complete the already-staged deterministic reply.
 
 ## Where it fits
 

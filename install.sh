@@ -29,6 +29,38 @@ INSTALL_DIR="${SCOUTICA_HOME:-$HOME/.scoutica}"
 BIN_DIR="$INSTALL_DIR/bin"
 SCHEMAS_DIR="$INSTALL_DIR/schemas"
 TEMPLATES_DIR="$INSTALL_DIR/templates"
+EXAMPLES_DIR="$INSTALL_DIR/protocol/examples"
+CANDIDATE_EXAMPLE_DIR="$EXAMPLES_DIR/sample_card"
+ROLE_EXAMPLE_DIR="$EXAMPLES_DIR/employer_card/roles"
+
+# Validation is a supported core command, so a fresh install must not finish in
+# a state where it can only work after silently mutating the user's global
+# Python environment. Check before creating or downloading anything.
+PYTHON_CMD=""
+SUPPORTED_PYTHON_FOUND=false
+for python_candidate in python3.13 python3.12 python3.11 python3 python; do
+    if ! command -v "$python_candidate" >/dev/null 2>&1 \
+        || ! "$python_candidate" -c 'import sys; sys.exit(0 if sys.version_info >= (3, 11) else 1)' >/dev/null 2>&1; then
+        continue
+    fi
+    SUPPORTED_PYTHON_FOUND=true
+    if "$python_candidate" -c 'import jsonschema,yaml,sys; c=jsonschema.FormatChecker(); bad=(("relative/path","uri"),("bad host","hostname"),("2024-99-99","date"),("not-a-date","date-time")); sys.exit(0 if all(not c.conforms(value,fmt) for value,fmt in bad) else 1)' >/dev/null 2>&1; then
+        PYTHON_CMD="$python_candidate"
+        break
+    fi
+done
+
+PYTHON_PREREQ="python3 -m pip install 'jsonschema[format]' PyYAML"
+if [ -z "$PYTHON_CMD" ]; then
+    if $SUPPORTED_PYTHON_FOUND; then
+        echo "Scoutica requires jsonschema format support and PyYAML." >&2
+        echo "Run: $PYTHON_PREREQ" >&2
+    else
+        echo "Scoutica requires Python 3.11 or newer." >&2
+        echo "Install Python 3.11+, then run: $PYTHON_PREREQ" >&2
+    fi
+    exit 1
+fi
 
 echo ""
 echo -e "${CYAN}╔═══════════════════════════════════════════════════════╗${NC}"
@@ -42,7 +74,8 @@ echo ""
 
 # --- Step 1: Create directories ---
 echo -e "${BLUE}→${NC} Creating directories in ${BOLD}$INSTALL_DIR${NC}..."
-mkdir -p "$BIN_DIR" "$SCHEMAS_DIR" "$SCHEMAS_DIR/recruiter" "$TEMPLATES_DIR" "$TEMPLATES_DIR/rules"
+mkdir -p "$BIN_DIR" "$SCHEMAS_DIR" "$SCHEMAS_DIR/recruiter" "$TEMPLATES_DIR" "$TEMPLATES_DIR/rules" \
+    "$CANDIDATE_EXAMPLE_DIR" "$ROLE_EXAMPLE_DIR"
 
 # --- Step 2: Download CLI ---
 echo -e "${BLUE}→${NC} Downloading scoutica CLI..."
@@ -86,9 +119,22 @@ curl -fsSL "$REPO_RAW/tools/SCAN_PROMPT.md" -o "$BIN_DIR/SCAN_PROMPT.md"
 # scoutica resolves these next to itself ($script_dir == $BIN_DIR when installed). They MUST be
 # present or `scoutica evaluate --json` (scoring.py) and `scoutica import aijs` (import_aijs.py)
 # fail at runtime. tests/install_smoke.test.sh guards this installer↔CLI parity.
-echo -e "${BLUE}→${NC} Downloading scoring + import helpers..."
+echo -e "${BLUE}→${NC} Downloading runtime helpers..."
 curl -fsSL "$REPO_RAW/tools/scoring.py" -o "$BIN_DIR/scoring.py"
 curl -fsSL "$REPO_RAW/tools/import_aijs.py" -o "$BIN_DIR/import_aijs.py"
+curl -fsSL "$REPO_RAW/tools/scan_runtime.py" -o "$BIN_DIR/scan_runtime.py"
+curl -fsSL "$REPO_RAW/tools/safe_fetch.py" -o "$BIN_DIR/safe_fetch.py"
+curl -fsSL "$REPO_RAW/tools/message_runtime.py" -o "$BIN_DIR/message_runtime.py"
+
+# --- Step 6c: Download the bounded offline registry fallback ---
+# `scoutica jobs search` uses these two public examples only when the registry is
+# unreachable or absent (404). Keep installer layout aligned with the CLI's
+# `$script_dir/../protocol/examples` lookup.
+echo -e "${BLUE}→${NC} Downloading bundled registry fallback..."
+curl -fsSL "$REPO_RAW/protocol/examples/sample_card/profile.json" \
+    -o "$CANDIDATE_EXAMPLE_DIR/profile.json"
+curl -fsSL "$REPO_RAW/protocol/examples/employer_card/roles/senior-ai-architect.json" \
+    -o "$ROLE_EXAMPLE_DIR/senior-ai-architect.json"
 
 # --- Step 7: Add to PATH ---
 SHELL_RC=""

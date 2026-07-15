@@ -9,8 +9,14 @@ import Card from '@components/Card.astro';
 
 The Scoutica CLI is a single Bash script installed to `~/.scoutica/bin/scoutica`. It handles the full lifecycle of a Skill Card — from creation to validation, publishing, discovery, and now agent-to-agent messaging across the network.
 
+This page documents the POSIX implementation 0.4.0. Windows ships PowerShell implementation 0.1.0
+for protocol 0.4.0 under capability set
+`windows-subset-v1`; it supports only `init`, `init --ai`, `validate`, `publish`,
+`info`, `help`, and `version`. Other top-level commands fail explicitly as
+unsupported. Full Windows parity is parked; see the [platform matrix](/installation#platform-capability-matrix).
+
 <Note>
-Scoutica is **server-less**. Every command runs locally against files you own; the network layer moves data through public Git repositories and pull requests, never a central broker. Your data never leaves your machine unless you publish it.
+Scoutica has no central application server. Commands operate on files you own, but network-capable commands contact configured services. In particular, `scan` may send the full generated prompt and document text to a remote-capable AI provider; `publish`, registry, and messaging commands have their own network boundaries.
 </Note>
 
 ## Help output
@@ -46,7 +52,7 @@ Usage:  scoutica <command> [options] [directory]
   jobs search             Search the registry for candidates or roles
   send <url> --type ...    Send a message to another agent
   inbox                   Check for incoming messages
-  reply <msg_id> --accept Accept/reject a message
+  reply <msg_id> --accept [--card <dir>]  Reply using your local card identity
   deliver                 Push pending messages to recipients
   register <dir> --type   Generate registry entry for PR submission
   identity init           Generate your Nostr keypair

@@ -8,7 +8,7 @@ Usage:
     python validate_card.py ./path/to/employer-card/ --type employer  # Employer
 
 Requirements:
-    pip install jsonschema pyyaml
+    python3 -m pip install 'jsonschema[format]' PyYAML
 
 Candidate Card must contain:
     - profile.json  (validated against candidate_profile.schema.json)
@@ -23,50 +23,70 @@ Employer Card must contain:
 """
 
 import json
+import re
 import sys
-import os
-import glob
+from functools import lru_cache
 from pathlib import Path
+from typing import Any, Optional
 
 try:
     import jsonschema
 except ImportError:
     print("❌ Missing dependency: jsonschema")
-    print("   Install with: pip install jsonschema")
+    print("   Run: python3 -m pip install 'jsonschema[format]' PyYAML")
     sys.exit(1)
 
 try:
     import yaml
+    from yaml.constructor import ConstructorError
+    from yaml.nodes import MappingNode
+    from yaml.tokens import AliasToken, AnchorToken
 except ImportError:
     print("❌ Missing dependency: pyyaml")
-    print("   Install with: pip install pyyaml")
+    print("   Run: python3 -m pip install 'jsonschema[format]' PyYAML")
     sys.exit(1)
 
 
-# Resolve schema directories — collect ALL valid search paths
+# Resolve schemas only relative to this trusted checkout/install. A custom schema
+# tree is accepted only through the explicit, absolute --schema-dir option.
 SCRIPT_DIR = Path(__file__).resolve().parent
+TRUSTED_SCHEMA_DIRS = (
+    (SCRIPT_DIR.parent / "protocol" / "platform" / "01_schemas").resolve(),
+    (SCRIPT_DIR.parent / "schemas").resolve(),
+)
+SCHEMA_SEARCH_PATHS = [path for path in TRUSTED_SCHEMA_DIRS if path.is_dir()]
+REQUIRED_FORMAT_CHECKERS = {"date", "date-time", "email", "hostname", "uri"}
 
-# All directories to search for schemas (in priority order):
-SCHEMA_SEARCH_PATHS = []
-_candidate_dirs = [
-    # 1. SCOUTICA_HOME env var (user override)
-    Path(os.environ.get("SCOUTICA_HOME", "")) / "schemas",
-    # 2. Installed location: ~/.scoutica/schemas/
-    Path.home() / ".scoutica" / "schemas",
-    # 3. Dev repo: script is in tools/, candidate schemas in protocol/platform/01_schemas/
-    SCRIPT_DIR.parent / "protocol" / "platform" / "01_schemas",
-    # 4. Dev repo: script is in tools/, recruiter schemas in schemas/
-    SCRIPT_DIR.parent / "schemas",
-    # 5. Same directory as the script (edge case)
-    SCRIPT_DIR / "schemas",
-]
 
-for d in _candidate_dirs:
-    if d.is_dir():
-        SCHEMA_SEARCH_PATHS.append(d)
+def ensure_format_support() -> tuple:
+    """Refuse validation when optional jsonschema format support is incomplete."""
+    available = set(jsonschema.FormatChecker.checkers)
+    missing = sorted(REQUIRED_FORMAT_CHECKERS - available)
+    if missing:
+        return False, (
+            "❌ Missing dependency [FORMAT_CHECKERS_MISSING]: "
+            f"jsonschema format checkers unavailable: {', '.join(missing)}\n"
+            "   Run: python3 -m pip install 'jsonschema[format]' PyYAML"
+        )
+    return True, None
 
-# Primary display directory (first found, for user messages)
-SCHEMA_DIR = SCHEMA_SEARCH_PATHS[0] if SCHEMA_SEARCH_PATHS else (Path.home() / ".scoutica" / "schemas")
+
+def configure_schema_search(schema_override: Optional[str] = None) -> tuple:
+    """Configure trusted schema roots, or one explicit absolute custom root."""
+    global SCHEMA_SEARCH_PATHS
+
+    if schema_override is None:
+        SCHEMA_SEARCH_PATHS = [path for path in TRUSTED_SCHEMA_DIRS if path.is_dir()]
+        return True, None
+
+    override = Path(schema_override).expanduser()
+    if not override.is_absolute():
+        return False, "❌ Schema directory [SCHEMA_DIR_NOT_ABSOLUTE]: --schema-dir must be an absolute path"
+    if not override.is_dir():
+        return False, f"❌ Schema directory [SCHEMA_DIR_NOT_FOUND]: not a directory — {override}"
+
+    SCHEMA_SEARCH_PATHS = [override.resolve()]
+    return True, None
 
 
 # ─── Candidate Validations ──────────────────────────────────────────
@@ -128,8 +148,85 @@ def resolve_schema_path(schema_name: str) -> Path:
         candidate = search_dir / schema_name
         if candidate.exists():
             return candidate
-    # Return the primary dir path for error messages
-    return SCHEMA_DIR / schema_name
+    # Return a deterministic candidate for error messages.
+    if SCHEMA_SEARCH_PATHS:
+        return SCHEMA_SEARCH_PATHS[0] / schema_name
+    return TRUSTED_SCHEMA_DIRS[0] / schema_name
+
+
+def schema_search_display() -> str:
+    if SCHEMA_SEARCH_PATHS:
+        return ", ".join(str(path) for path in SCHEMA_SEARCH_PATHS)
+    return "<no trusted schema directory found>"
+
+
+@lru_cache(maxsize=None)
+def load_schema_validator(schema_path: Path):
+    """Load, check, and compile a schema with its declared JSON Schema draft."""
+    schema = load_json(schema_path)
+    validator_class = jsonschema.validators.validator_for(schema)
+    validator_class.check_schema(schema)
+    return validator_class(schema, format_checker=jsonschema.FormatChecker())
+
+
+def validation_error_message(label: str, error: jsonschema.ValidationError) -> str:
+    path = "$"
+    for component in error.absolute_path:
+        path += f"[{component}]" if isinstance(component, int) else f".{component}"
+    return (
+        f"❌ {label} [VALIDATION_ERROR] path={path} rule={error.validator}: "
+        f"{error.message}"
+    )
+
+
+class UniqueKeySafeLoader(yaml.SafeLoader):
+    """Safe YAML loader that rejects duplicate keys at every mapping depth."""
+
+
+class DuplicateKeyError(ConstructorError):
+    """Raised when a YAML mapping repeats a key."""
+
+
+def _construct_unique_mapping(
+    loader: UniqueKeySafeLoader, node: MappingNode, deep: bool = False
+) -> dict[Any, Any]:
+    mapping: dict[Any, Any] = {}
+    for key_node, value_node in node.value:
+        key = loader.construct_object(key_node, deep=deep)
+        try:
+            duplicate = key in mapping
+        except TypeError as exc:
+            raise DuplicateKeyError(
+                "while constructing a mapping",
+                node.start_mark,
+                "found an unhashable mapping key",
+                key_node.start_mark,
+            ) from exc
+        if duplicate:
+            raise DuplicateKeyError(
+                "while constructing a mapping",
+                node.start_mark,
+                f"found duplicate key {key!r}",
+                key_node.start_mark,
+            )
+        mapping[key] = loader.construct_object(value_node, deep=deep)
+    return mapping
+
+
+UniqueKeySafeLoader.add_constructor(
+    yaml.resolver.BaseResolver.DEFAULT_MAPPING_TAG,
+    _construct_unique_mapping,
+)
+
+
+SEMVER_PATTERN = re.compile(
+    r"^(0|[1-9][0-9]*)\."
+    r"(0|[1-9][0-9]*)\."
+    r"(0|[1-9][0-9]*)"
+    r"(?:-(?:0|[1-9][0-9]*|[0-9A-Za-z-]*[A-Za-z-][0-9A-Za-z-]*)"
+    r"(?:\.(?:0|[1-9][0-9]*|[0-9A-Za-z-]*[A-Za-z-][0-9A-Za-z-]*))*)?"
+    r"(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$"
+)
 
 
 def validate_file(card_dir: Path, validation: dict) -> tuple:
@@ -144,7 +241,10 @@ def validate_file(card_dir: Path, validation: dict) -> tuple:
 
     # Check schema exists
     if not schema_path.exists():
-        return False, f"❌ {label}: Schema not found — {validation['schema']} (searched {SCHEMA_DIR})"
+        return False, (
+            f"❌ {label} [SCHEMA_NOT_FOUND]: {validation['schema']} "
+            f"(searched {schema_search_display()})"
+        )
 
     # Load data
     try:
@@ -155,36 +255,104 @@ def validate_file(card_dir: Path, validation: dict) -> tuple:
     except Exception as e:
         return False, f"❌ {label}: Failed to parse {validation['file']} — {e}"
 
-    # Load schema
+    # Load and compile the declared draft once, including schema self-validation.
     try:
-        schema = load_json(schema_path)
+        validator = load_schema_validator(schema_path)
+    except jsonschema.SchemaError as e:
+        path = ".".join(str(part) for part in e.absolute_path) or "$"
+        return False, f"❌ {label} [SCHEMA_INVALID] path={path}: {e.message}"
     except Exception as e:
-        return False, f"❌ {label}: Failed to parse schema — {e}"
+        return False, f"❌ {label} [SCHEMA_PARSE_ERROR]: {e}"
 
     # Validate
-    try:
-        jsonschema.validate(instance=data, schema=schema)
-        return True, f"✅ {label}: Valid"
-    except jsonschema.ValidationError as e:
-        path = " → ".join(str(p) for p in e.absolute_path) if e.absolute_path else "root"
-        return False, f"❌ {label}: {e.message} (at {path})"
+    errors = sorted(
+        validator.iter_errors(data),
+        key=lambda error: (
+            tuple(str(part) for part in error.absolute_path),
+            str(error.validator),
+            error.message,
+        ),
+    )
+    if errors:
+        return False, validation_error_message(label, errors[0])
+    return True, f"✅ {label}: Valid"
 
 
 def check_skill_md(card_dir: Path) -> tuple:
-    """Check that SKILL.md exists and has frontmatter."""
+    """Validate candidate SKILL.md frontmatter against the protocol contract."""
     skill_path = card_dir / "SKILL.md"
     if not skill_path.exists():
         return False, "❌ SKILL.md: File not found"
 
-    content = skill_path.read_text(encoding="utf-8")
-    if not content.startswith("---"):
-        return False, "❌ SKILL.md: Missing YAML frontmatter (must start with ---)"
+    try:
+        content = skill_path.read_text(encoding="utf-8")
+    except (OSError, UnicodeError) as exc:
+        return False, f"❌ SKILL.md [SKILL_READ_ERROR]: {exc}"
 
-    parts = content.split("---", 2)
-    if len(parts) < 3:
-        return False, "❌ SKILL.md: Invalid frontmatter (missing closing ---)"
+    lines = content.splitlines()
+    if not lines or lines[0] != "---":
+        return False, "❌ SKILL.md [FRONTMATTER_FENCE]: first line must be exactly ---"
 
-    return True, "✅ SKILL.md: Valid (frontmatter present)"
+    try:
+        closing_fence = lines.index("---", 1)
+    except ValueError:
+        return False, "❌ SKILL.md [FRONTMATTER_FENCE]: missing closing --- fence"
+    if closing_fence == 1:
+        return False, "❌ SKILL.md [FRONTMATTER_EMPTY]: frontmatter must not be empty"
+
+    frontmatter_text = "\n".join(lines[1:closing_fence]) + "\n"
+    try:
+        for token in yaml.scan(frontmatter_text):
+            if isinstance(token, (AnchorToken, AliasToken)):
+                return False, "❌ SKILL.md [FRONTMATTER_ALIAS]: YAML anchors and aliases are not allowed"
+        documents = list(yaml.load_all(frontmatter_text, Loader=UniqueKeySafeLoader))
+    except DuplicateKeyError as exc:
+        return False, f"❌ SKILL.md [FRONTMATTER_DUPLICATE_KEY]: {exc}"
+    except yaml.YAMLError as exc:
+        return False, f"❌ SKILL.md [FRONTMATTER_YAML]: {exc}"
+
+    if len(documents) != 1:
+        return False, "❌ SKILL.md [FRONTMATTER_DOCUMENTS]: exactly one YAML document is required"
+    frontmatter = documents[0]
+    if not isinstance(frontmatter, dict):
+        return False, "❌ SKILL.md [FRONTMATTER_ROOT_TYPE]: frontmatter root must be a mapping"
+
+    allowed_root = {"name", "description", "metadata"}
+    unknown_root = sorted(str(key) for key in set(frontmatter) - allowed_root)
+    missing_root = sorted({"name", "description"} - set(frontmatter))
+    if unknown_root:
+        return False, f"❌ SKILL.md [FRONTMATTER_ROOT_KEYS]: unknown keys: {', '.join(unknown_root)}"
+    if missing_root:
+        return False, f"❌ SKILL.md [FRONTMATTER_ROOT_KEYS]: missing keys: {', '.join(missing_root)}"
+    if frontmatter["name"] != "scoutica":
+        return False, "❌ SKILL.md [FRONTMATTER_NAME]: name must be the string scoutica"
+
+    description = frontmatter["description"]
+    if not isinstance(description, str) or not description.strip() or "\n" in description or "\r" in description:
+        return False, "❌ SKILL.md [FRONTMATTER_DESCRIPTION]: description must be a nonempty single-line string"
+
+    if "metadata" in frontmatter:
+        metadata = frontmatter["metadata"]
+        if not isinstance(metadata, dict):
+            return False, "❌ SKILL.md [FRONTMATTER_METADATA_TYPE]: metadata must be a mapping"
+        allowed_metadata = {"tags", "author", "contact", "version"}
+        unknown_metadata = sorted(str(key) for key in set(metadata) - allowed_metadata)
+        missing_metadata = sorted({"tags", "author", "version"} - set(metadata))
+        if unknown_metadata:
+            return False, f"❌ SKILL.md [FRONTMATTER_METADATA_KEYS]: unknown keys: {', '.join(unknown_metadata)}"
+        if missing_metadata:
+            return False, f"❌ SKILL.md [FRONTMATTER_METADATA_KEYS]: missing keys: {', '.join(missing_metadata)}"
+        if not isinstance(metadata["tags"], str):
+            return False, "❌ SKILL.md [FRONTMATTER_TAGS]: metadata.tags must be a string"
+        if not isinstance(metadata["author"], str) or not metadata["author"].strip():
+            return False, "❌ SKILL.md [FRONTMATTER_AUTHOR]: metadata.author must be a nonempty string"
+        if "contact" in metadata and not isinstance(metadata["contact"], str):
+            return False, "❌ SKILL.md [FRONTMATTER_CONTACT]: metadata.contact must be a string"
+        version = metadata["version"]
+        if not isinstance(version, str) or not SEMVER_PATTERN.fullmatch(version):
+            return False, "❌ SKILL.md [FRONTMATTER_VERSION]: metadata.version must be a SemVer string"
+
+    return True, "✅ SKILL.md: Valid"
 
 
 def check_rules_dir(card_dir: Path) -> tuple:
@@ -216,13 +384,17 @@ def validate_roles(card_dir: Path) -> list:
 
     schema_path = resolve_schema_path(ROLE_SCHEMA)
     if not schema_path.exists():
-        results.append((False, f"❌ Role Schema: Not found — {ROLE_SCHEMA}"))
+        results.append((False, f"❌ Role Schema [SCHEMA_NOT_FOUND]: {ROLE_SCHEMA}"))
         return results
 
     try:
-        schema = load_json(schema_path)
+        validator = load_schema_validator(schema_path)
+    except jsonschema.SchemaError as e:
+        path = ".".join(str(part) for part in e.absolute_path) or "$"
+        results.append((False, f"❌ Role Schema [SCHEMA_INVALID] path={path}: {e.message}"))
+        return results
     except Exception as e:
-        results.append((False, f"❌ Role Schema: Failed to parse — {e}"))
+        results.append((False, f"❌ Role Schema [SCHEMA_PARSE_ERROR]: {e}"))
         return results
 
     for role_file in role_files:
@@ -233,12 +405,18 @@ def validate_roles(card_dir: Path) -> list:
             results.append((False, f"❌ {label}: Failed to parse — {e}"))
             continue
 
-        try:
-            jsonschema.validate(instance=data, schema=schema)
+        errors = sorted(
+            validator.iter_errors(data),
+            key=lambda error: (
+                tuple(str(part) for part in error.absolute_path),
+                str(error.validator),
+                error.message,
+            ),
+        )
+        if errors:
+            results.append((False, validation_error_message(label, errors[0])))
+        else:
             results.append((True, f"✅ {label}: Valid"))
-        except jsonschema.ValidationError as e:
-            path = " → ".join(str(p) for p in e.absolute_path) if e.absolute_path else "root"
-            results.append((False, f"❌ {label}: {e.message} (at {path})"))
 
     return results
 
@@ -266,39 +444,68 @@ def main():
     # Parse arguments
     args = sys.argv[1:]
     card_type = "candidate"  # default
+    schema_override = None
+    positional = []
 
-    # Extract --type flag
-    if "--type" in args:
-        idx = args.index("--type")
-        if idx + 1 < len(args):
-            card_type = args[idx + 1]
-            args = args[:idx] + args[idx + 2:]
-        else:
-            print("❌ --type requires a value (candidate or employer)")
+    index = 0
+    while index < len(args):
+        argument = args[index]
+        if argument in ("--type", "--schema-dir"):
+            if index + 1 >= len(args):
+                print(f"❌ {argument} requires a value")
+                sys.exit(1)
+            value = args[index + 1]
+            if argument == "--type":
+                card_type = value
+            else:
+                schema_override = value
+            index += 2
+        elif argument in ("-h", "--help"):
+            print("Usage: python validate_card.py <card-directory> [--type candidate|employer] [--schema-dir /absolute/path]")
+            sys.exit(0)
+        elif argument.startswith("-"):
+            print(f"❌ Unknown option: {argument}")
             sys.exit(1)
+        else:
+            positional.append(argument)
+            index += 1
 
     if card_type not in ("candidate", "employer"):
         print(f"❌ Unknown card type: {card_type}")
         print("   Valid types: candidate, employer")
         sys.exit(1)
 
-    if not args:
+    if not positional:
         print("Scoutica Card Validator")
-        print("Usage: python validate_card.py <card-directory> [--type candidate|employer]")
+        print("Usage: python validate_card.py <card-directory> [--type candidate|employer] [--schema-dir /absolute/path]")
         print()
         print("Examples:")
         print("  python validate_card.py ./my-scoutica-card/")
         print("  python validate_card.py ./employer-card/ --type employer")
         sys.exit(1)
+    if len(positional) != 1:
+        print(f"❌ Expected one card directory, got {len(positional)}")
+        sys.exit(1)
 
-    card_dir = Path(args[0]).resolve()
+    formats_ready, formats_error = ensure_format_support()
+    if not formats_ready:
+        print(formats_error)
+        sys.exit(1)
+
+    configured, configuration_error = configure_schema_search(schema_override)
+    if not configured:
+        print(configuration_error)
+        sys.exit(1)
+
+    card_dir = Path(positional[0]).resolve()
     if not card_dir.is_dir():
         print(f"❌ Not a directory: {card_dir}")
         sys.exit(1)
 
     type_label = "Employer Card" if card_type == "employer" else "Candidate Card"
     print(f"🔍 Validating Scoutica {type_label}: {card_dir}")
-    print(f"   Schema directory: {SCHEMA_DIR}")
+    schema_label = "Schema override" if schema_override is not None else "Schema directories"
+    print(f"   {schema_label}: {schema_search_display()}")
     print()
 
     # Run validation

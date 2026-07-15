@@ -428,16 +428,20 @@ def _write_card(dstdir, profile, rules, evidence):
 
 def build_skill_md(profile):
     # Frontmatter is SERIALIZED, never string-interpolated. skills[] is untrusted imported text; a
-    # value like "Go: bad" or a stray quote would corrupt hand-built YAML (and validate_card.py does
-    # not parse SKILL.md frontmatter, so it would ship silently). Routing through the YAML serializer
-    # quotes/escapes every value — the repo's "all file generation via json.dump/yaml.dump" rule.
+    # value like "Go: bad" or a stray quote would corrupt hand-built YAML. Routing through the YAML
+    # serializer quotes/escapes every value and keeps the strict candidate frontmatter contract.
+    def one_line(value, fallback=""):
+        return " ".join(str(value or "").split()) or fallback
+
+    author = one_line(profile.get("name"), "Scoutica candidate")
+    tags = ", ".join(one_line(skill) for skill in profile.get("skills", [])[:8] if one_line(skill))
     front = _yaml_dump_str({
         "name": "scoutica",
-        "description": "AI-readable professional profile with automated opportunity filtering",
+        "description": f"{author} — AI-readable professional profile with automated opportunity filtering",
         "metadata": {
-            "tags": ", ".join(profile.get("skills", [])[:8]),
+            "tags": tags,
+            "author": author,
             "version": SCHEMA_VERSION,
-            "source": "ai-job-search import",
         },
     }).rstrip("\n")
     return (

@@ -6,7 +6,7 @@
 - **Schemas:** `schemas/` (JSON Schema)
 - **Agent skills:** `.agents/skills/` (YAML frontmatter + Markdown)
 - **Templates:** `protocol/templates/`
-- **Docs:** `docs-site/`
+- **Docs:** `docs/` (Astro/Starlight; content in `docs/src/content/docs/`)
 
 ## Rules for Contributing Agents
 

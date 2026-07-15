@@ -40,11 +40,10 @@ scoutica-protocol/
 ├── README.md                       ← You are here
 ├── SKILL.md                        ← Agent instructions (candidate side)
 ├── RECRUITER_SKILL.md              ← Agent instructions (employer side)
-├── docs-site/                      ← 📚 DOCUMENTATION (Mintlify → docs.scoutica.com)
-│   ├── docs.json                   ← Mintlify configuration
-│   ├── cli/                        ← CLI command reference
-│   ├── guides/                     ← User guides & use cases
-│   └── architecture/               ← 6 pillars, data model, compliance
+├── docs/                           ← 📚 DOCUMENTATION (Astro/Starlight → docs.scoutica.com)
+│   ├── astro.config.mjs            ← Starlight navigation and site configuration
+│   ├── package.json                ← Docs build and validation commands
+│   └── src/content/docs/           ← CLI reference, guides, and architecture
 ├── .specs/                         ← 🔬 SPECIFICATIONS
 │   ├── ROADMAP.md                  ← 5-phase roadmap
 │   └── network/                    ← Network architecture specs
@@ -126,6 +125,14 @@ scoutica scan .
 
 ### Option 2: Manual CLI Install (Recommended for Devs)
 
+Requires Python 3.11+ with the strict validation dependencies installed:
+
+```bash
+python3 -m pip install 'jsonschema[format]' PyYAML
+```
+
+The installer verifies these prerequisites before writing files. It never installs Python packages into your global environment.
+
 **macOS / Linux:**
 
 ```bash
@@ -140,7 +147,7 @@ curl -fsSL https://raw.githubusercontent.com/traylinx/scoutica-protocol/main/ins
 ║                                                       ║
 ╚═══════════════════════════════════════════════════════╝
 
-→ Creating directories in /Users/sebastian/.scoutica...
+→ Creating directories in ~/.scoutica...
 → Downloading scoutica CLI...
 → Downloading JSON schemas...
 → Downloading card templates...
@@ -164,7 +171,14 @@ curl -fsSL https://raw.githubusercontent.com/traylinx/scoutica-protocol/main/ins
 irm https://raw.githubusercontent.com/traylinx/scoutica-protocol/main/install.ps1 | iex
 ```
 
-Once installed, use the built-in help to see all commands:
+Windows currently ships the **PowerShell implementation 0.1.0** for protocol
+0.4.0 under capability set **`windows-subset-v1`**. Its supported surface is
+exactly `init`, `init --ai`, `validate`, `publish`, `info`, `help`, and `version`.
+Other commands are deliberately reported as unsupported (exit 2); full POSIX
+command parity is parked for a future effort.
+
+Once installed, use the built-in help to see the commands supported by your
+platform. The full help surface below is from the POSIX implementation 0.4.0:
 
 ```bash
 scoutica help
@@ -184,7 +198,7 @@ Usage:  scoutica <command> [options] [directory]
 🔧 Manage your card:
   info     [dir]       View your card summary
   preview  [dir]       Build HTML layout and publish to here.now
-  validate [dir]       Validate card against protocol schemas
+  validate [dir] [--schema-dir /abs]  Validate against trusted or explicit schemas
   publish  [dir]       Push card to GitHub
   resolve  <url>       Fetch and display any card from a URL
 
@@ -230,11 +244,11 @@ Put your CV, certs, and portfolio in a folder and let AI extract your skill card
 
 ```bash
 scoutica scan ~/my-docs/                  # auto-detects installed CLI
-scoutica scan ~/my-docs/ --with gemini    # use a specific provider
+scoutica scan ~/my-docs/ --with gemini --allow-remote-provider
 scoutica scan ~/my-docs/ --clipboard      # copy prompt to clipboard (no CLI needed)
 ```
 
-Your data never leaves your machine — everything runs through your local AI CLI.
+Document extraction happens locally. Remote-capable AI providers send the full generated prompt and document text to a remote service only after a per-invocation confirmation, or when noninteractive automation supplies `--allow-remote-provider`. Ollama is treated as local only for its default or a loopback endpoint. `--clipboard` makes no Scoutica network call but copies the same sensitive prompt to your system clipboard for user-controlled transfer. Scan state is private to the resulting card at `<card>/.scoutica/state.json`.
 
 **Supported providers** (auto-detected in this order):
 
@@ -243,10 +257,12 @@ Your data never leaves your machine — everything runs through your local AI CL
 | Gemini CLI | `gemini` | [google-gemini/gemini-cli](https://github.com/google-gemini/gemini-cli) |
 | Claude Code | `claude` | [anthropics/claude-code](https://github.com/anthropics/claude-code) |
 | OpenAI Codex | `codex` | [openai/codex](https://github.com/openai/codex) |
-| Mistral Vibe | `vibe` | [mistralai/mistral-vibe](https://github.com/mistralai/mistral-vibe) |
 | OpenCode | `opencode` | [opencode-ai/opencode](https://github.com/opencode-ai/opencode) |
 | Ollama | `ollama` | [ollama.com](https://ollama.com) |
 | switchAILocal | `ail` | [traylinx/switchAILocal](https://github.com/traylinx/switchAILocal) |
+
+Vibe and OpenClaw scan adapters are intentionally disabled until they expose a characterized
+stdin or prompt-file interface; Scoutica will not place source documents in process arguments.
 
 ---
 
@@ -307,7 +323,7 @@ scoutica import aijs ~/ai-job-search --to ./my-card --salary-floor-eur 85000
 scoutica validate ./my-card
 ```
 
-Keep applying with ai-job-search *and* become discoverable with Scoutica off one profile. Your behavioral profile, interview stories, and salary data are never imported (data minimization). See the [bridge guide](docs-site/guides/from-ai-job-search.mdx) and [`scoutica import`](docs-site/cli/import.mdx).
+Keep applying with ai-job-search *and* become discoverable with Scoutica off one profile. Your behavioral profile, interview stories, and salary data are never imported (data minimization). See the [bridge guide](docs/src/content/docs/guides/from-ai-job-search.mdx) and [`scoutica import`](docs/src/content/docs/cli/import.mdx).
 
 ---
 

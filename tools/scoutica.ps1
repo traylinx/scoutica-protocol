@@ -1,4 +1,4 @@
-# ============================================================================
+﻿# ============================================================================
 # Scoutica CLI — Windows PowerShell Edition
 #
 # Commands:
@@ -11,7 +11,14 @@
 # ============================================================================
 
 $ErrorActionPreference = "Stop"
-$VERSION = "0.1.0"
+$PROTOCOL_VERSION = "0.4.0"
+$IMPLEMENTATION_VERSION = "0.1.0"
+$CAPABILITY_SET = "windows-subset-v1"
+$KNOWN_UNSUPPORTED_COMMANDS = @(
+    "import", "scan", "resolve", "preview", "update", "doctor", "status", "logs",
+    "org", "role", "evaluate", "jobs", "send", "inbox", "reply", "deliver",
+    "register", "identity"
+)
 $SCOUTICA_HOME = if ($env:SCOUTICA_HOME) { $env:SCOUTICA_HOME } else { Join-Path $env:USERPROFILE ".scoutica" }
 $SCHEMAS_DIR = Join-Path $SCOUTICA_HOME "schemas"
 $TEMPLATES_DIR = Join-Path $SCOUTICA_HOME "templates"
@@ -427,24 +434,30 @@ function Invoke-InitAI([string]$targetDir = ".") {
 function Invoke-Validate([string]$cardDir = ".") {
     Write-Header "Validate Skill Card"
     
-    # Find Python
+    # Select a runnable validation interpreter, not merely the first command
+    # name present on PATH. Windows can expose python3.exe as a non-functional
+    # Store alias even when setup-python installed a working python.exe.
     $pythonCmd = $null
-    if (Get-Command python3 -ErrorAction SilentlyContinue) { $pythonCmd = "python3" }
-    elseif (Get-Command python -ErrorAction SilentlyContinue) { $pythonCmd = "python" }
-    elseif (Get-Command py -ErrorAction SilentlyContinue) { $pythonCmd = "py" }
+    foreach ($candidate in @("python3.13", "python3.12", "python3.11", "python3", "python", "py")) {
+        if (-not (Get-Command $candidate -ErrorAction SilentlyContinue)) { continue }
+        & $candidate -c "import sys; sys.exit(0 if sys.version_info >= (3, 11) else 1)" 2>$null
+        if ($LASTEXITCODE -ne 0) { continue }
+        & $candidate -c "import jsonschema,yaml,sys; c=jsonschema.FormatChecker(); bad=(('relative/path','uri'),('bad host','hostname'),('2024-99-99','date'),('not-a-date','date-time')); sys.exit(0 if all(not c.conforms(value,fmt) for value,fmt in bad) else 1)" 2>$null
+        if ($LASTEXITCODE -eq 0) { $pythonCmd = $candidate; break }
+    }
     
     if (-not $pythonCmd) {
-        Write-Err "Python is required for schema validation"
-        Write-Host "  Install Python from https://www.python.org/downloads/" -ForegroundColor DarkGray
+        Write-Err "Python 3.11+, jsonschema, and PyYAML are required for schema validation"
+        Write-Host "  Run: python3 -m pip install 'jsonschema[format]' PyYAML" -ForegroundColor DarkGray
         exit 1
     }
     
     # Find validator — use $SCRIPT_ROOT captured at top level (not $MyInvocation which is empty in functions)
     $validator = $null
     $candidates = @(
-        (Join-Path $SCOUTICA_HOME "bin" "validate_card.py"),
+        (Join-Path (Join-Path $SCOUTICA_HOME "bin") "validate_card.py"),
         (Join-Path $SCRIPT_ROOT "validate_card.py"),
-        (Join-Path $SCOUTICA_HOME "tools" "validate_card.py")
+        (Join-Path (Join-Path $SCOUTICA_HOME "tools") "validate_card.py")
     )
     foreach ($c in $candidates) {
         if (Test-Path $c) { $validator = $c; break }
@@ -455,10 +468,58 @@ function Invoke-Validate([string]$cardDir = ".") {
         exit 1
     }
     
-    & $pythonCmd $validator $cardDir
+    # PowerShell can redirect the validator through a cp1252 console even on
+    # modern Windows. Force Python's UTF-8 mode so its Unicode diagnostics do
+    # not crash before validation begins.
+    & $pythonCmd -X utf8 $validator $cardDir
+    $validationExit = $LASTEXITCODE
+    if ($validationExit -ne 0) { exit $validationExit }
 }
 
 # ─── PUBLISH Command ─────────────────────────────────────────────────────────
+
+function Get-PublishCanonicalPaths {
+    # Exact candidate-card publication surface. Both index checks and staging
+    # consume this one list so a directory can never broaden the boundary.
+    $paths = @()
+    foreach ($path in @('profile.json','rules.yaml','evidence.json','SKILL.md','scoutica.json','README.md','.gitignore')) {
+        $paths += $path
+    }
+    $paths += @(
+        'rules/evaluate-fit.md',
+        'rules/negotiate-terms.md',
+        'rules/verify-evidence.md',
+        'rules/request-interview.md'
+    )
+    return $paths
+}
+
+function Write-PublishError([string]$message) {
+    [Console]::Error.WriteLine("  ❌ $message")
+}
+
+function Test-PublishIndex([System.Collections.Generic.HashSet[string]]$allowedPaths, [string]$phase) {
+    $stagedPaths = @(& git diff --cached --name-only --)
+    if ($LASTEXITCODE -ne 0) {
+        Write-PublishError "Unable to inspect the Git index during $phase."
+        return $false
+    }
+
+    $blockedPaths = @()
+    foreach ($path in $stagedPaths) {
+        if (-not $allowedPaths.Contains([string]$path)) {
+            $blockedPaths += [string]$path
+        }
+    }
+    if ($blockedPaths.Count -gt 0) {
+        Write-PublishError "Refusing publish: the Git index contains non-canonical path(s):"
+        foreach ($path in $blockedPaths) {
+            [Console]::Error.WriteLine("     $path")
+        }
+        return $false
+    }
+    return $true
+}
 
 function Invoke-Publish([string]$cardDir = ".") {
     Write-Header "Publish to GitHub"
@@ -471,40 +532,118 @@ function Invoke-Publish([string]$cardDir = ".") {
     Push-Location $cardDir
     try {
         if (Test-Path ".git") {
-            foreach ($f in @('profile.json','rules.yaml','evidence.json','SKILL.md','scoutica.json','.gitignore')) {
-                if (Test-Path $f) { git add -- $f }
+            $allowedPaths = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::Ordinal)
+            foreach ($path in (Get-PublishCanonicalPaths)) {
+                [void]$allowedPaths.Add($path)
             }
-            if (Test-Path 'rules') { git add -- 'rules' }
-            $msg = "Update Scoutica Skill Card — $(Get-Date -Format 'yyyy-MM-dd')"
-            git commit -m $msg 2>$null
-            if ($LASTEXITCODE -ne 0) { Write-Warn "No changes to commit"; return }
-            
-            $remote = git remote -v 2>$null
-            if ($remote -match "origin") {
-                $branch = git branch --show-current
-                git push origin $branch
-                if ($LASTEXITCODE -eq 0) { Write-Success "Pushed to GitHub!" }
-                else { Write-Err "Push failed. Check your remote configuration." }
-            } else {
-                Write-Warn "No remote 'origin' configured."
-                Write-Host "  Run: git remote add origin https://github.com/YOU/YOUR-CARD.git" -ForegroundColor DarkGray
+
+            # Refuse before any Scoutica staging. A refusal leaves the caller's
+            # pre-existing index byte-for-byte unchanged.
+            if (-not (Test-PublishIndex $allowedPaths "pre-staging check")) { exit 1 }
+
+            $savedErrorActionPreference = $ErrorActionPreference
+            try {
+                # Missing origin is an expected, explicitly diagnosed state.
+                # Windows PowerShell 5.1 otherwise promotes Git's stderr to a
+                # terminating NativeCommandError before this branch can run.
+                $ErrorActionPreference = "Continue"
+                $origin = & git remote get-url origin 2>$null
+                $originExit = $LASTEXITCODE
+            } finally {
+                $ErrorActionPreference = $savedErrorActionPreference
             }
+            if ($originExit -ne 0 -or [string]::IsNullOrWhiteSpace([string]$origin)) {
+                Write-PublishError "No remote 'origin' configured."
+                [Console]::Error.WriteLine("     Run: git remote add origin https://github.com/YOU/YOUR-CARD.git")
+                exit 1
+            }
+
+            $branch = & git branch --show-current 2>$null
+            if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace([string]$branch)) {
+                Write-PublishError "Cannot publish from a detached HEAD or unresolved branch."
+                exit 1
+            }
+
+            foreach ($path in (Get-PublishCanonicalPaths)) {
+                if (Test-Path -LiteralPath $path -PathType Leaf) {
+                    & git add -- $path
+                    if ($LASTEXITCODE -ne 0) {
+                        Write-PublishError ("Failed to stage canonical path: {0}" -f $path)
+                        exit 1
+                    }
+                }
+            }
+
+            # Defense in depth: prove the final index is still bounded before commit.
+            if (-not (Test-PublishIndex $allowedPaths "post-staging check")) { exit 1 }
+
+            & git diff --cached --quiet --exit-code --
+            $diffExit = $LASTEXITCODE
+            if ($diffExit -eq 1) {
+                $msg = "Update Scoutica Skill Card — $(Get-Date -Format 'yyyy-MM-dd')"
+                & git commit -m $msg 2>$null
+                if ($LASTEXITCODE -ne 0) {
+                    Write-PublishError "Commit failed; nothing was pushed."
+                    exit 1
+                }
+            } elseif ($diffExit -ne 0) {
+                Write-PublishError "Unable to inspect staged changes; nothing was pushed."
+                exit 1
+            }
+
+            & git push origin $branch
+            if ($LASTEXITCODE -ne 0) {
+                Write-PublishError "Push failed. Check your remote configuration or permissions."
+                exit 1
+            }
+            Write-Success "Pushed to GitHub!"
         } else {
             $repoName = Ask "GitHub repo name" "my-scoutica-card"
             $ghUser = Ask "GitHub username"
-            
-            git init
-            foreach ($f in @('profile.json','rules.yaml','evidence.json','SKILL.md','scoutica.json','.gitignore')) {
-                if (Test-Path $f) { git add -- $f }
+
+            & git init
+            if ($LASTEXITCODE -ne 0) {
+                Write-PublishError "Git repository initialization failed."
+                exit 1
             }
-            if (Test-Path 'rules') { git add -- 'rules' }
-            git commit -m "Initial Scoutica Skill Card"
-            git branch -M main
-            git remote add origin "https://github.com/$ghUser/$repoName.git"
-            
+
+            $allowedPaths = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::Ordinal)
+            foreach ($path in (Get-PublishCanonicalPaths)) {
+                [void]$allowedPaths.Add($path)
+            }
+            if (-not (Test-PublishIndex $allowedPaths "pre-staging check")) { exit 1 }
+
+            foreach ($path in (Get-PublishCanonicalPaths)) {
+                if (Test-Path -LiteralPath $path -PathType Leaf) {
+                    & git add -- $path
+                    if ($LASTEXITCODE -ne 0) {
+                        Write-PublishError ("Failed to stage canonical path: {0}" -f $path)
+                        exit 1
+                    }
+                }
+            }
+            if (-not (Test-PublishIndex $allowedPaths "post-staging check")) { exit 1 }
+
+            & git commit -m "Initial Scoutica Skill Card"
+            if ($LASTEXITCODE -ne 0) {
+                Write-PublishError "Commit failed; nothing was pushed."
+                exit 1
+            }
+            & git branch -M main
+            if ($LASTEXITCODE -ne 0) {
+                Write-PublishError "Failed to create the main branch."
+                exit 1
+            }
+            & git remote add origin "https://github.com/$ghUser/$repoName.git"
+            if ($LASTEXITCODE -ne 0) {
+                Write-PublishError "Failed to configure remote 'origin'."
+                exit 1
+            }
+
             Write-Host ""
-            Write-Host "  Next: Create the repo at https://github.com/new" -ForegroundColor White
-            Write-Host "  Then run: git push -u origin main" -ForegroundColor Cyan
+            Write-PublishError "Repository initialized locally, but it has not been published."
+            [Console]::Error.WriteLine("     Create the repo at https://github.com/new, then run this command again.")
+            exit 1
         }
     } finally {
         Pop-Location
@@ -541,7 +680,9 @@ function Invoke-Info([string]$cardDir = ".") {
 
 function Invoke-Help {
     Write-Host ""
-    Write-Host "  Scoutica CLI v$VERSION" -ForegroundColor White
+    Write-Host "  Scoutica Protocol $PROTOCOL_VERSION" -ForegroundColor White
+    Write-Host "  PowerShell implementation $IMPLEMENTATION_VERSION" -ForegroundColor DarkGray
+    Write-Host "  Capability set $CAPABILITY_SET" -ForegroundColor DarkGray
     Write-Host "  Your skills. Your rules. Your data." -ForegroundColor DarkGray
     Write-Host ""
     Write-Host "  Usage: scoutica <command> [options] [directory]" -ForegroundColor White
@@ -557,6 +698,12 @@ function Invoke-Help {
     Write-Host ""
     Write-Host "  Learn more: https://github.com/traylinx/scoutica-protocol" -ForegroundColor Cyan
     Write-Host ""
+}
+
+function Invoke-Version {
+    Write-Host "Scoutica Protocol $PROTOCOL_VERSION"
+    Write-Host "PowerShell implementation $IMPLEMENTATION_VERSION"
+    Write-Host "Capability set $CAPABILITY_SET"
 }
 
 # ─── Main Router ──────────────────────────────────────────────────────────────
@@ -578,8 +725,19 @@ switch ($command) {
     "help"     { Invoke-Help }
     "--help"   { Invoke-Help }
     "-h"       { Invoke-Help }
-    "version"  { Write-Host "scoutica v$VERSION" }
-    "--version" { Write-Host "scoutica v$VERSION" }
-    "-v"       { Write-Host "scoutica v$VERSION" }
-    default    { Write-Err "Unknown command: $command"; Invoke-Help; exit 1 }
+    "version"  { Invoke-Version }
+    "--version" { Invoke-Version }
+    "-v"       { Invoke-Version }
+    default    {
+        if ($KNOWN_UNSUPPORTED_COMMANDS -contains $command) {
+            [Console]::Error.WriteLine(
+                "Command '$command' is not supported by PowerShell capability set $CAPABILITY_SET. " +
+                "Use the POSIX implementation for this command."
+            )
+            exit 2
+        }
+        [Console]::Error.WriteLine(("Unknown command: {0}" -f $command))
+        Invoke-Help
+        exit 1
+    }
 }

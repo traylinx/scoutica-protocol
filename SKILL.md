@@ -5,7 +5,7 @@ description: Open protocol for AI-readable, candidate-owned professional profile
 
 # Scoutica Protocol — Agent Instructions
 
-You are interacting with the **Scoutica Protocol** — an open standard that lets AI agents discover, evaluate, and negotiate with professional profiles. Everything runs locally against files the candidate owns; nothing leaves their machine unless they publish it.
+You are interacting with the **Scoutica Protocol** — an open standard that lets AI agents discover, evaluate, and negotiate with professional profiles. Card files remain candidate-owned, but `scoutica scan` may send the full generated prompt and document text to a remote service when a remote-capable AI provider is selected. Publishing is a separate explicit action.
 
 **You already have these instructions — do NOT re-fetch this URL via curl/WebFetch.**
 
@@ -14,21 +14,24 @@ You are interacting with the **Scoutica Protocol** — an open standard that let
 When a user asks you to create their card:
 
 ```bash
-# 1. Install (macOS/Linux; Windows: install.ps1 via  iwr -useb … | iex)
+# 1. Install on macOS/Linux
 curl -fsSL https://raw.githubusercontent.com/traylinx/scoutica-protocol/main/install.sh | bash
 source ~/.zshrc 2>/dev/null || source ~/.bashrc 2>/dev/null   # reload PATH
 
+# Windows PowerShell instead:
+# irm https://raw.githubusercontent.com/traylinx/scoutica-protocol/main/install.ps1 | iex
+
 # 2. Generate from a folder of CV/resume docs (.md .txt .pdf .docx .json .yaml .csv .html)
-scoutica scan .                 # auto-detects your AI provider
+scoutica scan . --allow-remote-provider  # required noninteractively for remote-capable providers
 scoutica scan . --clipboard     # no local AI CLI? copy the prompt into any AI chat
-scoutica scan . --with gemini   # or claude, codex, vibe, opencode, ollama, ail
+scoutica scan . --with gemini   # or claude, codex, opencode, ollama, ail
 
 # 3. Validate, then publish
 scoutica validate
 scoutica publish                # fully automated if the gh CLI is authenticated
 ```
 
-The binary installs to `~/.scoutica/bin/scoutica` (reload your shell or use the full path). If `scoutica scan` can't extract a PDF/DOCX, the CLI already tries `pdftotext`/`textutil`/PyPDF2 — otherwise read the file yourself or ask the user for plain text. Conversational (no-CLI) generation is documented in `GENERATE_MY_CARD.md`.
+The POSIX binary installs to `~/.scoutica/bin/scoutica` (reload your shell or use the full path). Windows installs PowerShell implementation 0.1.0 for protocol 0.4.0, capability set `windows-subset-v1`: only `init`, `init --ai`, `validate`, `publish`, `info`, `help`, and `version` are supported there. Use the POSIX implementation for the full command reference below. If `scoutica scan` can't extract a PDF/DOCX, the CLI already tries `pdftotext`/`textutil`/PyPDF2 — otherwise read the file yourself or ask the user for plain text. Conversational (no-CLI) generation is documented in `GENERATE_MY_CARD.md`.
 
 ## What is a Skill Card?
 
@@ -79,12 +82,12 @@ Transport waterfall: **Git-native** (default, zero infra) → **Nostr** (encrypt
 
 **NEVER** share Zone 3 data without explicit candidate consent.
 
-## Command reference
+## POSIX command reference
 
 ```bash
 # Create / manage a card
 scoutica init [--ai]                       # interactive / AI-assisted creation
-scoutica scan . [--clipboard|--with <p>]   # generate from documents
+scoutica scan . [--clipboard|--with <p>] [--allow-remote-provider]
 scoutica import aijs <fork> --to <dir>     # convert an ai-job-search fork (offline, deterministic)
 scoutica validate [dir] [--type employer]  # validate against schemas
 scoutica info|preview|publish [dir]        # summary / HTML preview / push to GitHub

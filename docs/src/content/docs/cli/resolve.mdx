@@ -1,9 +1,9 @@
 ---
 title: "scoutica resolve"
-description: "Fetch and display a Scoutica Protocol Skill Card forcefully from any remote network or URL."
+description: "Fetch and display a public Scoutica Protocol Skill Card through a bounded HTTPS boundary."
 ---
 
-This command acts as an explorer and fetching client. If someone gives you a Github Repository link, a Raw `.json` URL, or any HTTP destination holding a Skill Card, `scoutica resolve` grabs, constructs, and presents the structured persona back to you dynamically.
+`resolve` reads a public GitHub repository, raw URL, or direct HTTPS card location and presents the available Scoutica artifacts. It never follows HTTP redirects.
 
 ## Command Syntax
 ```bash
@@ -12,9 +12,9 @@ scoutica resolve <card-url> [save-to-dir]
 
 ## Execution Flow
 
-1. **Security Isolation:** Validates that the URL uses `https://` strictly and completely blocks `localhost`, `127.x.x.x`, and internal LAN proxies.
+1. **Security Isolation:** Requires HTTPS, rejects URL credentials and every non-public or mixed DNS answer, pins the connection to the validated address, disables proxies, and rejects redirects.
 2. **Path Normalization:** If you pass `https://github.com/traylinx/agent`, it automatically reformats strings logically into fetching from `raw.githubusercontent.com`.
-3. **Sequential Target Discovery:** It attempts to hit `scoutica.json` first as a pointer. If it fails, it individually tests for `profile.json`, `rules.yaml`, `evidence.json`, and `SKILL.md`.
+3. **Bounded Target Discovery:** It checks optional `scoutica.json`, then the four card artifacts. Every request has a 10-second connect timeout, 30-second total timeout, 2 MiB body cap, supported content type, and strict UTF-8/JSON validation where applicable. A discovery `card_url` re-enters the same boundary.
 4. **Summary Aggregation:** If retrieved successfully, the CLI compiles a rapid Python extraction showcasing:
    - User Name, Title, and Seniority
    - Experience Length and Domains
@@ -30,4 +30,4 @@ You are parsing 50 candidates heavily for an upcoming contract gig. Instead of r
 ```bash
 scoutica resolve https://github.com/john-doe/scoutica-card ./candidates/john-doe/
 ```
-The CLI seamlessly writes exactly 4 highly-structured files into `./candidates/john-doe/`, fully prepared for your local system parsing routines.
+The CLI writes only the validated artifacts that the remote card actually exposes; optional files may be absent.

@@ -138,12 +138,14 @@ import Accordion from '@components/Accordion.astro';
 
 <AccordionGroup>
   <Accordion title="Network or SSRF errors in resolve">
-    `scoutica resolve` enforces strict URL validation. It only accepts HTTPS URLs and rejects requests to localhost or private IP ranges.
+    `scoutica resolve` and `scoutica jobs` share one strict fetch boundary. It accepts only HTTPS public destinations, rejects credentials and mixed/private DNS answers, does not use proxies or follow redirects, and validates response size, media type, UTF-8, and JSON shape.
 
     If you see a URL validation error, check that:
 
     - The URL uses `https://`, not `http://`
-    - The URL points to a public host (not `localhost`, `127.0.0.1`, or a private range like `192.168.x.x`)
+    - The URL points to a public host and every DNS answer is public
+    - The server returns `200` directly rather than a `3xx` redirect
+    - JSON resources use `application/json`, `text/json`, or raw-host `text/plain` and stay within 2 MiB
     - Supported URL formats:
       - `https://github.com/user/repo`
       - `https://raw.githubusercontent.com/user/repo/main/`

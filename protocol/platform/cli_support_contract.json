@@ -1,0 +1,221 @@
+{
+  "contract_version": "1.0.0",
+  "protocol_version": "0.4.0",
+  "implementations": {
+    "posix": {
+      "implementation_version": "0.4.0",
+      "entrypoint": "tools/scoutica"
+    },
+    "windows": {
+      "implementation_version": "0.1.0",
+      "entrypoint": "tools/scoutica.ps1",
+      "capability_set": "windows-subset-v1",
+      "supported_commands": [
+        "init",
+        "init --ai",
+        "validate",
+        "publish",
+        "info",
+        "help",
+        "version"
+      ],
+      "command_aliases": {
+        "help": ["--help", "-h"],
+        "version": ["--version", "-v"]
+      },
+      "known_unsupported_commands": [
+        "import",
+        "scan",
+        "resolve",
+        "preview",
+        "update",
+        "doctor",
+        "status",
+        "logs",
+        "org",
+        "role",
+        "evaluate",
+        "jobs",
+        "send",
+        "inbox",
+        "reply",
+        "deliver",
+        "register",
+        "identity"
+      ]
+    }
+  },
+  "installation": {
+    "manifest_version": "1.0.0",
+    "contract_source": "protocol/platform/cli_support_contract.json",
+    "contract_destination": "cli_support_contract.json",
+    "resources": [
+      {
+        "source": "tools/scoutica.ps1",
+        "destination": "bin/scoutica.ps1",
+        "platforms": ["windows"]
+      },
+      {
+        "source": "tools/scoutica",
+        "destination": "bin/scoutica",
+        "platforms": ["posix"]
+      },
+      {
+        "source": "tools/scoring.py",
+        "destination": "bin/scoring.py",
+        "platforms": ["posix"]
+      },
+      {
+        "source": "tools/import_aijs.py",
+        "destination": "bin/import_aijs.py",
+        "platforms": ["posix"]
+      },
+      {
+        "source": "tools/safe_fetch.py",
+        "destination": "bin/safe_fetch.py",
+        "platforms": ["posix"]
+      },
+      {
+        "source": "tools/message_runtime.py",
+        "destination": "bin/message_runtime.py",
+        "platforms": ["posix"]
+      },
+      {
+        "source": "protocol/templates/EMPLOYER_CARD.template.md",
+        "destination": "templates/EMPLOYER_CARD.template.md",
+        "platforms": ["posix"]
+      },
+      {
+        "source": "protocol/examples/sample_card/profile.json",
+        "destination": "protocol/examples/sample_card/profile.json",
+        "platforms": ["posix"]
+      },
+      {
+        "source": "protocol/examples/employer_card/roles/senior-ai-architect.json",
+        "destination": "protocol/examples/employer_card/roles/senior-ai-architect.json",
+        "platforms": ["posix"]
+      },
+      {
+        "source": "tools/validate_card.py",
+        "destination": "bin/validate_card.py",
+        "platforms": ["posix", "windows"]
+      },
+      {
+        "source": "tools/SCAN_PROMPT.md",
+        "destination": "bin/SCAN_PROMPT.md",
+        "platforms": ["posix", "windows"]
+      },
+      {
+        "source": "tools/scan_runtime.py",
+        "destination": "bin/scan_runtime.py",
+        "platforms": ["posix", "windows"]
+      },
+      {
+        "source": "GENERATE_MY_CARD.md",
+        "destination": "GENERATE_MY_CARD.md",
+        "platforms": ["posix", "windows"]
+      },
+      {
+        "source": "protocol/platform/01_schemas/candidate_profile.schema.json",
+        "destination": "schemas/candidate_profile.schema.json",
+        "platforms": ["posix", "windows"]
+      },
+      {
+        "source": "protocol/platform/01_schemas/roe.schema.json",
+        "destination": "schemas/roe.schema.json",
+        "platforms": ["posix", "windows"]
+      },
+      {
+        "source": "protocol/platform/01_schemas/evidence.schema.json",
+        "destination": "schemas/evidence.schema.json",
+        "platforms": ["posix", "windows"]
+      },
+      {
+        "source": "schemas/recruiter/recruiter_profile.schema.json",
+        "destination": "schemas/recruiter/recruiter_profile.schema.json",
+        "platforms": ["posix", "windows"]
+      },
+      {
+        "source": "schemas/recruiter/hiring_rules.schema.json",
+        "destination": "schemas/recruiter/hiring_rules.schema.json",
+        "platforms": ["posix", "windows"]
+      },
+      {
+        "source": "schemas/recruiter/role.schema.json",
+        "destination": "schemas/recruiter/role.schema.json",
+        "platforms": ["posix", "windows"]
+      },
+      {
+        "source": "schemas/recruiter/reputation.schema.json",
+        "destination": "schemas/recruiter/reputation.schema.json",
+        "platforms": ["posix", "windows"]
+      },
+      {
+        "source": "schemas/recruiter/message.schema.json",
+        "destination": "schemas/recruiter/message.schema.json",
+        "platforms": ["posix", "windows"]
+      },
+      {
+        "source": "schemas/scoutica_discovery.schema.json",
+        "destination": "schemas/scoutica_discovery.schema.json",
+        "platforms": ["posix", "windows"]
+      },
+      {
+        "source": "protocol/templates/SKILL.template.md",
+        "destination": "templates/SKILL.template.md",
+        "platforms": ["posix", "windows"]
+      },
+      {
+        "source": "protocol/templates/card.gitignore",
+        "destination": "templates/card.gitignore",
+        "platforms": ["posix", "windows"]
+      },
+      {
+        "source": "protocol/templates/rules/evaluate-fit.md",
+        "destination": "templates/rules/evaluate-fit.md",
+        "platforms": ["posix", "windows"]
+      },
+      {
+        "source": "protocol/templates/rules/negotiate-terms.md",
+        "destination": "templates/rules/negotiate-terms.md",
+        "platforms": ["posix", "windows"]
+      },
+      {
+        "source": "protocol/templates/rules/verify-evidence.md",
+        "destination": "templates/rules/verify-evidence.md",
+        "platforms": ["posix", "windows"]
+      },
+      {
+        "source": "protocol/templates/rules/request-interview.md",
+        "destination": "templates/rules/request-interview.md",
+        "platforms": ["posix", "windows"]
+      }
+    ]
+  },
+  "runtime_support": {
+    "python": {
+      "minimum_version": "3.11",
+      "platforms": ["posix", "windows"]
+    },
+    "bash": {
+      "minimum_version": "3.2",
+      "platforms": ["linux", "macos"]
+    },
+    "powershell": {
+      "supported_versions": ["5.1", "7"],
+      "platforms": ["windows"]
+    }
+  },
+  "python_dependencies": [
+    {
+      "distribution": "jsonschema[format]",
+      "import_name": "jsonschema",
+      "required_for": ["validate"]
+    },
+    {
+      "distribution": "PyYAML",
+      "import_name": "yaml",
+      "required_for": ["validate", "evaluate"]
+    }
+  ]
+}

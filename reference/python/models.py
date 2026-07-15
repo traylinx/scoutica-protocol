@@ -13,9 +13,108 @@ Usage:
     print(card.rules.remote.policy)
 """
 
-from pydantic import BaseModel, Field
-from typing import Optional, List, Literal, Union
 from enum import Enum
+import math
+from typing import Annotated, Any, List, Literal, Optional, Union
+
+from jsonschema import FormatChecker
+from pydantic import (
+    AfterValidator,
+    BaseModel,
+    BeforeValidator,
+    ConfigDict,
+    Field,
+    StrictStr,
+    field_validator,
+    model_validator,
+)
+
+
+# --- JSON Schema compatibility helpers ---
+
+def _json_integer(value: Any) -> int:
+    """Accept exactly the numeric values JSON Schema draft-07 calls integers."""
+    if isinstance(value, bool):
+        raise ValueError("boolean is not an integer")
+    if isinstance(value, int):
+        return value
+    if isinstance(value, float) and math.isfinite(value) and value.is_integer():
+        return int(value)
+    raise ValueError("value must be a JSON integer")
+
+
+JsonInteger = Annotated[int, BeforeValidator(_json_integer)]
+
+
+_FORMAT_CHECKER = FormatChecker()
+
+
+def _json_uri(value: str) -> str:
+    """Use the same strict URI checker as the authoritative JSON Schema path."""
+    # Without the `jsonschema[format]` extra, unknown formats silently pass.
+    # Fail closed instead of allowing the Pydantic reference to drift.
+    if _FORMAT_CHECKER.conforms("relative/path", "uri"):
+        raise ValueError(
+            "URI format support unavailable; install jsonschema[format]"
+        )
+    if not _FORMAT_CHECKER.conforms(value, "uri"):
+        raise ValueError("value must be an RFC 3986 URI")
+    return value
+
+
+JsonUri = Annotated[StrictStr, AfterValidator(_json_uri)]
+NonEmptyStrictStr = Annotated[StrictStr, Field(min_length=1)]
+NonNegativeJsonInteger = Annotated[JsonInteger, Field(ge=0)]
+CompensationMinimum = Union[NonNegativeJsonInteger, Literal["negotiable"]]
+
+
+def _json_array(value: Any) -> Any:
+    """Reject Python iterables that are not JSON arrays."""
+    if not isinstance(value, list):
+        raise ValueError("value must be a JSON array")
+    return value
+
+
+def _json_string(value: Any) -> Any:
+    """Reject byte strings and other values Pydantic enums may otherwise coerce."""
+    if not isinstance(value, str):
+        raise ValueError("value must be a JSON string")
+    return value
+
+
+def _unique(values: List[Any]) -> List[Any]:
+    """Implement JSON Schema uniqueItems for scalar arrays."""
+    if len(values) != len(set(values)):
+        raise ValueError("array items must be unique")
+    return values
+
+
+class CandidateSchemaModel(BaseModel):
+    """Shared behavior for models backed by the candidate JSON Schemas."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    def model_dump(self, *args: Any, **kwargs: Any) -> dict[str, Any]:
+        """Serialize omitted schema properties as absent rather than explicit nulls."""
+        kwargs.setdefault("exclude_none", True)
+        return super().model_dump(*args, **kwargs)
+
+    def model_dump_json(self, *args: Any, **kwargs: Any) -> str:
+        """JSON serialization counterpart to :meth:`model_dump`."""
+        kwargs.setdefault("exclude_none", True)
+        return super().model_dump_json(*args, **kwargs)
+
+    @model_validator(mode="before")
+    @classmethod
+    def reject_explicit_nulls(cls, value: Any) -> Any:
+        # The schemas make properties optional by omission; none declare `null` as a type.
+        if isinstance(value, dict):
+            null_fields = [key for key, item in value.items() if item is None]
+            if null_fields:
+                raise ValueError(
+                    "null is not permitted for: " + ", ".join(sorted(null_fields))
+                )
+        return value
 
 
 # --- Profile Models ---
@@ -46,27 +145,61 @@ class LanguageProficiency(str, Enum):
     BASIC = "basic"
 
 
-class SpokenLanguage(BaseModel):
-    language: str = Field(..., min_length=1, description="Language name")
+class SpokenLanguage(CandidateSchemaModel):
+    language: StrictStr = Field(..., min_length=1, description="Language name")
     level: LanguageProficiency = Field(..., description="Proficiency level")
 
+    @field_validator("level", mode="before")
+    @classmethod
+    def require_json_string(cls, value: Any) -> Any:
+        return _json_string(value)
 
-class CandidateProfile(BaseModel):
+
+class CandidateProfile(CandidateSchemaModel):
     """Matches candidate_profile.schema.json"""
-    schema_version: str = Field(..., pattern=r"^\d+\.\d+\.\d+$")
-    name: Optional[str] = Field(None, min_length=1, description="Professional display name")
-    title: str = Field(..., min_length=1, description="Professional title")
+    schema_version: StrictStr = Field(..., pattern=r"^\d+\.\d+\.\d+$")
+    name: Optional[StrictStr] = Field(None, min_length=1, description="Professional display name")
+    title: StrictStr = Field(..., min_length=1, description="Professional title")
     seniority: SeniorityLevel
-    years_experience: Optional[int] = Field(None, ge=0)
+    years_experience: Optional[JsonInteger] = Field(None, ge=0)
     availability: Optional[Availability] = None
-    primary_domains: List[str] = Field(..., min_length=1)
-    skills: List[str] = Field(..., min_length=1)
-    tools_and_platforms: Optional[List[str]] = None
-    certifications_and_licenses: Optional[List[str]] = None
-    specializations: Optional[List[str]] = None
+    primary_domains: List[NonEmptyStrictStr] = Field(..., min_length=1)
+    skills: List[NonEmptyStrictStr] = Field(..., min_length=1)
+    tools_and_platforms: Optional[List[StrictStr]] = None
+    certifications_and_licenses: Optional[List[StrictStr]] = None
+    specializations: Optional[List[StrictStr]] = None
     spoken_languages: Optional[List[SpokenLanguage]] = None
-    education: Optional[str] = None
-    summary: Optional[str] = Field(None, max_length=1000)
+    education: Optional[StrictStr] = None
+    summary: Optional[StrictStr] = Field(None, max_length=1000)
+
+    @field_validator("seniority", "availability", mode="before")
+    @classmethod
+    def require_json_enum_strings(cls, value: Any) -> Any:
+        return _json_string(value)
+
+    @field_validator(
+        "primary_domains",
+        "skills",
+        "tools_and_platforms",
+        "certifications_and_licenses",
+        "specializations",
+        "spoken_languages",
+        mode="before",
+    )
+    @classmethod
+    def require_json_arrays(cls, value: Any) -> Any:
+        return _json_array(value)
+
+    @field_validator(
+        "primary_domains",
+        "skills",
+        "tools_and_platforms",
+        "certifications_and_licenses",
+        "specializations",
+    )
+    @classmethod
+    def require_unique_items(cls, value: List[Any]) -> List[Any]:
+        return _unique(value)
 
 
 # --- Rules of Engagement Models ---
@@ -86,50 +219,106 @@ class EngagementType(str, Enum):
     INTERNSHIP = "internship"
 
 
-class CompensationMinimums(BaseModel):
-    permanent: Optional[Union[int, str]] = Field(None, description="Annual salary minimum or 'negotiable'")
-    contract: Optional[Union[int, str]] = Field(None, description="Daily rate minimum or 'negotiable'")
-    fractional: Optional[Union[int, str]] = Field(None, description="Monthly retainer minimum or 'negotiable'")
-    advisory: Optional[Union[int, str]] = Field(None, description="Hourly rate minimum or 'negotiable'")
+class CompensationMinimums(CandidateSchemaModel):
+    permanent: Optional[CompensationMinimum] = Field(
+        None, description="Annual salary minimum or 'negotiable'"
+    )
+    contract: Optional[CompensationMinimum] = Field(
+        None, description="Daily rate minimum or 'negotiable'"
+    )
+    fractional: Optional[CompensationMinimum] = Field(
+        None, description="Monthly retainer minimum or 'negotiable'"
+    )
+    advisory: Optional[CompensationMinimum] = Field(
+        None, description="Hourly rate minimum or 'negotiable'"
+    )
 
 
-class Compensation(BaseModel):
+class Compensation(CandidateSchemaModel):
     minimum_base_eur: Optional[CompensationMinimums] = None
 
 
-class Engagement(BaseModel):
+class Engagement(CandidateSchemaModel):
     allowed_types: List[EngagementType] = Field(..., min_length=1)
     compensation: Optional[Compensation] = None
 
+    @field_validator("allowed_types", mode="before")
+    @classmethod
+    def require_json_array(cls, value: Any) -> Any:
+        value = _json_array(value)
+        for item in value:
+            _json_string(item)
+        return value
 
-class Remote(BaseModel):
+    @field_validator("allowed_types")
+    @classmethod
+    def require_unique_items(cls, value: List[EngagementType]) -> List[EngagementType]:
+        return _unique(value)
+
+
+class Remote(CandidateSchemaModel):
     policy: RemotePolicy
-    hybrid_locations: Optional[List[str]] = None
+    hybrid_locations: Optional[List[StrictStr]] = None
+
+    @field_validator("policy", mode="before")
+    @classmethod
+    def require_json_string(cls, value: Any) -> Any:
+        return _json_string(value)
+
+    @field_validator("hybrid_locations", mode="before")
+    @classmethod
+    def require_json_array(cls, value: Any) -> Any:
+        return _json_array(value)
 
 
-class StackKeywords(BaseModel):
-    preferred: Optional[List[str]] = None
+class StackKeywords(CandidateSchemaModel):
+    preferred: Optional[List[StrictStr]] = None
+
+    @field_validator("preferred", mode="before")
+    @classmethod
+    def require_json_array(cls, value: Any) -> Any:
+        return _json_array(value)
+
+    @field_validator("preferred")
+    @classmethod
+    def require_unique_items(cls, value: List[StrictStr]) -> List[StrictStr]:
+        return _unique(value)
 
 
-class SoftReject(BaseModel):
-    weak_stack_overlap_below: Optional[int] = Field(None, ge=0)
+class SoftReject(CandidateSchemaModel):
+    weak_stack_overlap_below: Optional[JsonInteger] = Field(None, ge=0)
 
 
-class Filters(BaseModel):
-    blocked_industries: Optional[List[str]] = None
+class Filters(CandidateSchemaModel):
+    blocked_industries: Optional[List[StrictStr]] = None
     stack_keywords: Optional[StackKeywords] = None
     soft_reject: Optional[SoftReject] = None
 
+    @field_validator("blocked_industries", mode="before")
+    @classmethod
+    def require_json_array(cls, value: Any) -> Any:
+        return _json_array(value)
 
-class Privacy(BaseModel):
-    zone_1_public: List[str] = Field(..., description="Fields visible to everyone (free)")
-    zone_2_paid: List[str] = Field(..., description="Fields visible after micro-fee")
-    zone_3_private: List[str] = Field(..., description="Fields shared only after candidate approval")
+    @field_validator("blocked_industries")
+    @classmethod
+    def require_unique_items(cls, value: List[StrictStr]) -> List[StrictStr]:
+        return _unique(value)
 
 
-class RulesOfEngagement(BaseModel):
+class Privacy(CandidateSchemaModel):
+    zone_1_public: List[StrictStr] = Field(..., description="Fields visible to everyone (free)")
+    zone_2_paid: List[StrictStr] = Field(..., description="Fields visible after micro-fee")
+    zone_3_private: List[StrictStr] = Field(..., description="Fields shared only after candidate approval")
+
+    @field_validator("zone_1_public", "zone_2_paid", "zone_3_private", mode="before")
+    @classmethod
+    def require_json_arrays(cls, value: Any) -> Any:
+        return _json_array(value)
+
+
+class RulesOfEngagement(CandidateSchemaModel):
     """Matches roe.schema.json"""
-    schema_version: str = Field(..., pattern=r"^\d+\.\d+\.\d+$")
+    schema_version: StrictStr = Field(..., pattern=r"^\d+\.\d+\.\d+$")
     engagement: Engagement
     remote: Remote
     filters: Filters
@@ -153,23 +342,38 @@ class EvidenceType(str, Enum):
     OTHER = "other"
 
 
-class EvidenceItem(BaseModel):
+class EvidenceItem(CandidateSchemaModel):
     type: EvidenceType
-    title: str = Field(..., min_length=1)
-    url: str = Field(..., description="Public URL to the evidence")
-    description: str = Field(..., min_length=1, description="What this proves")
-    skills_demonstrated: List[str] = Field(..., min_length=1)
+    title: StrictStr = Field(..., min_length=1)
+    url: JsonUri = Field(..., description="Public URL to the evidence")
+    description: StrictStr = Field(..., min_length=1, description="What this proves")
+    skills_demonstrated: List[NonEmptyStrictStr] = Field(..., min_length=1)
+
+    @field_validator("type", mode="before")
+    @classmethod
+    def require_json_string(cls, value: Any) -> Any:
+        return _json_string(value)
+
+    @field_validator("skills_demonstrated", mode="before")
+    @classmethod
+    def require_json_array(cls, value: Any) -> Any:
+        return _json_array(value)
 
 
-class EvidenceRegistry(BaseModel):
+class EvidenceRegistry(CandidateSchemaModel):
     """Matches evidence.schema.json"""
-    schema_version: str = Field(..., pattern=r"^\d+\.\d+\.\d+$")
+    schema_version: StrictStr = Field(..., pattern=r"^\d+\.\d+\.\d+$")
     items: List[EvidenceItem]
+
+    @field_validator("items", mode="before")
+    @classmethod
+    def require_json_array(cls, value: Any) -> Any:
+        return _json_array(value)
 
 
 # --- Composite Skill Card ---
 
-class SkillCard(BaseModel):
+class SkillCard(CandidateSchemaModel):
     """Complete Scoutica Skill Card combining all three data files."""
     profile: CandidateProfile
     rules: RulesOfEngagement
@@ -184,7 +388,9 @@ class SkillCard(BaseModel):
         try:
             import yaml
         except ImportError:
-            raise ImportError("pyyaml is required: pip install pyyaml")
+            raise ImportError(
+                "PyYAML is required: python3 -m pip install 'jsonschema[format]' PyYAML"
+            )
 
         base = Path(card_dir)
         with open(base / "profile.json") as f:

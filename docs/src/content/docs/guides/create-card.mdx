@@ -61,7 +61,15 @@ A Skill Card is a set of structured files that any AI agent can discover, read, 
       </TabItem>
     </Tabs>
 
-    Verify the installation:
+    <Note>
+      Windows installs PowerShell implementation 0.1.0 for protocol 0.4.0,
+      capability set `windows-subset-v1`. It supports `init`, `init --ai`,
+      `validate`, `publish`, `info`, `help`, and `version`. The help sample below
+      and all other commands are the POSIX implementation 0.4.0 surface.
+    </Note>
+
+    The POSIX full help surface looks like this; on Windows, `scoutica help`
+    shows only the seven commands in `windows-subset-v1`:
 
     ```bash
     scoutica help
@@ -85,8 +93,8 @@ A Skill Card is a set of structured files that any AI agent can discover, read, 
     There are four ways to create your Skill Card. Pick the one that fits your workflow.
 
     <Tabs>
-      <TabItem label="AI scan (recommended for devs)">
-        Put your CV, certifications, and portfolio files in a folder, then let the CLI extract your Skill Card automatically. Your data never leaves your machine — everything runs through your local AI CLI.
+      <TabItem label="AI scan (POSIX; recommended for devs)">
+        Put your CV, certifications, and portfolio files in a folder, then let the CLI extract your Skill Card automatically. Extraction runs locally, but a remote-capable provider may receive the full generated prompt and document text. Review the provider before scanning sensitive files.
 
         ```bash
         scoutica scan ~/my-docs/

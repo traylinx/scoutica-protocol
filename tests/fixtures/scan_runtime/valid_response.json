@@ -1,0 +1,29 @@
+{
+  "profile": {
+    "schema_version": "0.1.0",
+    "name": "Alice Developer",
+    "title": "Backend Engineer",
+    "seniority": "senior",
+    "years_experience": 5,
+    "availability": "immediately",
+    "primary_domains": ["Backend Engineering"],
+    "skills": ["Python"]
+  },
+  "rules": {
+    "schema_version": "0.1.0",
+    "engagement": {"allowed_types": ["contract"]},
+    "remote": {"policy": "remote_only", "hybrid_locations": []},
+    "filters": {
+      "blocked_industries": [],
+      "stack_keywords": {"preferred": ["Python"]},
+      "soft_reject": {"weak_stack_overlap_below": 1}
+    },
+    "privacy": {"zone_1_public": [], "zone_2_paid": [], "zone_3_private": []}
+  },
+  "evidence": {"schema_version": "0.1.0", "items": []},
+  "skill_md": {
+    "name": "Alice Developer",
+    "title": "Backend Engineer",
+    "tags": ["Python"]
+  }
+}

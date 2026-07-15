@@ -46,6 +46,7 @@
     },
     "in_reply_to": {
       "type": "string",
+      "pattern": "^msg_[a-f0-9]{6,}$",
       "description": "message_id of the message being replied to"
     },
     "timestamp": { "type": "string", "format": "date-time" },

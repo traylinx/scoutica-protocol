@@ -1,0 +1,33 @@
+---
+title: "Documentation development"
+description: "Build and validate the Scoutica Astro/Starlight documentation site locally."
+---
+
+# Documentation development
+
+The Scoutica documentation site is an Astro project using Starlight. Documentation pages live in `docs/src/content/docs/`, reusable UI components live in `docs/src/components/`, and sidebar configuration lives in `docs/astro.config.mjs`.
+
+## Install and preview
+
+From the repository root:
+
+```bash
+npm --prefix docs ci
+npm --prefix docs run dev
+```
+
+The development server prints the local preview URL when it starts.
+
+## Validate a change
+
+```bash
+npm --prefix docs run check:links
+npm --prefix docs run check:claims
+npm --prefix docs run build
+```
+
+The link gate checks local root-document and docs-page targets. The claims gate rejects obsolete documentation-platform references and categorical scan-privacy claims that remote-capable providers cannot guarantee.
+
+## Publishing
+
+The deployment workflow builds the site from `docs/` and publishes the generated `docs/dist/` directory to Netlify after changes land on `main`.

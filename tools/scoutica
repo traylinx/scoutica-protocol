@@ -121,61 +121,31 @@ confirm() {
     [[ "$answer" =~ ^[Yy] ]]
 }
 
-# _validate_url <url> : 0 if safe to fetch, 1 otherwise (reason on stderr). Enforces HTTPS and
-# blocks localhost / private / link-local / reserved / metadata hosts. Fails CLOSED on DNS failure
-# or an unresolvable host. Used for BOTH the user URL and any discovered card_url (F-HIGH-SSRF-001).
-_validate_url() {
-    local u="$1"
-    if ! printf '%s' "$u" | grep -qE '^https://'; then
-        error "Only HTTPS URLs are supported (got: $u)"
-        return 1
+# Every user-controlled remote registry/card request goes through one helper.
+_safe_fetch_helper() {
+    local script_dir candidate
+    script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+    for candidate in \
+        "$script_dir/safe_fetch.py" \
+        "$SCOUTICA_HOME/bin/safe_fetch.py" \
+        "$SCOUTICA_HOME/tools/safe_fetch.py"; do
+        if [ -f "$candidate" ]; then
+            printf '%s\n' "$candidate"
+            return 0
+        fi
+    done
+    error "Safe fetch helper not found (safe_fetch.py)." >&2
+    return 1
+}
+
+_safe_fetch() {
+    local helper python_cmd="${VALIDATION_PYTHON:-}"
+    helper=$(_safe_fetch_helper) || return 1
+    if [ -z "$python_cmd" ]; then
+        _require_validation_runtime || return 1
+        python_cmd="$VALIDATION_PYTHON"
     fi
-    local out
-    out=$(python3 - "$u" <<'VALIDATE_URL' 2>/dev/null
-import sys, ipaddress, socket
-from urllib.parse import urlparse
-_pu = urlparse(sys.argv[1])
-host = (_pu.hostname or '').lower()
-port = _pu.port or 443
-if not host:
-    print('BLOCKED:no-host'); sys.exit(0)
-if host in ('localhost', 'ip6-localhost', 'ip6-loopback'):
-    print('BLOCKED:localhost'); sys.exit(0)
-def blocked(ipstr):
-    try:
-        ip = ipaddress.ip_address(ipstr)
-    except ValueError:
-        return False
-    return (ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved
-            or ip.is_multicast or ip.is_unspecified)
-# literal-IP host: allow only if it is a public address
-try:
-    ipaddress.ip_address(host)
-    print('BLOCKED:literal-ip' if blocked(host) else 'OK %s %d %s' % (host, port, host)); sys.exit(0)
-except ValueError:
-    pass
-# hostname: resolve and fail CLOSED on any failure or private answer
-try:
-    addrs = socket.getaddrinfo(host, None)
-except Exception:
-    print('BLOCKED:dns-failure'); sys.exit(0)
-ips = [s[4][0] for s in addrs]
-if not ips:
-    print('BLOCKED:no-address'); sys.exit(0)
-for ip in ips:
-    if blocked(ip):
-        print('BLOCKED:private-resolution'); sys.exit(0)
-v4 = [ip for ip in ips if ':' not in ip]
-print('OK %s %d %s' % (host, port, v4[0] if v4 else ips[0]))
-VALIDATE_URL
-)
-    if [ "${out%% *}" != "OK" ]; then
-        error "Refusing to fetch unsafe URL (${out:-validation-failed}): $u"
-        return 1
-    fi
-    # Echo the validated IP so callers can pin curl (--resolve) against DNS rebinding.
-    printf '%s\n' "${out#OK }"
-    return 0
+    "$python_cmd" "$helper" fetch "$@"
 }
 
 # _refuse_if_symlink <path...> : shared symlink-safe write guard. Call before writing any card,
@@ -189,6 +159,185 @@ _refuse_if_symlink() {
         fi
     done
     return 0
+}
+
+_git_publish_path_allowed() {
+    local _publish_kind="$1" _publish_path="$2" _publish_leaf
+    case "$_publish_kind:$_publish_path" in
+        candidate:profile.json|candidate:rules.yaml|candidate:evidence.json|candidate:SKILL.md|candidate:scoutica.json|candidate:README.md|candidate:.gitignore|candidate:rules/evaluate-fit.md|candidate:rules/negotiate-terms.md|candidate:rules/verify-evidence.md|candidate:rules/request-interview.md)
+            return 0
+            ;;
+        employer:recruiter_profile.json|employer:hiring_rules.yaml)
+            return 0
+            ;;
+        employer:roles/*.json)
+            _publish_leaf=${_publish_path#roles/}
+            case "$_publish_leaf" in */*) return 1 ;; *) return 0 ;; esac
+            ;;
+    esac
+    return 1
+}
+
+# Refuse publication if the current index contains anything outside the command's canonical set.
+# This helper is read-only, so a pre-stage refusal leaves .git/index byte-for-byte unchanged.
+_git_require_canonical_index() {
+    local _publish_kind="$1" _publish_phase="$2" _publish_list _publish_path _publish_bad=0
+    _publish_list=$(mktemp "${TMPDIR:-/tmp}/scoutica-staged.XXXXXX") || {
+        error "Could not inspect the Git index."
+        return 1
+    }
+    if ! git diff --cached --name-only -z -- > "$_publish_list"; then
+        rm -f "$_publish_list"
+        error "Could not inspect the Git index."
+        return 1
+    fi
+    while IFS= read -r -d '' _publish_path; do
+        if ! _git_publish_path_allowed "$_publish_kind" "$_publish_path"; then
+            if [ "$_publish_bad" -eq 0 ]; then
+                error "Refusing to publish: $_publish_phase staged paths outside the canonical $_publish_kind allowlist:"
+            fi
+            printf '    %q\n' "$_publish_path" >&2
+            _publish_bad=1
+        fi
+    done < "$_publish_list"
+    rm -f "$_publish_list"
+    [ "$_publish_bad" -eq 0 ]
+}
+
+_git_stage_canonical_paths() {
+    local _publish_kind="$1" _publish_path
+    case "$_publish_kind" in
+        candidate)
+            for _publish_path in profile.json rules.yaml evidence.json SKILL.md scoutica.json README.md .gitignore \
+                rules/evaluate-fit.md rules/negotiate-terms.md rules/verify-evidence.md rules/request-interview.md; do
+                [ -f "$_publish_path" ] || continue
+                git add -- "$_publish_path" || return 1
+            done
+            ;;
+        employer)
+            for _publish_path in recruiter_profile.json hiring_rules.yaml; do
+                [ -f "$_publish_path" ] || continue
+                git add -- "$_publish_path" || return 1
+            done
+            for _publish_path in roles/*.json; do
+                [ -f "$_publish_path" ] || continue
+                git add -- "$_publish_path" || return 1
+            done
+            ;;
+        *) return 2 ;;
+    esac
+}
+
+# Promote a validated generated card into its final directory. Validation must
+# happen before this helper is called; Phase 3 upgrades these bounded copies to
+# atomic no-follow writes.
+_promote_generated_card() {
+    local _stage="$1" _destination="$2" _generated_file
+    _refuse_if_symlink \
+        "$_destination" "$_destination/rules" \
+        "$_destination/profile.json" "$_destination/rules.yaml" \
+        "$_destination/evidence.json" "$_destination/SKILL.md" \
+        "$_destination/README.md" "$_destination/.gitignore" || return 1
+
+    mkdir -p "$_destination/rules" || return 1
+    for _generated_file in profile.json rules.yaml evidence.json SKILL.md README.md; do
+        [ -f "$_stage/$_generated_file" ] || continue
+        cp "$_stage/$_generated_file" "$_destination/$_generated_file" || return 1
+    done
+    if [ -d "$_stage/rules" ]; then
+        cp "$_stage/rules/"*.md "$_destination/rules/" 2>/dev/null || true
+    fi
+    if [ ! -f "$_destination/.gitignore" ] && [ -f "$_stage/.gitignore" ]; then
+        cp "$_stage/.gitignore" "$_destination/.gitignore" || return 1
+    fi
+}
+
+# Print a supported Python executable. Scoutica's strict runtime starts at 3.11.
+_supported_python() {
+    local _python
+    for _python in python3.13 python3.12 python3.11 python3 python; do
+        if command -v "$_python" >/dev/null 2>&1 \
+            && "$_python" -c 'import sys; raise SystemExit(0 if sys.version_info >= (3, 11) else 1)' >/dev/null 2>&1; then
+            printf '%s\n' "$_python"
+            return 0
+        fi
+    done
+    return 1
+}
+
+_python_has_strict_validation_deps() {
+    "$1" - <<'PY' >/dev/null 2>&1
+import sys
+import yaml
+from jsonschema import FormatChecker
+from jsonschema.exceptions import FormatError
+
+if sys.version_info < (3, 11):
+    raise SystemExit(1)
+checker = FormatChecker()
+for format_name, invalid_value in (
+    ("uri", "not a uri"),
+    ("hostname", "bad host!"),
+    ("date", "not-date"),
+    ("date-time", "not-date-time"),
+):
+    if format_name not in checker.checkers:
+        raise SystemExit(1)
+    try:
+        checker.check(invalid_value, format_name)
+    except FormatError:
+        continue
+    raise SystemExit(1)
+PY
+}
+
+_supported_validation_python() {
+    local _python
+    for _python in python3.13 python3.12 python3.11 python3 python; do
+        if command -v "$_python" >/dev/null 2>&1 \
+            && _python_has_strict_validation_deps "$_python"; then
+            printf '%s\n' "$_python"
+            return 0
+        fi
+    done
+    return 1
+}
+
+_python_prerequisite_guidance() {
+    echo -e "  ${DIM}Install Python 3.11+, then run: python3 -m pip install 'jsonschema[format]' PyYAML${NC}" >&2
+}
+
+# Resolve a schema only from the installed bundle or this checkout, never from cwd.
+_find_schema_file() {
+    local _schema_rel="$1"
+    local _schema_script_dir _schema_path
+    _schema_script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+    for _schema_path in \
+        "$_schema_script_dir/../schemas/$_schema_rel" \
+        "$_schema_script_dir/schemas/$_schema_rel"; do
+        if [ -f "$_schema_path" ]; then
+            printf '%s\n' "$_schema_path"
+            return 0
+        fi
+    done
+    return 1
+}
+
+# Export VALIDATION_PYTHON for generation/validation commands without mutating global Python.
+_require_validation_runtime() {
+    VALIDATION_PYTHON=$(_supported_validation_python) || {
+        local _version_python=""
+        _version_python=$(_supported_python) || true
+        if [ -n "$_version_python" ]; then
+            error "Missing required Python dependencies: jsonschema[format] and PyYAML."
+            _python_prerequisite_guidance
+            return 1
+        fi
+        error "Python 3.11+ is required."
+        _python_prerequisite_guidance
+        return 1
+    }
+    export VALIDATION_PYTHON
 }
 
 success() {
@@ -474,6 +623,11 @@ cmd_init() {
             engagement_types+="$etype"
         fi
     done
+
+    if [ -z "$engagement_types" ]; then
+        error "Select at least one supported engagement type."
+        return 1
+    fi
     
     echo ""
     
@@ -538,8 +692,19 @@ cmd_init() {
     
     # ── Generate Files ──
     header "Generating Your Skill Card"
+
+    _require_validation_runtime || return 1
+    local script_dir
+    script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
     
-    mkdir -p "$target_dir/rules"
+    local generation_dir
+    generation_dir=$(mktemp -d "${TMPDIR:-/tmp}/scoutica-init.XXXXXX") || {
+        error "Could not create a private generation directory."
+        return 1
+    }
+    chmod 700 "$generation_dir" 2>/dev/null || true
+    mkdir -p "$generation_dir/rules"
+    trap 'rm -rf "$generation_dir" 2>/dev/null' EXIT INT TERM
     
     # ── Symlink protection ──
     for f in profile.json rules.yaml evidence.json SKILL.md; do
@@ -552,12 +717,17 @@ cmd_init() {
     # ── Generate all files safely via Python ──
     # Build evidence entries as newline-separated, tab-delimited lines
     local ev_lines=""
-    for entry in "${ev_entries[@]}"; do
-        ev_lines+="${entry}"$'\n'
-    done
+    # Bash 3.2 with `set -u` treats an expansion of an empty array as an
+    # unbound variable. Guard the expansion so candidate generation without
+    # evidence works on the supported macOS system shell.
+    if [ "${#ev_entries[@]}" -gt 0 ]; then
+        for entry in "${ev_entries[@]}"; do
+            ev_lines+="${entry}"$'\n'
+        done
+    fi
     
-    python3 << 'GENERATE_SCRIPT' - \
-        "$target_dir" \
+    "$VALIDATION_PYTHON" << 'GENERATE_SCRIPT' - \
+        "$generation_dir" \
         "$name" "$title" "$seniority" "$years" "$availability" \
         "$domains" "$skills" "$tools" "$certs" "$specializations" \
         "$languages_json" "$education" "$summary" \
@@ -565,7 +735,7 @@ cmd_init() {
         "$remote_policy" "$hybrid_locations" \
         "$blocked" "$preferred_stack" "$stack_min" \
         "$ev_lines"
-import json, sys, os, re
+import json, sys, os, re, yaml
 
 args = sys.argv[1:]
 target_dir = args[0]
@@ -613,7 +783,7 @@ with open(os.path.join(target_dir, "profile.json"), "w") as f:
 print("  ✅ Created profile.json")
 
 # ── rules.yaml ──
-# Build rules as a dict, write with yaml or manual safe format
+# Build rules as a dict and serialize it structurally.
 rules = {"schema_version": "0.1.0"}
 engagement = {"allowed_types": csv_to_list(engagement_csv)}
 comp = {}
@@ -639,16 +809,9 @@ rules["privacy"] = {
     "zone_3_private": ["email", "phone", "exact_salary"]
 }
 
-try:
-    import yaml
-    with open(os.path.join(target_dir, "rules.yaml"), "w") as f:
-        yaml.dump(rules, f, default_flow_style=False, allow_unicode=True, sort_keys=False)
-    print("  ✅ Created rules.yaml")
-except ImportError:
-    with open(os.path.join(target_dir, "rules.yaml"), "w") as f:
-        json.dump(rules, f, indent=2, ensure_ascii=False)
-        f.write("\n")
-    print("  ✅ Created rules.yaml (as JSON — install pyyaml for proper YAML)")
+with open(os.path.join(target_dir, "rules.yaml"), "w") as f:
+    yaml.safe_dump(rules, f, default_flow_style=False, allow_unicode=True, sort_keys=False)
+print("  ✅ Created rules.yaml")
 
 # ── evidence.json ──
 evidence_items = []
@@ -671,19 +834,37 @@ with open(os.path.join(target_dir, "evidence.json"), "w") as f:
 print("  ✅ Created evidence.json")
 
 # ── SKILL.md ──
-tags = ", ".join(csv_to_list(skills_csv)).lower()
+def single_line(value, fallback):
+    text = re.sub(r"[\r\n\t]+", " ", str(value or ""))
+    text = re.sub(r"\s+", " ", text).strip()
+    return text or fallback
+
+def markdown_inline(value, fallback):
+    text = single_line(value, fallback)
+    return re.sub(r"([\\`*_\[\]<>])", r"\\\1", text)
+
+frontmatter_name = single_line(name, "Unknown")
+frontmatter = {
+    "name": "scoutica",
+    "description": f"{frontmatter_name} — AI-readable professional profile with automated opportunity filtering",
+    "metadata": {
+        "tags": ", ".join(csv_to_list(skills_csv)).lower(),
+        "author": frontmatter_name,
+        "version": "0.1.0",
+    },
+}
+frontmatter_yaml = yaml.safe_dump(
+    frontmatter, allow_unicode=True, sort_keys=False, default_flow_style=False
+).rstrip()
+prose_name = markdown_inline(name, "Unknown")
+prose_title = markdown_inline(title, "Professional")
 skill_md = f"""---
-name: scoutica
-description: {name} — AI-readable professional profile with automated opportunity filtering
-metadata:
-  tags: {tags}
-  author: {name}
-  version: 0.1.0
+{frontmatter_yaml}
 ---
 
 # Scoutica
 
-This skill provides an AI-readable professional profile for **{name}** — {title}.
+This skill provides an AI-readable professional profile for **{prose_name}** — {prose_title}.
 
 It allows any AI agent to:
 - Understand this candidate's capabilities and experience
@@ -727,7 +908,7 @@ GENERATE_SCRIPT
     
     # --- Copy rule templates ---
     if [ -d "$TEMPLATES_DIR/rules" ]; then
-        cp "$TEMPLATES_DIR/rules/"*.md "$target_dir/rules/" 2>/dev/null || true
+        cp "$TEMPLATES_DIR/rules/"*.md "$generation_dir/rules/" 2>/dev/null || true
         success "Copied evaluation rule templates"
     else
         warn "Rule templates not found — run 'scoutica init' from an installed CLI"
@@ -742,10 +923,28 @@ GENERATE_SCRIPT
             gi_src="$script_dir/../protocol/templates/card.gitignore"
         fi
         if [ -n "$gi_src" ]; then
-            cp "$gi_src" "$target_dir/.gitignore"
+            cp "$gi_src" "$generation_dir/.gitignore"
             success "Created .gitignore (protects secrets from accidental commits)"
         fi
     fi
+
+    # Generated cards are not reported ready until the same strict consumer
+    # validation path accepts the complete artifact set.
+    if ! cmd_validate "$generation_dir"; then
+        error "Generated card failed strict validation; not reporting it ready."
+        rm -rf "$generation_dir"
+        trap - EXIT INT TERM
+        return 1
+    fi
+
+    if ! _promote_generated_card "$generation_dir" "$target_dir"; then
+        error "Could not promote the validated generated card."
+        rm -rf "$generation_dir"
+        trap - EXIT INT TERM
+        return 1
+    fi
+    rm -rf "$generation_dir"
+    trap - EXIT INT TERM
     
     echo ""
     echo -e "${GREEN}╔═══════════════════════════════════════════════════════╗${NC}"
@@ -808,7 +1007,51 @@ cmd_init_ai() {
 # ─── VALIDATE Command ────────────────────────────────────────────────────────
 
 cmd_validate() {
-    local card_dir="${1:-}"
+    local card_dir=""
+    local schema_dir=""
+
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --schema-dir)
+                if [ $# -lt 2 ] || [ -z "$2" ]; then
+                    error "--schema-dir requires an absolute directory path."
+                    return 1
+                fi
+                schema_dir="$2"
+                shift 2
+                ;;
+            --schema-dir=*)
+                schema_dir="${1#--schema-dir=}"
+                shift
+                ;;
+            --*)
+                error "Unknown validate option: $1"
+                return 1
+                ;;
+            *)
+                if [ -n "$card_dir" ]; then
+                    error "Validate accepts only one card directory."
+                    return 1
+                fi
+                card_dir="$1"
+                shift
+                ;;
+        esac
+    done
+
+    if [ -n "$schema_dir" ]; then
+        case "$schema_dir" in
+            /*) : ;;
+            *)
+                error "--schema-dir must be an absolute directory path."
+                return 1
+                ;;
+        esac
+        if [ ! -d "$schema_dir" ]; then
+            error "Schema directory not found: $schema_dir"
+            return 1
+        fi
+    fi
     
     # Smart context resolution
     if [ -z "$card_dir" ]; then
@@ -836,26 +1079,18 @@ cmd_validate() {
         exit 1
     fi
     
-    # Check if Python is available
-    local python_cmd=""
-    if command -v python3 &>/dev/null; then
-        python_cmd="python3"
-    elif command -v python &>/dev/null; then
-        python_cmd="python"
-    else
-        error "Python is required for schema validation"
-        echo -e "  ${DIM}Install Python 3 and run: pip install jsonschema pyyaml${NC}"
-        exit 1
-    fi
+    # Validate prerequisites without mutating the user's global Python environment.
+    _require_validation_runtime || return 1
+    local python_cmd="$VALIDATION_PYTHON"
     
     # Check for validation script in multiple locations
     local validator=""
     local script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
     
-    if [ -f "$SCOUTICA_HOME/bin/validate_card.py" ]; then
-        validator="$SCOUTICA_HOME/bin/validate_card.py"
-    elif [ -f "$script_dir/validate_card.py" ]; then
+    if [ -f "$script_dir/validate_card.py" ]; then
         validator="$script_dir/validate_card.py"
+    elif [ -f "$SCOUTICA_HOME/bin/validate_card.py" ]; then
+        validator="$SCOUTICA_HOME/bin/validate_card.py"
     elif [ -f "$SCOUTICA_HOME/tools/validate_card.py" ]; then
         validator="$SCOUTICA_HOME/tools/validate_card.py"
     fi
@@ -865,18 +1100,12 @@ cmd_validate() {
         exit 1
     fi
     
-    # Check for dependencies
-    if ! $python_cmd -c "import jsonschema, yaml" 2>/dev/null; then
-        warn "Missing Python dependencies. Installing..."
-        $python_cmd -m pip install jsonschema pyyaml --quiet 2>/dev/null || {
-            error "Failed to install dependencies"
-            echo -e "  ${DIM}Run manually: pip install jsonschema pyyaml${NC}"
-            exit 1
-        }
-    fi
-    
     # Run validation
-    $python_cmd "$validator" "$card_dir"
+    local validator_args=("$card_dir")
+    if [ -n "$schema_dir" ]; then
+        validator_args+=(--schema-dir "$schema_dir")
+    fi
+    "$python_cmd" "$validator" "${validator_args[@]}"
 }
 
 # ─── PUBLISH Command ─────────────────────────────────────────────────────────
@@ -911,26 +1140,49 @@ cmd_publish() {
     # Check if already a git repo
     if [ -d "$card_dir/.git" ]; then
         (
-            cd "$card_dir"
-            # Only stage known card files — never stage secrets or .env
-            local card_files=(profile.json rules.yaml evidence.json SKILL.md scoutica.json README.md)
-            for cf in "${card_files[@]}"; do
-                [ -f "$cf" ] && git add "$cf" 2>/dev/null
-            done
-            [ -d "rules" ] && git add rules/ 2>/dev/null
+            cd "$card_dir" || return 1
+            if ! git remote get-url origin >/dev/null 2>&1; then
+                error "No remote 'origin' configured."
+                echo -e "  ${DIM}Run: git remote add origin https://github.com/YOU/YOUR-CARD.git${NC}" >&2
+                return 1
+            fi
+
+            _git_require_canonical_index candidate "pre-existing" || return 1
+            if ! _git_stage_canonical_paths candidate; then
+                error "Failed to stage canonical Skill Card files."
+                return 1
+            fi
+            _git_require_canonical_index candidate "final" || return 1
+
+            local publish_branch
+            publish_branch=$(git branch --show-current 2>/dev/null || true)
+            if [ -z "$publish_branch" ]; then
+                error "Cannot publish from a detached HEAD or unnamed branch."
+                return 1
+            fi
             
             # Preview changes to the user
             local changes
-            changes=$(git status -s 2>/dev/null | grep -E 'profile\.json|rules\.yaml|evidence\.json|SKILL\.md|scoutica\.json|rules/') || true
+            changes=$(git diff --cached --name-status -- 2>/dev/null) || {
+                error "Could not inspect staged Skill Card changes."
+                return 1
+            }
             
             if [ -z "$changes" ]; then
-                echo -e "  ${GREEN}✅${NC} Your Skill Card is already up to date!"
-                local origin_url=$(git remote get-url origin 2>/dev/null || echo "")
-                if [ -n "$origin_url" ]; then
-                    local clean_url=$(echo "$origin_url" | sed 's/\.git$//')
-                    echo -e "  ${DIM}Live at:${NC} $clean_url"
+                if ! git push origin "$publish_branch" >/dev/null 2>&1; then
+                    error "Push failed. The remote may not contain the local Skill Card commit."
+                    return 1
                 fi
-                return 0
+                echo -e "  ${GREEN}✅${NC} Your Skill Card is up to date and synchronized!"
+                local origin_url
+                origin_url=$(git remote get-url origin) || return 1
+                local clean_url
+                clean_url=$(echo "$origin_url" | sed 's/\.git$//')
+                echo -e "  ${DIM}Live at:${NC} $clean_url"
+                local abs_card_dir
+                abs_card_dir=$(pwd)
+                _register_card "$abs_card_dir" "publish" '{"github_url": "'"$clean_url"'"}'
+                return $?
             fi
             
             echo -e "  ${BOLD}The following changes will be published:${NC}"
@@ -940,37 +1192,34 @@ cmd_publish() {
             echo ""
             
             local msg="Update Scoutica Protocol Skill Card — $(date +%Y-%m-%d)"
-            git commit -m "$msg" >/dev/null 2>&1
-            
-            # Try to push
-            if git remote -v | grep -q "origin"; then
-                echo -e "  ${DIM}Pushing to GitHub...${NC}"
-                if git push origin "$(git branch --show-current)" >/dev/null 2>&1; then
-                    echo -e "  ${GREEN}✅ Successfully published to GitHub!${NC}"
-                    echo ""
-                    
-                    # Extract URL for the user
-                    local origin_url=$(git remote get-url origin)
-                    local clean_url=$(echo "$origin_url" | sed 's/\.git$//')
-                    
-                    echo -e "  ${BOLD}View on GitHub:${NC}"
-                    echo -e "  $clean_url"
-                    echo ""
-                    echo -e "  ${BOLD}Test your live card:${NC}"
-                    echo -e "  ${CYAN}scoutica resolve $clean_url${NC}"
-                    
-                    # Register publish event in global registry
-                    local abs_card_dir
-                    abs_card_dir=$(pwd)
-                    _register_card "$abs_card_dir" "publish" '{"github_url": "'"$clean_url"'"}'
-                else
-                    error "Push failed. Check your remote configuration or permissions."
-                fi
-            else
-                warn "No remote 'origin' configured."
-                echo -e "  ${DIM}Run: git remote add origin https://github.com/YOU/YOUR-CARD.git${NC}"
+            if ! git commit -m "$msg" >/dev/null 2>&1; then
+                error "Commit failed. No publish was recorded."
+                return 1
             fi
+            
+            echo -e "  ${DIM}Pushing to GitHub...${NC}"
+            if ! git push origin "$publish_branch" >/dev/null 2>&1; then
+                error "Push failed. Check your remote configuration or permissions."
+                return 1
+            fi
+
+            echo -e "  ${GREEN}✅ Successfully published to GitHub!${NC}"
+            echo ""
+            local origin_url
+            origin_url=$(git remote get-url origin) || return 1
+            local clean_url
+            clean_url=$(echo "$origin_url" | sed 's/\.git$//')
+            echo -e "  ${BOLD}View on GitHub:${NC}"
+            echo -e "  $clean_url"
+            echo ""
+            echo -e "  ${BOLD}Test your live card:${NC}"
+            echo -e "  ${CYAN}scoutica resolve $clean_url${NC}"
+
+            local abs_card_dir
+            abs_card_dir=$(pwd)
+            _register_card "$abs_card_dir" "publish" '{"github_url": "'"$clean_url"'"}'
         )
+        return $?
     else
         # ── No git repo — smart setup ──────────────────────────────────
         
@@ -998,18 +1247,29 @@ cmd_publish() {
                     echo ""
                     
                     (
-                        cd "$card_dir"
-                        git init >/dev/null 2>&1
-                        
-                        # Only stage known card files
-                        local card_files=(profile.json rules.yaml evidence.json SKILL.md scoutica.json README.md)
-                        for cf in "${card_files[@]}"; do
-                            [ -f "$cf" ] && git add "$cf" 2>/dev/null
-                        done
-                        [ -d "rules" ] && git add rules/ 2>/dev/null
-                        
-                        git commit -m "Initial Scoutica Protocol Skill Card" >/dev/null 2>&1
-                        git branch -M main >/dev/null 2>&1
+                        cd "$card_dir" || return 1
+                        if ! git init >/dev/null 2>&1; then
+                            error "Failed to initialize Git repository."
+                            return 1
+                        fi
+                        _git_require_canonical_index candidate "pre-existing" || return 1
+                        if ! _git_stage_canonical_paths candidate; then
+                            error "Failed to stage canonical Skill Card files."
+                            return 1
+                        fi
+                        _git_require_canonical_index candidate "final" || return 1
+                        if git diff --cached --quiet --; then
+                            error "No canonical Skill Card files are available to publish."
+                            return 1
+                        fi
+                        if ! git commit -m "Initial Scoutica Protocol Skill Card" >/dev/null 2>&1; then
+                            error "Commit failed. No publish was recorded."
+                            return 1
+                        fi
+                        if ! git branch -M main >/dev/null 2>&1; then
+                            error "Failed to prepare the main branch."
+                            return 1
+                        fi
                         
                         # Create repo on GitHub automatically
                         echo -e "  ${DIM}Creating repository ${BOLD}$gh_user/$repo_name${NC} ${DIM}on GitHub...${NC}"
@@ -1030,11 +1290,12 @@ cmd_publish() {
                             _register_card "$abs_card_dir" "publish" '{"github_url": "'"$github_url"'"}'
                         else
                             # gh repo create failed — maybe name conflict
-                            warn "Auto-create failed (repo name '$repo_name' may already exist)."
+                            error "Auto-create or push failed (repo name '$repo_name' may already exist)."
                             echo -e "  ${DIM}Try manually: gh repo create $repo_name --public --source=. --remote=origin --push${NC}"
+                            return 1
                         fi
                     )
-                    return 0
+                    return $?
                 fi
             fi
         fi
@@ -1048,24 +1309,44 @@ cmd_publish() {
             echo ""
             
             (
-                cd "$card_dir"
-                git init >/dev/null 2>&1
-                local card_files=(profile.json rules.yaml evidence.json SKILL.md scoutica.json README.md)
-                for cf in "${card_files[@]}"; do
-                    [ -f "$cf" ] && git add "$cf" 2>/dev/null
-                done
-                [ -d "rules" ] && git add rules/ 2>/dev/null
+                cd "$card_dir" || return 1
+                if ! git init >/dev/null 2>&1; then
+                    error "Failed to initialize Git repository."
+                    return 1
+                fi
+                _git_require_canonical_index candidate "pre-existing" || return 1
+                if ! _git_stage_canonical_paths candidate; then
+                    error "Failed to stage canonical Skill Card files."
+                    return 1
+                fi
+                _git_require_canonical_index candidate "final" || return 1
                 
                 local changes
-                changes=$(git status -s 2>/dev/null | grep -E 'profile\.json|rules\.yaml|evidence\.json|SKILL\.md|scoutica\.json|rules/') || true
+                changes=$(git diff --cached --name-status -- 2>/dev/null) || {
+                    error "Could not inspect staged Skill Card changes."
+                    return 1
+                }
+                if [ -z "$changes" ]; then
+                    error "No canonical Skill Card files are available to publish."
+                    return 1
+                fi
                 echo -e "  ${BOLD}The following files are ready to publish:${NC}"
                 echo "$changes" | while read -r line; do
                     echo -e "    ${CYAN}$line${NC}"
                 done
                 
-                git commit -m "Initial Scoutica Protocol Skill Card" >/dev/null 2>&1
-                git branch -M main >/dev/null 2>&1
-                git remote add origin "https://github.com/$gh_user/$repo_name.git" 2>/dev/null || true
+                if ! git commit -m "Initial Scoutica Protocol Skill Card" >/dev/null 2>&1; then
+                    error "Commit failed. No publish was recorded."
+                    return 1
+                fi
+                if ! git branch -M main >/dev/null 2>&1; then
+                    error "Failed to prepare the main branch."
+                    return 1
+                fi
+                if ! git remote add origin "https://github.com/$gh_user/$repo_name.git" 2>/dev/null; then
+                    error "Failed to configure remote 'origin'."
+                    return 1
+                fi
                 
                 echo ""
                 echo -e "  ${BOLD}Next steps:${NC}"
@@ -1076,11 +1357,10 @@ cmd_publish() {
                 echo -e "  ${BOLD}Test your live card after pushing:${NC}"
                 echo -e "  ${CYAN}scoutica resolve https://github.com/$gh_user/$repo_name${NC}"
                 
-                # Register in global registry
-                local abs_card_dir
-                abs_card_dir=$(pwd)
-                _register_card "$abs_card_dir" "publish" '{"github_url": "https://github.com/'"$gh_user"'/'"$repo_name"'"}'
+                error "Card committed locally but not published yet. Run the push command above."
+                return 1
             )
+            return $?
         else
             # ── Tier 3: Non-interactive terminal — safe instructions ──
             echo -e "  ${BOLD}No git repo found.${NC}"
@@ -1100,6 +1380,7 @@ cmd_publish() {
             echo -e "    4. Run: ${CYAN}git push -u origin main${NC}"
             echo ""
             echo -e "  ${DIM}After pushing, register your card: scoutica publish${NC}"
+            return 1
         fi
     fi
 }
@@ -1254,12 +1535,24 @@ cmd_doctor() {
         errors=$((errors+1))
     fi
 
-    # 5. Python 3
-    if command -v python3 >/dev/null 2>&1; then
-        local py_ver=$(python3 --version 2>&1)
-        success "$py_ver"
+    # 5. Strict Python runtime and dependencies
+    local doctor_python=""
+    doctor_python=$(_supported_validation_python) || doctor_python=$(_supported_python) || true
+    if [ -n "$doctor_python" ]; then
+        local py_ver
+        py_ver=$("$doctor_python" --version 2>&1)
+        success "$py_ver (supported: 3.11+)"
+
+        if ! _python_has_strict_validation_deps "$doctor_python"; then
+            error "Missing required Python dependencies: jsonschema[format] and PyYAML"
+            _python_prerequisite_guidance
+            errors=$((errors+1))
+        else
+            success "Python dependencies present (jsonschema[format], PyYAML)"
+        fi
     else
-        error "Python 3 not found (Required for JSON generation)"
+        error "Python 3.11+ not found (required for validation and generation)"
+        _python_prerequisite_guidance
         errors=$((errors+1))
     fi
 
@@ -1283,7 +1576,7 @@ cmd_doctor() {
     echo ""
     echo -e "${BOLD}AI Providers (for scoutica scan):${NC}"
     local ai_found=0
-    for cli in gemini claude codex vibe opencode ollama ail; do
+    for cli in gemini claude codex opencode ollama ail; do
         if command -v "$cli" >/dev/null 2>&1; then
             success "$cli (installed)"
             ai_found=$((ai_found+1))
@@ -1335,7 +1628,7 @@ cmd_help() {
     echo -e "${BOLD}🔧 Manage your card:${NC}"
     echo -e "  ${CYAN}info${NC}     [dir]       View your card summary"
     echo -e "  ${CYAN}preview${NC}  [dir]       Build HTML layout and publish to here.now"
-    echo -e "  ${CYAN}validate${NC} [dir]       Validate card against protocol schemas"
+    echo -e "  ${CYAN}validate${NC} [dir] [--schema-dir /abs]  Validate against trusted or explicit schemas"
     echo -e "  ${CYAN}publish${NC}  [dir]       Push card to GitHub"
     echo -e "  ${CYAN}resolve${NC}  <url>       Fetch and display any card from a URL"
     echo ""
@@ -1370,7 +1663,7 @@ cmd_help() {
     local ai_count=0
 
     # Detect in priority order (same as scan auto-detect)
-    for cli in gemini claude codex vibe opencode ollama ail; do
+    for cli in gemini claude codex opencode ollama ail; do
         if command -v "$cli" >/dev/null 2>&1; then
             ai_count=$((ai_count+1))
             if [ -z "$default_provider" ]; then
@@ -1461,94 +1754,50 @@ _compute_card_hash() {
     echo -n "$hash_input" | shasum -a 256 | awk '{print $1}'
 }
 
-_read_state() {
-    local key="$1"
-    if [ -f "$STATE_FILE" ] && command -v python3 &>/dev/null; then
-        python3 -c "
-import json, sys
-try:
-    with open(sys.argv[1]) as f:
-        d = json.load(f)
-    keys = sys.argv[2].split('.')
-    for k in keys:
-        d = d[k]
-    print(d)
-except Exception as e:
-    print('', file=sys.stderr)
-" "$STATE_FILE" "$key" 2>/dev/null
-    fi
+_scan_runtime_helper() {
+    local helper_dir helper_path
+    helper_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+    for helper_path in \
+        "$helper_dir/scan_runtime.py" \
+        "$SCOUTICA_HOME/bin/scan_runtime.py" \
+        "$SCOUTICA_HOME/tools/scan_runtime.py"; do
+        if [ -f "$helper_path" ]; then
+            printf '%s\n' "$helper_path"
+            return 0
+        fi
+    done
+    return 1
 }
 
-_write_state() {
-    mkdir -p "$STATE_DIR"
-    local source_hash="$1" provider="$2" source_files="$3"
-    local now=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
-    
-    # Read existing state or start fresh — use temp file to avoid heredoc injection
-    local tmp_existing=$(mktemp /tmp/scoutica_state.XXXXXX)
-    if [ -f "$STATE_FILE" ]; then
-        cp "$STATE_FILE" "$tmp_existing"
-    else
-        echo '{}' > "$tmp_existing"
-    fi
-    
-    _refuse_if_symlink "$STATE_FILE" || return 1
-    python3 - "$tmp_existing" "$source_hash" "$now" "$source_files" "$provider" "$STATE_FILE" <<'WRITESTATE'
-import json, sys
-existing_file, source_hash, now, source_files, provider, state_file = sys.argv[1:7]
-try:
-    with open(existing_file) as f:
-        state = json.load(f)
-except Exception:
-    state = {}
-state['schema_version'] = '0.1.0'
-state['card'] = {
-    'source_hash': source_hash,
-    'generated_at': now,
-    'source_files': [s for s in source_files.split(',') if s],
-    'provider': provider
-}
-if 'preview' not in state:
-    state['preview'] = {}
-with open(state_file, 'w') as f:
-    json.dump(state, f, indent=2)
-WRITESTATE
-    rm -f "$tmp_existing"
+_read_state() {
+    local card_dir="$1" key="$2" helper state_python="${VALIDATION_PYTHON:-}"
+    helper=$(_scan_runtime_helper) || return 1
+    [ -n "$state_python" ] || state_python=$(_supported_python) || return 1
+    "$state_python" "$helper" state-get --card-dir "$card_dir" --key "$key" 2>/dev/null
 }
 
 _write_preview_state() {
-    mkdir -p "$STATE_DIR"
-    local url="$1" card_hash="$2"
-    local now=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
-    local expires=$(python3 -c "from datetime import datetime,timedelta,timezone;print((datetime.now(timezone.utc)+timedelta(hours=24)).strftime('%Y-%m-%dT%H:%M:%SZ'))" 2>/dev/null || echo "")
-    
-    # Use temp file to avoid heredoc injection
-    local tmp_existing=$(mktemp /tmp/scoutica_state.XXXXXX)
-    if [ -f "$STATE_FILE" ]; then
-        cp "$STATE_FILE" "$tmp_existing"
-    else
-        echo '{}' > "$tmp_existing"
-    fi
-    
-    _refuse_if_symlink "$STATE_FILE" || return 1
-    python3 - "$tmp_existing" "$url" "$now" "$expires" "$card_hash" "$STATE_FILE" <<'WRITEPREVIEW'
-import json, sys
-existing_file, url, now, expires, card_hash, state_file = sys.argv[1:7]
-try:
-    with open(existing_file) as f:
-        state = json.load(f)
-except Exception:
-    state = {}
-state['preview'] = {
-    'url': url,
-    'published_at': now,
-    'expires_at': expires,
-    'card_hash': card_hash
+    local card_dir="$1" url="$2" card_hash="$3" helper now expires state_python="${VALIDATION_PYTHON:-}"
+    helper=$(_scan_runtime_helper) || {
+        error "Scan runtime helper not found. Re-run the installer."
+        return 1
+    }
+    [ -n "$state_python" ] || state_python=$(_supported_python) || return 1
+    now=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+    expires=$("$state_python" -c "from datetime import datetime,timedelta,timezone;print((datetime.now(timezone.utc)+timedelta(hours=24)).strftime('%Y-%m-%dT%H:%M:%SZ'))") || return 1
+    "$state_python" "$helper" state-preview \
+        --card-dir "$card_dir" --url "$url" --published-at "$now" \
+        --expires-at "$expires" --card-hash "$card_hash"
 }
-with open(state_file, 'w') as f:
-    json.dump(state, f, indent=2)
-WRITEPREVIEW
-    rm -f "$tmp_existing"
+
+_write_resolve_state() {
+    local card_dir="$1" url="$2" helper state_python="${VALIDATION_PYTHON:-}"
+    helper=$(_scan_runtime_helper) || {
+        error "Scan runtime helper not found. Re-run the installer."
+        return 1
+    }
+    [ -n "$state_python" ] || state_python=$(_supported_python) || return 1
+    "$state_python" "$helper" state-resolve --card-dir "$card_dir" --url "$url"
 }
 
 # ─── Name Slugify ─────────────────────────────────────────────────────────────
@@ -1733,939 +1982,558 @@ except: print('')
 
 # ─── SCAN Command ─────────────────────────────────────────────────────────────
 
-cmd_scan() {
-    local source_dir=""
-    local output_dir=""
-    local explicit_output=false
-    local provider=""
-    
-    local force=false
-    
-    # Parse flags
-    while [[ $# -gt 0 ]]; do
+# Phase 3 scan runtime. cmd_scan always invokes this function asynchronously,
+# so that one subshell owns the private directory and all lifecycle handlers.
+_cmd_scan_runtime() {
+    local source_dir="" output_dir="" provider="" explicit_output=false
+    local force=false allow_remote=false
+    while [ "$#" -gt 0 ]; do
         case "$1" in
-            --output|-o) output_dir="$2"; explicit_output=true; shift 2 ;;
-            --with|-w) provider="$2"; shift 2 ;;
+            --output|-o)
+                [ "$#" -ge 2 ] || { error "--output requires a directory"; return 1; }
+                output_dir="$2"; explicit_output=true; shift 2 ;;
+            --with|-w)
+                [ "$#" -ge 2 ] || { error "--with requires a provider"; return 1; }
+                provider="$2"; shift 2 ;;
             --force|-f) force=true; shift ;;
+            --allow-remote-provider) allow_remote=true; shift ;;
             --clipboard|-c) provider="clipboard"; shift ;;
-            --help|-h) 
-                echo -e "  ${BOLD}Usage:${NC} scoutica scan <docs-folder> [options]" >&2
-                echo "" >&2
-                echo -e "  ${DIM}Reads your documents and generates a Skill Card using a local AI CLI.${NC}" >&2
-                echo -e "  ${DIM}Your data never leaves your machine.${NC}" >&2
-                echo "" >&2
-                echo -e "  ${BOLD}Options:${NC}" >&2
-                echo -e "    --output, -o <dir>    Output directory for card files (default: .)" >&2
-                echo -e "    --with, -w <cli>      AI CLI to use: gemini, claude, ollama (auto-detected)" >&2
-                echo -e "    --force, -f            Force regeneration even if sources unchanged" >&2
-                echo -e "    --clipboard, -c       Just copy the prompt to clipboard (no AI call)" >&2
-                echo "" >&2
-                echo -e "  ${BOLD}Supported AI CLIs (auto-detected):${NC}" >&2
-                echo -e "    ${CYAN}gemini${NC}     Google Gemini CLI    ${DIM}(github.com/google-gemini/gemini-cli)${NC}" >&2
-                echo -e "    ${CYAN}claude${NC}     Claude Code CLI      ${DIM}(github.com/anthropics/claude-code)${NC}" >&2
-                echo -e "    ${CYAN}codex${NC}      OpenAI Codex CLI     ${DIM}(github.com/openai/codex)${NC}" >&2
-                echo -e "    ${CYAN}vibe${NC}       Mistral Vibe CLI     ${DIM}(github.com/mistralai/mistral-vibe)${NC}" >&2
-                echo -e "    ${CYAN}opencode${NC}   OpenCode CLI         ${DIM}(github.com/opencode-ai/opencode)${NC}" >&2
-                echo -e "    ${CYAN}ollama${NC}     Ollama (local LLM)   ${DIM}(ollama.com)${NC}" >&2
-                echo -e "    ${CYAN}ail${NC}        switchAILocal        ${DIM}(github.com/traylinx/switchAILocal)${NC}" >&2
-                echo -e "    ${CYAN}openclaw${NC}   OpenClaw             ${DIM}(github.com/openclaw/openclaw)${NC}" >&2
-                echo "" >&2
-                echo -e "  ${BOLD}Examples:${NC}" >&2
-                echo -e "    scoutica scan ~/CV/                      ${DIM}# auto-detect CLI${NC}" >&2
-                echo -e "    scoutica scan ~/CV/ --with gemini         ${DIM}# use Gemini CLI${NC}" >&2
-                echo -e "    scoutica scan ~/CV/ --with codex          ${DIM}# use OpenAI Codex${NC}" >&2
-                echo -e "    scoutica scan ~/CV/ --with ail            ${DIM}# use switchAILocal${NC}" >&2
-                echo -e "    scoutica scan ~/CV/ --clipboard           ${DIM}# copy prompt to clipboard${NC}" >&2
-                return 0
-                ;;
-            *) 
-                if [ -z "$source_dir" ]; then
-                    source_dir="$1"
+            --help|-h)
+                cat >&2 <<'SCAN_HELP'
+  Usage: scoutica scan <docs-folder> [options]
+
+  Extraction happens locally. The complete generated prompt and document text
+  are then supplied to the selected provider.
+
+  Options:
+    --output, -o <dir>          Exact Skill Card output directory
+    --with, -w <provider>       gemini, claude, codex, opencode, ollama, ail
+    --allow-remote-provider     Consent to this remote-capable invocation
+    --clipboard, -c             Copy full prompt; Scoutica makes no network call
+    --force, -f                 Ignore unchanged card-owned state
+
+  Limits: 2 MiB extracted text per file, 4 MiB aggregate, 8 MiB response,
+  and 300 seconds provider wall time.
+SCAN_HELP
+                return 0 ;;
+            -*) error "Unknown scan option: $1"; return 1 ;;
+            *)
+                if [ -n "$source_dir" ]; then
+                    error "Unexpected scan argument: $1"
+                    return 1
                 fi
-                shift
-                ;;
+                source_dir="$1"; shift ;;
         esac
     done
-    
+
     if [ -z "$source_dir" ]; then
         error "Usage: scoutica scan <docs-folder> [--output <dir>] [--with <provider>]"
-        echo "" >&2
-        echo -e "  ${DIM}Example (current folder):${NC}  scoutica scan . --with default" >&2
-        
-        # Detect available providers for the error message
-        local available=""
-        for cli in gemini claude codex vibe opencode ollama ail; do
-            if command -v "$cli" >/dev/null 2>&1; then
-                available="$available $cli"
+        return 1
+    fi
+    [ -d "$source_dir" ] || { error "Directory not found: $source_dir"; return 1; }
+    _require_validation_runtime || return 1
+
+    local runtime_helper
+    runtime_helper=$(_scan_runtime_helper) || {
+        error "Scan runtime helper not found. Re-run the installer."
+        return 1
+    }
+    source_dir=$("$VALIDATION_PYTHON" -c 'import os,sys; print(os.path.realpath(sys.argv[1]))' "$source_dir") || return 1
+
+    # Fixed provider registry: uncharacterized argv-only adapters never run.
+    if [ -z "$provider" ] || [ "$provider" = "default" ]; then
+        if command -v gemini >/dev/null 2>&1; then provider=gemini
+        elif command -v claude >/dev/null 2>&1; then provider=claude
+        elif command -v codex >/dev/null 2>&1; then provider=codex
+        elif command -v opencode >/dev/null 2>&1; then provider=opencode
+        elif command -v ollama >/dev/null 2>&1; then provider=ollama
+        elif curl -sf --connect-timeout 1 --max-time 2 http://127.0.0.1:18080/health >/dev/null 2>&1; then provider=ail
+        else provider=clipboard
+        fi
+    fi
+
+    local provider_record provider_status provider_scope provider_destination provider_reason
+    provider_record=$("$VALIDATION_PYTHON" "$runtime_helper" provider-info "$provider") || return 1
+    IFS=$'\t' read -r provider_status provider_scope provider_destination provider_reason <<< "$provider_record"
+    if [ "$provider_status" != "enabled" ]; then
+        error "Provider '$provider' is disabled: ${provider_reason:-no safe prompt transport}"
+        echo -e "  ${DIM}Use gemini, claude, codex, opencode, ollama, ail, or --clipboard.${NC}" >&2
+        return 1
+    fi
+    case "$provider" in
+        ail|clipboard) : ;;
+        *) command -v "$provider" >/dev/null 2>&1 || {
+            error "$provider is not installed on your system."
+            return 1
+        } ;;
+    esac
+
+    if [ "$provider_scope" = "remote" ]; then
+        warn "Remote-capable provider selected: $provider"
+        echo -e "  ${BOLD}Destination:${NC} $provider_destination" >&2
+        echo -e "  ${YELLOW}The full prompt and extracted document text will be sent to that provider.${NC}" >&2
+        if [ "$allow_remote" != true ]; then
+            if [ -t 0 ]; then
+                local consent=""
+                echo -ne "  Continue for this invocation? [y/N]: " >&2
+                IFS= read -r consent || consent=""
+                case "$consent" in y|Y|yes|YES|Yes) : ;; *) error "Remote provider consent declined."; return 1 ;; esac
+            else
+                error "Noninteractive remote-capable scan requires --allow-remote-provider."
+                return 1
             fi
-        done
-        if ! command -v "ail" >/dev/null 2>&1 && curl -sf http://localhost:18080/health &>/dev/null 2>&1; then
-            available="$available ail"
         fi
-        
-        if [ -n "$available" ]; then
-            local first=$(echo $available | awk '{print $1}')
-            echo -e "  ${DIM}Example (specific AI):${NC}     scoutica scan ~/CV/ --with $first" >&2
-            echo "" >&2
-            echo -e "  ${BOLD}Installed AI providers you can use:${NC}${CYAN}$available${NC}" >&2
-        else
-            echo -e "  ${DIM}Example (clipboard):${NC}       scoutica scan ~/CV/ --clipboard" >&2
-            echo "" >&2
-            echo -e "  ${YELLOW}⚠ No AI CLIs installed. Use --clipboard mode.${NC}" >&2
+    elif [ "$provider_scope" = "local" ]; then
+        echo -e "  ${DIM}Provider destination: $provider_destination. Extracted text stays on this endpoint.${NC}" >&2
+    else
+        warn "Clipboard mode copies the full prompt and all extracted document text into the system clipboard."
+        echo -e "  ${DIM}Scoutica performs no network call; onward transfer depends on where you paste it.${NC}" >&2
+    fi
+
+    # Explicit output wins. Otherwise only a unique source-dir registry mapping
+    # can select prior card state; legacy cwd state is ignored.
+    local mapping_status="" mapping_record=""
+    if [ "$explicit_output" = true ]; then
+        while [ "$output_dir" != "/" ] && [ "${output_dir%/}" != "$output_dir" ]; do
+            output_dir="${output_dir%/}"
+        done
+        output_dir=$("$VALIDATION_PYTHON" "$runtime_helper" output-path --path "$output_dir") || {
+            error "Refusing unsafe output directory."
+            return 1
+        }
+    else
+        mapping_record=$("$VALIDATION_PYTHON" "$runtime_helper" registry-card \
+            --registry "$REGISTRY_FILE" --source "$source_dir" 2>/dev/null || true)
+        if [ -n "$mapping_record" ]; then
+            IFS=$'\t' read -r output_dir mapping_status <<< "$mapping_record"
         fi
-        echo "" >&2
-        exit 1
     fi
-    
-    if [ ! -d "$source_dir" ]; then
-        error "Directory not found: $source_dir"
-        exit 1
+
+    local current_hash stored_hash="" stored_source=""
+    current_hash=$("$VALIDATION_PYTHON" "$runtime_helper" source-hash --source "$source_dir") || return 1
+    if [ -n "$output_dir" ] && [ -d "$output_dir" ]; then
+        stored_hash=$(_read_state "$output_dir" "card.source_hash" 2>/dev/null || true)
+        stored_source=$(_read_state "$output_dir" "card.source_path" 2>/dev/null || true)
     fi
-    
-    # If no explicit --output, default to source_dir (will be redirected to subfolder after AI generation)
-    if [ -z "$output_dir" ]; then
-        output_dir="$source_dir"
-    fi
-    
-    header "AI-Powered Card Generation"
-    
-    # ── Check for existing card files ──
-    local existing_files=()
-    for f in profile.json rules.yaml evidence.json SKILL.md; do
-        [ -f "$output_dir/$f" ] && existing_files+=("$f")
-    done
-    
-    if [ ${#existing_files[@]} -gt 0 ]; then
-        warn "Existing card files found in $output_dir:"
-        for f in "${existing_files[@]}"; do
-            echo -e "    ${YELLOW}•${NC} $f" >&2
+    if [ "$force" = false ] && [ -n "$output_dir" ] \
+        && { [ "$explicit_output" = true ] || [ "$mapping_status" = valid ]; } \
+        && [ "$stored_source" = "$source_dir" ] && [ "$stored_hash" = "$current_hash" ]; then
+        local complete=true state_file
+        for state_file in profile.json rules.yaml evidence.json SKILL.md; do
+            [ -f "$output_dir/$state_file" ] || complete=false
         done
-        echo "" >&2
-        
-        # Auto-backup
-        local backup_dir="$output_dir/.backup/$(date +%Y%m%d_%H%M%S)"
-        mkdir -p "$backup_dir"
-        for f in "${existing_files[@]}"; do
-            cp "$output_dir/$f" "$backup_dir/$f"
-        done
-        [ -d "$output_dir/rules" ] && cp -r "$output_dir/rules" "$backup_dir/rules" 2>/dev/null
-        
-        success "Backed up existing files to .backup/"
-        echo -e "  ${DIM}Scan will overwrite with AI-generated versions.${NC}" >&2
-        echo "" >&2
-    fi
-    
-    # ── Symlink protection ──
-    for f in profile.json rules.yaml evidence.json SKILL.md; do
-        if [ -L "$output_dir/$f" ]; then
-            error "Refusing to overwrite symlink: $output_dir/$f"
-            exit 1
-        fi
-    done
-    
-    # ── Step 0: Check if source docs have changed ──
-    # ── Initialize logging ──
-    _scan_log_init
-    _scan_log "INIT" "source_dir=$source_dir, force=$force, provider=${provider:-auto}"
-    
-    local current_hash=$(_compute_source_hash "$source_dir")
-    local stored_hash=$(_read_state "card.source_hash")
-    _scan_log "HASH" "current=$current_hash, stored=$stored_hash"
-    
-    if [ "$force" = false ] && [ -n "$stored_hash" ] && [ "$current_hash" = "$stored_hash" ]; then
-        # Check that all card files actually exist
-        local all_exist=true
-        for f in profile.json rules.yaml evidence.json SKILL.md; do
-            [ ! -f "$output_dir/$f" ] && all_exist=false
-        done
-        
-        if [ "$all_exist" = true ]; then
+        if [ "$complete" = true ]; then
             success "Card is up to date (source documents unchanged)"
-            echo -e "  ${DIM}Use --force to regenerate anyway${NC}" >&2
-            echo ""
-            
-            # Auto-chain to preview if desired
-            echo -e "  ${BOLD}What to do next:${NC}\n"
-            echo -e "  ${CYAN}•${NC} ${CYAN}scoutica preview${NC}   ${DIM}Deploy a live web preview${NC}"
-            echo -e "  ${CYAN}•${NC} ${CYAN}scoutica validate${NC}  ${DIM}Check your card for schema errors${NC}"
-            echo -e "  ${CYAN}•${NC} ${CYAN}scoutica scan --force${NC} ${DIM}Regenerate from scratch${NC}"
-            echo ""
+            echo -e "  ${DIM}Card-owned state: $output_dir/.scoutica/state.json${NC}" >&2
             return 0
         fi
     fi
-    
-    # ── Step 1: Read all documents ──
-    _scan_log "EXTRACT" "scanning directory: $source_dir"
-    echo -e "  ${BLUE}→${NC} Scanning ${BOLD}$source_dir${NC}..."
-    echo ""
-    
-    local all_text=""
-    local file_count=0
-    
+
+    # These remain process-scoped so the EXIT trap can still read them after
+    # the function returns inside cmd_scan's dedicated background subshell.
+    _SCAN_RUN_DIR=""
+    _SCAN_CHILD_PID=""
+    _SCAN_RUN_DIR=$(mktemp -d "${TMPDIR:-/tmp}/scoutica-scan.XXXXXX") || {
+        error "Could not create private scan runtime directory."
+        return 1
+    }
+    chmod 700 "$_SCAN_RUN_DIR" || return 1
+    _scan_runtime_cleanup() {
+        local cleanup_rc="$1"
+        trap - EXIT INT TERM
+        if [ -n "${_SCAN_CHILD_PID:-}" ] && kill -0 "$_SCAN_CHILD_PID" 2>/dev/null; then
+            kill -TERM "$_SCAN_CHILD_PID" 2>/dev/null || true
+            wait "$_SCAN_CHILD_PID" 2>/dev/null || true
+        fi
+        rm -rf "$_SCAN_RUN_DIR" 2>/dev/null || true
+        exit "$cleanup_rc"
+    }
+    _scan_runtime_signal() {
+        local scan_signal="$1" scan_signal_rc=143
+        [ "$scan_signal" = INT ] && scan_signal_rc=130
+        if [ -n "${_SCAN_CHILD_PID:-}" ] && kill -0 "$_SCAN_CHILD_PID" 2>/dev/null; then
+            kill -s "$scan_signal" "$_SCAN_CHILD_PID" 2>/dev/null || true
+            wait "$_SCAN_CHILD_PID" 2>/dev/null || true
+            _SCAN_CHILD_PID=""
+        fi
+        exit "$scan_signal_rc"
+    }
+    trap '_scan_runtime_cleanup $?' EXIT
+    trap '_scan_runtime_signal INT' INT
+    trap '_scan_runtime_signal TERM' TERM
+
+    _scan_log_init
+    _scan_log "INIT" "source_dir=$source_dir, provider=$provider, output=${output_dir:-registry-miss}"
+    header "AI-Powered Card Generation"
+    echo -e "  ${BLUE}→${NC} Extracting bounded text from ${BOLD}$source_dir${NC}..."
+
+    local prompt_file="$_SCAN_RUN_DIR/prompt.txt"
+    local response_file="$_SCAN_RUN_DIR/response.txt"
+    local provider_log="$_SCAN_RUN_DIR/provider.log"
+    local content_file="$_SCAN_RUN_DIR/content.txt"
+    local snapshot_dir="$_SCAN_RUN_DIR/source-snapshot"
+    local stage_dir="$_SCAN_RUN_DIR/stage"
+    local scan_prompt_file file snapshot_file basename ext content_size aggregate_size=0 file_count=0 input_size
+    mkdir -p "$snapshot_dir"
+    chmod 700 "$snapshot_dir"
+    scan_prompt_file="$SCOUTICA_HOME/bin/SCAN_PROMPT.md"
+    if [ ! -f "$scan_prompt_file" ]; then
+        scan_prompt_file="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/SCAN_PROMPT.md"
+    fi
+    if [ -f "$scan_prompt_file" ]; then
+        cat "$scan_prompt_file" > "$prompt_file"
+    else
+        printf '%s\n' "Generate a Scoutica card. Return one JSON object with profile, rules, evidence, and skill_md." > "$prompt_file"
+    fi
+    printf '\n## Candidate Documents\n' >> "$prompt_file"
+
     for file in "$source_dir"/*; do
         [ -f "$file" ] || continue
-        local basename=$(basename "$file")
-        
-        # Skip generated card files (in case source == output dir)
+        [ -L "$file" ] && { error "Refusing symlinked source document: $file"; return 1; }
+        basename=$(basename "$file")
         case "$basename" in
-            profile.json|rules.yaml|evidence.json|SKILL.md|scoutica_prompt.txt) continue ;;
+            profile.json|rules.yaml|evidence.json|SKILL.md|README.md|scoutica_prompt.txt|scoutica.json) continue ;;
         esac
-        
-        local ext="${basename##*.}"
-        ext=$(echo "$ext" | tr '[:upper:]' '[:lower:]')
-        
+        ext=${basename##*.}
+        ext=$(printf '%s' "$ext" | tr '[:upper:]' '[:lower:]')
+        case "$ext" in md|txt|json|yaml|yml|csv|html|htm|pdf|docx) : ;; *) continue ;; esac
+        input_size=$(wc -c < "$file" | tr -d '[:space:]')
+        if [ "${input_size:-0}" -gt 2097152 ]; then
+            error "Source file exceeds the 2 MiB limit: $basename"
+            return 1
+        fi
+        snapshot_file="$snapshot_dir/$basename"
+        cat "$file" > "$snapshot_file" || {
+            error "Could not snapshot source document: $basename"
+            return 1
+        }
+        input_size=$(wc -c < "$snapshot_file" | tr -d '[:space:]')
+        if [ "${input_size:-0}" -gt 2097152 ]; then
+            error "Source file changed beyond the 2 MiB limit while reading: $basename"
+            return 1
+        fi
+        : > "$content_file"
         case "$ext" in
-            md|txt|json|yaml|yml|csv|html|htm)
-                local fhash=$(_file_sha256 "$file")
-                local content
-                content=$(_cache_get "$fhash" 2>/dev/null) && {
-                    local word_count=$(echo "$content" | wc -w | tr -d ' ')
-                    echo -e "    ${GREEN}📄${NC} $basename ${DIM}($word_count words, cached)${NC}"
-                    _scan_log "EXTRACT" "file=$basename, type=$ext, words=$word_count, cache=HIT"
-                } || {
-                    content=$(cat "$file")
-                    _cache_set "$fhash" "$content"
-                    local word_count=$(echo "$content" | wc -w | tr -d ' ')
-                    echo -e "    ${GREEN}📄${NC} $basename ${DIM}($word_count words)${NC}"
-                    _scan_log "EXTRACT" "file=$basename, type=$ext, words=$word_count, cache=MISS"
-                }
-                all_text+="
---- FILE: $basename ---
-$content
-"
-                file_count=$((file_count + 1))
-                ;;
+            md|txt|json|yaml|yml|csv|html|htm) cat "$snapshot_file" > "$content_file" ;;
             pdf)
-                local fhash=$(_file_sha256 "$file")
-                local content
-                content=$(_cache_get "$fhash" 2>/dev/null) && {
-                    local word_count=$(echo "$content" | wc -w | tr -d ' ')
-                    echo -e "    ${GREEN}📄${NC} $basename ${DIM}($word_count words, PDF cached)${NC}"
-                    _scan_log "EXTRACT" "file=$basename, type=pdf, words=$word_count, cache=HIT"
-                } || {
-                    content=""
-                    local extractor="none"
-                    if command -v pdftotext &>/dev/null; then
-                        content=$(pdftotext "$file" - 2>/dev/null)
-                        extractor="pdftotext"
-                    elif command -v python3 &>/dev/null; then
-                        content=$(python3 -c "
-import subprocess, sys
-filepath = sys.argv[1]
+                if command -v pdftotext >/dev/null 2>&1; then
+                    pdftotext "$snapshot_file" "$content_file" 2>/dev/null || true
+                elif command -v textutil >/dev/null 2>&1; then
+                    textutil -convert txt -stdout "$snapshot_file" > "$content_file" 2>/dev/null || true
+                else
+                    "$VALIDATION_PYTHON" - "$snapshot_file" > "$content_file" 2>/dev/null <<'PDF_EXTRACT' || true
+import sys
 try:
     import PyPDF2
-    reader = PyPDF2.PdfReader(filepath)
-    for page in reader.pages:
-        print(page.extract_text() or '')
-except ImportError:
-    try:
-        result = subprocess.run(['textutil', '-convert', 'txt', '-stdout', filepath], 
-                              capture_output=True, text=True)
-        print(result.stdout)
-    except Exception: pass
-" "$file" 2>/dev/null)
-                        extractor="python3"
-                    elif command -v textutil &>/dev/null; then
-                        content=$(textutil -convert txt -stdout "$file" 2>/dev/null)
-                        extractor="textutil"
-                    fi
-                    
-                    if [ -n "$content" ]; then
-                        _cache_set "$fhash" "$content"
-                        local word_count=$(echo "$content" | wc -w | tr -d ' ')
-                        echo -e "    ${GREEN}📄${NC} $basename ${DIM}($word_count words, extracted from PDF)${NC}"
-                        _scan_log "EXTRACT" "file=$basename, type=pdf, words=$word_count, extractor=$extractor, cache=MISS"
-                    else
-                        echo -e "    ${YELLOW}⚠️${NC}  $basename ${DIM}(could not extract text — install pdftotext or PyPDF2)${NC}"
-                        _scan_log "EXTRACT" "file=$basename, type=pdf, FAILED, no extractor available"
-                    fi
-                }
-                
-                if [ -n "$content" ]; then
-                    all_text+="
---- FILE: $basename ---
-$content
-"
-                    file_count=$((file_count + 1))
-                fi
-                ;;
+    for page in PyPDF2.PdfReader(sys.argv[1]).pages:
+        print(page.extract_text() or "")
+except Exception:
+    pass
+PDF_EXTRACT
+                fi ;;
             docx)
-                local content=""
-                if command -v textutil &>/dev/null; then
-                    content=$(textutil -convert txt -stdout "$file" 2>/dev/null)
-                elif command -v python3 &>/dev/null; then
-                    content=$(python3 -c "
+                if command -v textutil >/dev/null 2>&1; then
+                    textutil -convert txt -stdout "$snapshot_file" > "$content_file" 2>/dev/null || true
+                else
+                    "$VALIDATION_PYTHON" - "$snapshot_file" > "$content_file" 2>/dev/null <<'DOCX_EXTRACT' || true
 import sys
 try:
     import docx
-    doc = docx.Document(sys.argv[1])
-    for p in doc.paragraphs: print(p.text)
-except Exception: pass
-" "$file" 2>/dev/null)
-                fi
-                
-                if [ -n "$content" ]; then
-                    local word_count=$(echo "$content" | wc -w | tr -d ' ')
-                    echo -e "    ${GREEN}📄${NC} $basename ${DIM}($word_count words, extracted from DOCX)${NC}"
-                    all_text+="
---- FILE: $basename ---
-$content
-"
-                    file_count=$((file_count + 1))
-                else
-                    echo -e "    ${YELLOW}⚠️${NC}  $basename ${DIM}(could not extract — install python-docx)${NC}"
-                fi
-                ;;
-            jpg|jpeg|png|gif|svg|ico|mp4|zip|tar|gz|py|css|js)
-                # Skip binary/code files silently
-                ;;
-            *)
-                echo -e "    ${DIM}⏭️  $basename (skipped — unsupported format)${NC}"
-                ;;
+    for paragraph in docx.Document(sys.argv[1]).paragraphs:
+        print(paragraph.text)
+except Exception:
+    pass
+DOCX_EXTRACT
+                fi ;;
         esac
+        content_size=$(wc -c < "$content_file" | tr -d '[:space:]')
+        [ "${content_size:-0}" -gt 0 ] || continue
+        if [ "$content_size" -gt 2097152 ]; then
+            error "Extracted text exceeds the 2 MiB per-file limit: $basename"
+            return 1
+        fi
+        aggregate_size=$((aggregate_size + content_size))
+        if [ "$aggregate_size" -gt 4194304 ]; then
+            error "Extracted text exceeds the 4 MiB aggregate limit."
+            return 1
+        fi
+        printf '\n--- FILE: %s ---\n' "$basename" >> "$prompt_file"
+        cat "$content_file" >> "$prompt_file"
+        printf '\n' >> "$prompt_file"
+        file_count=$((file_count + 1))
+        echo -e "    ${GREEN}📄${NC} $basename ${DIM}($content_size bytes)${NC}"
     done
-    
-    echo ""
-    
-    if [ "$file_count" -eq 0 ]; then
-        error "No readable documents found in $source_dir"
-        echo -e "  ${DIM}Supported formats: .md .txt .pdf .docx .json .yaml .csv .html${NC}" >&2
-        exit 1
+    [ "$file_count" -gt 0 ] || { error "No readable documents found in $source_dir"; return 1; }
+    local snapshot_hash post_extract_hash
+    snapshot_hash=$("$VALIDATION_PYTHON" "$runtime_helper" source-hash --source "$snapshot_dir") || return 1
+    post_extract_hash=$("$VALIDATION_PYTHON" "$runtime_helper" source-hash --source "$source_dir") || return 1
+    if [ "$snapshot_hash" != "$post_extract_hash" ]; then
+        error "Source documents changed during extraction; re-run scan."
+        return 1
     fi
-    
-    echo -e "  ${GREEN}✅${NC} Found ${BOLD}$file_count${NC} documents"
-    echo ""
-    
-    _SCAN_T_AI_START=$(_ts_ms)
-    _scan_log "EXTRACT" "total: $file_count files extracted"
-    
-    # ── Step 2: Load system prompt ──
-    local scan_prompt=""
-    local script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-    
-    if [ -f "$SCOUTICA_HOME/bin/SCAN_PROMPT.md" ]; then
-        scan_prompt=$(cat "$SCOUTICA_HOME/bin/SCAN_PROMPT.md")
-        _scan_log "PROMPT" "loaded from $SCOUTICA_HOME/bin/SCAN_PROMPT.md"
-    elif [ -f "$script_dir/SCAN_PROMPT.md" ]; then
-        scan_prompt=$(cat "$script_dir/SCAN_PROMPT.md")
-        _scan_log "PROMPT" "loaded from $script_dir/SCAN_PROMPT.md"
-    else
-        scan_prompt="You are a Scoutica Protocol card generator. Analyze the candidate's documents and return ONLY a single JSON object with keys: profile, rules, evidence, skill_md. Follow the Scoutica Protocol schema exactly. Never invent skills not in the documents. Use 'negotiable' for unknown compensation. Return raw JSON only — no markdown fences."
-        _scan_log "PROMPT" "using built-in default prompt"
-    fi
-    
-    # ── Step 3: Build the full prompt ──
-    local full_prompt="$scan_prompt
+    echo -e "  ${GREEN}✅${NC} Prepared $file_count documents (${aggregate_size} extracted bytes)"
 
-## Candidate Documents
-
-$all_text"
-    
-    # ── Step 4: Detect or use specified AI CLI ──
-    _scan_log "PROMPT" "full_prompt=$(echo "$full_prompt" | wc -w | tr -d ' ') words, $(echo "$full_prompt" | wc -c | tr -d ' ') bytes"
-    
-    if [ -z "$provider" ] || [ "$provider" = "default" ]; then
-        # Auto-detect in priority order
-        if command -v gemini &>/dev/null; then
-            provider="gemini"
-        elif command -v claude &>/dev/null; then
-            provider="claude"
-        elif command -v codex &>/dev/null; then
-            provider="codex"
-        elif command -v vibe &>/dev/null; then
-            provider="vibe"
-        elif command -v opencode &>/dev/null; then
-            provider="opencode"
-        elif command -v ollama &>/dev/null; then
-            provider="ollama"
-        elif curl -sf http://localhost:18080/health &>/dev/null; then
-            provider="ail"
-        elif command -v openclaw &>/dev/null; then
-            provider="openclaw"
+    if [ "$provider" = clipboard ]; then
+        if command -v pbcopy >/dev/null 2>&1; then
+            pbcopy < "$prompt_file"
+            success "Full scan prompt copied to the system clipboard."
+        elif command -v xclip >/dev/null 2>&1; then
+            xclip -selection clipboard < "$prompt_file"
+            success "Full scan prompt copied to the system clipboard."
         else
-            provider="clipboard"
-            echo ""
-            warn "No local AI CLI found on your system."
-            echo -e "  ${DIM}Install one for fully automatic card generation:${NC}"
-            echo -e "    ${CYAN}gemini${NC}   → ${DIM}npm install -g @google/gemini-cli${NC}   ${DIM}(google)${NC}"
-            echo -e "    ${CYAN}claude${NC}   → ${DIM}npm install -g @anthropic-ai/claude-code${NC}"
-            echo -e "    ${CYAN}ollama${NC}   → ${DIM}https://ollama.com${NC}   ${DIM}(runs 100% offline)${NC}"
-            echo ""
-            echo -e "  ${DIM}Falling back to clipboard mode...${NC}"
-            echo ""
-        fi
-    fi
-    
-    # ── Handle clipboard mode ──
-    if [ "$provider" = "clipboard" ]; then
-        if command -v pbcopy &>/dev/null; then
-            echo "$full_prompt" | pbcopy
-            success "Prompt copied to clipboard! ($file_count documents included)"
-        elif command -v xclip &>/dev/null; then
-            echo "$full_prompt" | xclip -selection clipboard
-            success "Prompt copied to clipboard!"
-        else
-            local prompt_file="$output_dir/scoutica_prompt.txt"
+            [ -n "$output_dir" ] || output_dir="$source_dir/scoutica-card"
+            [ -L "$output_dir" ] && { error "Refusing symlinked output directory: $output_dir"; return 1; }
             mkdir -p "$output_dir"
-            echo "$full_prompt" > "$prompt_file"
-            success "Prompt saved to $prompt_file"
+            cp "$prompt_file" "$output_dir/scoutica_prompt.txt"
+            chmod 600 "$output_dir/scoutica_prompt.txt" 2>/dev/null || true
+            success "Clipboard utility unavailable; prompt saved to $output_dir/scoutica_prompt.txt"
         fi
-        echo ""
-        echo -e "  ${DIM}Paste into any AI assistant and save the output files to $output_dir/${NC}"
-        echo -e "  ${DIM}Or install a local AI CLI: gemini, claude, or ollama${NC}"
         return 0
     fi
-    
-    # ── Validate chosen provider is installed ──
-    local valid_providers=(gemini claude codex vibe opencode ollama ail openclaw clipboard)
-    local is_valid=false
-    for vp in "${valid_providers[@]}"; do
-        [ "$provider" = "$vp" ] && is_valid=true
-    done
-    if ! $is_valid; then
-        error "Unknown provider: $provider (supported: ${valid_providers[*]})"
-        exit 1
-    fi
-    
-    if [ "$provider" != "ail" ] && [ "$provider" != "clipboard" ] && [ "$provider" != "openclaw" ] && ! command -v "$provider" &>/dev/null; then
-        error "$provider is not installed on your system."
-        echo ""
-        case "$provider" in
-            gemini)   echo -e "  ${DIM}Install: npm install -g @google/gemini-cli${NC}" ;;
-            claude)   echo -e "  ${DIM}Install: npm install -g @anthropic-ai/claude-code${NC}" ;;
-            ollama)   echo -e "  ${DIM}Install: https://ollama.com${NC}" ;;
-            codex)    echo -e "  ${DIM}Install: npm install -g @openai/codex${NC}" ;;
-            *)        echo -e "  ${DIM}Check the provider docs for installation instructions.${NC}" ;;
-        esac
-        echo ""
-        echo -e "  ${DIM}Or use clipboard mode instead:${NC}"
-        echo -e "  ${CYAN}scoutica scan $source_dir --clipboard${NC}"
-        echo ""
-        exit 1
-    fi
-    
-    _scan_log "PROVIDER" "selected: $provider"
-    echo -e "  ${BLUE}→${NC} Generating card via ${BOLD}$provider${NC} (via your selected AI provider — this step does not publish a public card)..."
-    echo ""
-    _scan_log "AI_CALL" "sending request to $provider..."
-    
-    # ── Step 5: Call local AI CLI ──
-    local response=""
-    local payload_file="" scan_raw_file=""
-    local tmp_prompt=$(mktemp /tmp/scoutica_prompt.XXXXXX)
-    local tmp_resp=$(mktemp /tmp/scoutica_resp.XXXXXX)
-    local tmp_log=$(mktemp /tmp/scoutica_log.XXXXXX)
-    # Clean ALL temp + PII files (prompt, response, request payload, raw AI response) on
-    # success/failure/interrupt. Single quotes defer expansion so the late-assigned
-    # payload_file / scan_raw_file are picked up at trap time (F-HIGH-TEMP-001).
-    trap 'rm -f "$tmp_prompt" "$tmp_resp" "$tmp_log" "$payload_file" "$scan_raw_file" 2>/dev/null' EXIT INT TERM
-    echo "$full_prompt" > "$tmp_prompt"
-    
-    local prompt_size=$(wc -c < "$tmp_prompt" | tr -d ' ')
-    local prompt_words=$(wc -w < "$tmp_prompt" | tr -d ' ')
-    
-    # Log function for the background process (use different name to avoid clobbering global _scan_log)
-    _bg_log() {
-        echo "$(date +%H:%M:%S) $1" >> "$tmp_log"
-    }
-    export -f _bg_log 2>/dev/null || true
-    
-    echo -e "  ${DIM}[$(date +%H:%M:%S)]${NC} Prompt ready: ${BOLD}${prompt_words} words${NC} (${prompt_size} bytes) from ${file_count} documents"
-    echo -e "  ${DIM}[$(date +%H:%M:%S)]${NC} Connecting to ${BOLD}$provider${NC}..."
-    
-    # Background AI execution with step logging
-    (
-    echo "$(date +%H:%M:%S) Sending request to $provider..." >> "$tmp_log"
-    
-    case "$provider" in
-        gemini)
-            echo "$(date +%H:%M:%S) Running: gemini -p <prompt> (piping ${prompt_words} words)" >> "$tmp_log"
-            cat "$tmp_prompt" | gemini -p "Read my documents and generate my Scoutica Protocol Skill Card. Return ONLY raw JSON with keys: profile, rules, evidence, skill_md. No markdown fences, no explanation." > "$tmp_resp" 2>>"$tmp_log"
-            ;;
-        claude)
-            echo "$(date +%H:%M:%S) Running: claude -p <prompt>" >> "$tmp_log"
-            claude -p "$(cat "$tmp_prompt")
 
-Read my documents and generate my Scoutica Protocol Skill Card. Return ONLY raw JSON with keys: profile, rules, evidence, skill_md. No markdown fences, no explanation." > "$tmp_resp" 2>>"$tmp_log"
-            ;;
-        ollama)
-            local ollama_model="llama3.2"
-            # Check if the model is available
-            if ! ollama list 2>/dev/null | grep -q "$ollama_model"; then
-                echo "$(date +%H:%M:%S) Model $ollama_model not found, pulling..." >> "$tmp_log"
-                ollama pull "$ollama_model" 2>/dev/null || {
-                    echo "$(date +%H:%M:%S) ERROR: Failed to pull model" >> "$tmp_log"
-                    rm -f "$tmp_prompt" "$tmp_resp"
-                    exit 1
+    echo -e "  ${BLUE}→${NC} Invoking ${BOLD}$provider${NC}; prompt is supplied through stdin, never argv."
+    "$VALIDATION_PYTHON" "$runtime_helper" run-provider "$provider" \
+        --prompt-file "$prompt_file" --response-file "$response_file" --log-file "$provider_log" &
+    _SCAN_CHILD_PID=$!
+    local provider_rc=0
+    wait "$_SCAN_CHILD_PID" || provider_rc=$?
+    _SCAN_CHILD_PID=""
+    if [ "$provider_rc" -ne 0 ]; then
+        error "Provider '$provider' failed (exit $provider_rc)."
+        [ -s "$provider_log" ] && sed 's/^/    /' "$provider_log" >&2
+        return 1
+    fi
+    [ -s "$response_file" ] || { error "Provider '$provider' returned an empty response."; return 1; }
+
+    mkdir -p "$stage_dir/rules"
+    chmod 700 "$stage_dir" "$stage_dir/rules"
+    if ! "$VALIDATION_PYTHON" "$runtime_helper" parse-response \
+        --response-file "$response_file" --stage-dir "$stage_dir"; then
+        error "Provider response was not a complete Scoutica card."
+        return 1
+    fi
+    local template_root="$TEMPLATES_DIR" rule_name
+    if [ ! -d "$template_root/rules" ]; then
+        template_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/protocol/templates"
+    fi
+    for rule_name in evaluate-fit.md negotiate-terms.md verify-evidence.md request-interview.md; do
+        [ -f "$template_root/rules/$rule_name" ] && cp "$template_root/rules/$rule_name" "$stage_dir/rules/$rule_name"
+    done
+    [ -f "$template_root/card.gitignore" ] && cp "$template_root/card.gitignore" "$stage_dir/.gitignore"
+
+    if ! cmd_validate "$stage_dir"; then
+        error "Generated card failed strict validation; prior card remains active."
+        return 1
+    fi
+
+    local pre_promote_hash
+    pre_promote_hash=$("$VALIDATION_PYTHON" "$runtime_helper" source-hash --source "$source_dir") || return 1
+    if [ "$pre_promote_hash" != "$snapshot_hash" ]; then
+        error "Source documents changed while the provider was running; prior card remains active."
+        return 1
+    fi
+
+    if [ -z "$output_dir" ]; then
+        local card_name slug
+        card_name=$("$VALIDATION_PYTHON" -c 'import json,sys; print(json.load(open(sys.argv[1], encoding="utf-8")).get("name", ""))' "$stage_dir/profile.json") || card_name=""
+        slug=$(_slugify_name "$card_name")
+        [ -n "$slug" ] || slug=scoutica
+        output_dir="$source_dir/${slug}-card"
+    fi
+    [ -L "$output_dir" ] && { error "Refusing symlinked output directory: $output_dir"; return 1; }
+
+    "$VALIDATION_PYTHON" "$runtime_helper" promote \
+        --stage-dir "$stage_dir" --card-dir "$output_dir" --source-dir "$source_dir" \
+        --source-hash "$snapshot_hash" --provider "$provider" --registry "$REGISTRY_FILE" &
+    _SCAN_CHILD_PID=$!
+    local promote_rc=0
+    wait "$_SCAN_CHILD_PID" || promote_rc=$?
+    _SCAN_CHILD_PID=""
+    if [ "$promote_rc" -ne 0 ]; then
+        error "Validated card promotion failed; no card was reported ready."
+        return "$promote_rc"
+    fi
+    output_dir=$("$VALIDATION_PYTHON" -c 'import os,sys; print(os.path.realpath(sys.argv[1]))' "$output_dir") || return 1
+
+    _scan_log "WRITE" "validated card promoted to $output_dir"
+    echo ""
+    success "Your validated Scoutica Protocol Skill Card is ready: $output_dir"
+    echo -e "  ${DIM}Private state: $output_dir/.scoutica/state.json${NC}"
+    return 0
+}
+
+# Keep the public command in the top-level shell so signals sent to the CLI PID
+# are forwarded to the lifecycle-owning scan subshell. The wrapper clears its
+# handlers before every return; no function-local EXIT trap escapes scope.
+cmd_scan() {
+    local scan_runtime_pid scan_runtime_rc=0 scan_signal_rc=0
+    local scan_direct_child scan_signal_children scan_wrapper_pgid
+    local scan_group_helper scan_group_python scan_group_pid scan_group_rc=0
+    local scan_group_signal_rc=0 scan_group_tty=0 scan_script
+    scan_wrapper_pgid=$(ps -o pgid= -p $$ 2>/dev/null | tr -d '[:space:]' || true)
+    if [ "${1:-}" != "--help" ] && [ "${1:-}" != "-h" ] \
+        && [ "$scan_wrapper_pgid" != "$$" ] \
+        && [ "${SCOUTICA_SCAN_GROUPED:-0}" != 1 ]; then
+        scan_group_python=$(_supported_python) || {
+            error "Python 3.11+ is required."
+            return 1
+        }
+        scan_group_helper=$(_scan_runtime_helper) || {
+            error "Scan runtime helper not found. Re-run the installer."
+            return 1
+        }
+        scan_script="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/$(basename "${BASH_SOURCE[0]}")"
+        if [ "${SCOUTICA_SCAN_SIGNALS_RESET:-0}" != 1 ]; then
+            SCOUTICA_SCAN_SIGNALS_RESET=1
+            export SCOUTICA_SCAN_SIGNALS_RESET
+            exec "$scan_group_python" "$scan_group_helper" _exec-signals -- \
+                "${BASH:-/bin/bash}" "$scan_script" scan "$@" || {
+                error "Could not reset scan signal handling."
+                return 1
+            }
+        fi
+        if [ -t 0 ]; then
+            SCOUTICA_SCAN_TTY_FD=0
+            export SCOUTICA_SCAN_TTY_FD
+            scan_group_tty=1
+        fi
+        SCOUTICA_SCAN_GROUPED=1 "$scan_group_python" "$scan_group_helper" _exec-group -- \
+            "${BASH:-/bin/bash}" "$scan_script" scan "$@" <&0 &
+        scan_group_pid=$!
+        unset SCOUTICA_SCAN_TTY_FD
+        _scan_group_forward() {
+            local scan_group_signal="$1" scan_group_exit="$2" scan_group_child_pgid
+            trap '' INT TERM
+            scan_group_child_pgid=$(ps -o pgid= -p "$scan_group_pid" 2>/dev/null \
+                | tr -d '[:space:]' || true)
+            if [ "$scan_group_child_pgid" = "$scan_group_pid" ]; then
+                # _exec-group resets INT/TERM before becoming group leader, so
+                # the requested signal is now guaranteed to be observable.
+                kill -s "$scan_group_signal" "$scan_group_pid" 2>/dev/null || true
+            else
+                # A just-forked background helper can still inherit INT ignored
+                # while Python starts. TERM closes that window without changing
+                # the public signal status returned below.
+                kill -TERM "$scan_group_pid" 2>/dev/null || true
+            fi
+            wait "$scan_group_pid" 2>/dev/null || true
+            scan_group_signal_rc="$scan_group_exit"
+        }
+        trap '_scan_group_forward INT 130' INT
+        trap '_scan_group_forward TERM 143' TERM
+        wait "$scan_group_pid" || scan_group_rc=$?
+        trap - INT TERM
+        if [ "$scan_group_tty" -eq 1 ]; then
+            "$scan_group_python" "$scan_group_helper" _tty-foreground \
+                --fd 0 --pgid "$scan_wrapper_pgid" || true
+        fi
+        [ "$scan_group_signal_rc" -eq 0 ] || return "$scan_group_signal_rc"
+        return "$scan_group_rc"
+    fi
+    ( _cmd_scan_runtime "$@" ) <&0 &
+    scan_runtime_pid=$!
+    scan_wrapper_pgid=$(ps -o pgid= -p $$ 2>/dev/null | tr -d '[:space:]' || true)
+    _scan_wrapper_descendants() {
+        local scan_tree_root="$1"
+        ps -eo pid=,ppid= 2>/dev/null | awk -v root="$scan_tree_root" '
+            { pid[NR] = $1; parent[NR] = $2 }
+            END {
+                known[root] = 1
+                do {
+                    changed = 0
+                    for (i = 1; i <= NR; i++) {
+                        if (known[parent[i]] && !known[pid[i]]) {
+                            known[pid[i]] = 1
+                            changed = 1
+                        }
+                    }
+                } while (changed)
+                for (i = NR; i >= 1; i--) {
+                    if (pid[i] != root && known[pid[i]]) print pid[i]
                 }
-                echo "$(date +%H:%M:%S) Model pulled successfully" >> "$tmp_log"
-            fi
-            echo "$(date +%H:%M:%S) Running: ollama run $ollama_model" >> "$tmp_log"
-            ollama run "$ollama_model" "$(cat "$tmp_prompt")
-
-Read my documents and generate my Scoutica Protocol Skill Card. Return ONLY raw JSON with keys: profile, rules, evidence, skill_md. No markdown fences, no explanation." > "$tmp_resp" 2>>"$tmp_log"
-            ;;
-        ail)
-            # switchAILocal — OpenAI-compatible local server at localhost:18080
-            if ! curl -sf http://localhost:18080/health &>/dev/null; then
-                echo "$(date +%H:%M:%S) ERROR: switchAILocal is not responding at localhost:18080" >> "$tmp_log"
-                error "switchAILocal is not running. Start it with: ail start"
-                rm -f "$tmp_prompt" "$tmp_resp"
-                exit 1
-            fi
-            echo "$(date +%H:%M:%S) Health check passed ✓" >> "$tmp_log"
-            
-            local ail_prompt
-            ail_prompt=$(cat "$tmp_prompt")
-            
-            # Use python to construct the entire JSON payload to a temp file
-            payload_file=$(mktemp /tmp/scoutica_payload.XXXXXX)
-            python3 - "$payload_file" "$tmp_prompt" <<'BUILD_PAYLOAD'
-import sys, json
-with open(sys.argv[2]) as _pf:
-    prompt = _pf.read()
-payload = {
-    'messages': [{'role': 'user', 'content': prompt}],
-    'temperature': 0.1,
-    'stream': True
-}
-with open(sys.argv[1], 'w') as f:
-    json.dump(payload, f)
-BUILD_PAYLOAD
-            
-            local payload_size=$(wc -c < "$payload_file" | tr -d ' ')
-            echo "$(date +%H:%M:%S) POST /v1/chat/completions (payload: ${payload_size} bytes, temp: 0.1, stream: true)" >> "$tmp_log"
-            
-            # SSE streaming using unbuffered curl and python processor
-            curl -sS -N http://localhost:18080/v1/chat/completions \
-                -H "Content-Type: application/json" \
-                -d @"$payload_file" 2>/dev/null | python3 -c "
-import sys, json
-non_stream_buffer = ''
-for line in sys.stdin:
-    line = line.strip()
-    if line.startswith('data: '):
-        payload = line[6:]
-        if payload == '[DONE]': continue
-        try:
-            data = json.loads(payload)
-            if 'choices' in data and len(data['choices']) > 0:
-                delta = data['choices'][0].get('delta', {})
-                content = delta.get('content', '')
-                if content:
-                    sys.stdout.write(content)
-                    sys.stdout.flush()
-        except:
-            pass
-    elif line.startswith('{'):
-        non_stream_buffer += line
-    elif non_stream_buffer != '':
-        non_stream_buffer += line
-
-# Handle cases where it returns errors like 403 or non-streaming JSON
-if non_stream_buffer:
-    try:
-        data = json.loads(non_stream_buffer)
-        if 'error' in data:
-            print('ERROR: {}'.format(data['error']), file=sys.stderr)
-            sys.exit(1)
-        elif 'choices' in data:
-            print(data['choices'][0]['message']['content'])
-    except:
-        pass
-" > "$tmp_resp" 2>&1
-            
-            rm -f "$payload_file"
-            ;;
-        openclaw)
-            # OpenClaw — AI agent framework with embedded Pi agent
-            if ! command -v openclaw &>/dev/null; then
-                echo "$(date +%H:%M:%S) ERROR: OpenClaw CLI not found" >> "$tmp_log"
-                error "OpenClaw CLI not found. Install from: https://github.com/openclaw/openclaw"
-                rm -f "$tmp_prompt" "$tmp_resp"
-                exit 1
-            fi
-            echo "$(date +%H:%M:%S) Running: openclaw agent --message <prompt>" >> "$tmp_log"
-            openclaw agent --message "$(cat "$tmp_prompt")
-
-Read my documents and generate my Scoutica Protocol Skill Card. Return ONLY raw JSON with keys: profile, rules, evidence, skill_md. No markdown fences, no explanation." > "$tmp_resp" 2>>"$tmp_log"
-            ;;
-        codex)
-            echo "$(date +%H:%M:%S) Running: codex exec <prompt>" >> "$tmp_log"
-            codex exec "$(cat "$tmp_prompt")
-
-Read my documents and generate my Scoutica Protocol Skill Card. Return ONLY raw JSON with keys: profile, rules, evidence, skill_md. No markdown fences, no explanation." > "$tmp_resp" 2>>"$tmp_log"
-            ;;
-        vibe)
-            echo "$(date +%H:%M:%S) Running: vibe -p <prompt> --output text" >> "$tmp_log"
-            vibe -p "$(cat "$tmp_prompt")
-
-Read my documents and generate my Scoutica Protocol Skill Card. Return ONLY raw JSON with keys: profile, rules, evidence, skill_md. No markdown fences, no explanation." --output text > "$tmp_resp" 2>>"$tmp_log"
-            ;;
-        opencode)
-            echo "$(date +%H:%M:%S) Running: opencode run <prompt>" >> "$tmp_log"
-            opencode run "$(cat "$tmp_prompt")
-
-Read my documents and generate my Scoutica Protocol Skill Card. Return ONLY raw JSON with keys: profile, rules, evidence, skill_md. No markdown fences, no explanation." > "$tmp_resp" 2>>"$tmp_log"
-            ;;
-        *)
-            echo "$(date +%H:%M:%S) ERROR: Unknown provider: $provider" >> "$tmp_log"
-            error "Unknown provider: $provider (supported: gemini, claude, codex, vibe, opencode, ollama, ail)"
-            rm -f "$tmp_prompt" "$tmp_resp"
-            exit 1
-            ;;
-    esac
-    
-    local resp_size=$(wc -c < "$tmp_resp" 2>/dev/null | tr -d ' ')
-    echo "$(date +%H:%M:%S) DONE (response: ${resp_size:-0} bytes)" >> "$tmp_log"
-    ) &
-    local bg_pid=$!
-    
-    # ── Real-time log tail with elapsed timer ──
-    local start_time=$(date +%s)
-    local last_line_count=0
-    tput civis 2>/dev/null || true
-    
-    while kill -0 "$bg_pid" 2>/dev/null; do
-        # Print any new log lines
-        local current_lines=$(wc -l < "$tmp_log" 2>/dev/null | tr -d ' ')
-        if [ "${current_lines:-0}" -gt "$last_line_count" ]; then
-            tail -n +$((last_line_count + 1)) "$tmp_log" | while IFS= read -r line; do
-                printf "\r\033[K"
-                echo -e "  ${DIM}[$line${NC}"
+            }
+        '
+    }
+    _scan_wrapper_group_members() {
+        [ "$scan_wrapper_pgid" = "$$" ] || return 0
+        # A descendant that exited its parent during signal handling is
+        # reparented to PID 1 but retains the CLI-owned process group.
+        ps -eo pid=,ppid=,pgid= 2>/dev/null | awk \
+            -v group="$scan_wrapper_pgid" -v wrapper="$$" -v runtime="$scan_runtime_pid" \
+            '$3 == group && $2 == 1 && $1 != wrapper && $1 != runtime {print $1}'
+    }
+    _scan_wrapper_owned_pids() {
+        _scan_wrapper_descendants "$scan_runtime_pid"
+        _scan_wrapper_group_members
+    }
+    _scan_wrapper_stop_tree() {
+        local scan_tree_root="$1" scan_tree_pid scan_tree_pids scan_freeze_pass
+        scan_freeze_pass=0
+        while [ "$scan_freeze_pass" -lt 3 ]; do
+            scan_tree_pids=$(_scan_wrapper_owned_pids)
+            for scan_tree_pid in $scan_tree_pids; do
+                kill -STOP "$scan_tree_pid" 2>/dev/null || true
             done
-            last_line_count=$current_lines
-        fi
-        
-        # Show elapsed timer and AI output snippet on the current line
-        local elapsed=$(( $(date +%s) - start_time ))
-        local snippet=""
-        if [ -s "$tmp_resp" ]; then
-            # Get last 50 bytes of the live response file, strip newlines/tabs/backslashes
-            snippet=$(tail -c 50 "$tmp_resp" 2>/dev/null | tr -d '\n\r\t\\' | sed 's/[[:space:]]\+/ /g')
-            if [ -n "$snippet" ]; then
-                echo -ne "\r  ${MAGENTA}▓▒░${NC} ${BOLD}${provider}${NC} is thinking... ${CYAN}\"${snippet}...\"${NC} ${DIM}(${elapsed}s elapsed)${NC}\033[K"
-                sleep 0.2
-                continue
-            fi
-        fi
-        echo -ne "\r  ${MAGENTA}▓▒░${NC} ${BOLD}${provider}${NC} is thinking... ${DIM}(${elapsed}s elapsed)${NC}\033[K"
-        sleep 0.2
-    done
-    
-    # Print any remaining log lines
-    local final_lines=$(wc -l < "$tmp_log" 2>/dev/null | tr -d ' ')
-    if [ "${final_lines:-0}" -gt "$last_line_count" ]; then
-        tail -n +$((last_line_count + 1)) "$tmp_log" | while IFS= read -r line; do
-            printf "\r\033[K"
-            echo -e "  ${DIM}[$line${NC}"
+            sleep 0.05
+            scan_freeze_pass=$((scan_freeze_pass + 1))
         done
-    fi
-    printf "\r\033[K"
-    tput cnorm 2>/dev/null || true
-    
-    local total_elapsed=$(( $(date +%s) - start_time ))
-    
-    local bg_exit=0
-    wait "$bg_pid" 2>/dev/null || bg_exit=$?
-    response=$(cat "$tmp_resp" 2>/dev/null || true)
-    
-    # Save log contents before cleanup for error diagnosis
-    local log_contents=""
-    [ -f "$tmp_log" ] && log_contents=$(cat "$tmp_log" 2>/dev/null || true)
-    rm -f "$tmp_prompt" "$tmp_resp" "$tmp_log"
-    
-    if [ -z "$response" ]; then
-        error "Empty response from $provider after ${total_elapsed}s (exit code: $bg_exit)"
-        if [ -n "$log_contents" ]; then
-            echo -e "  ${DIM}Provider log:${NC}" >&2
-            echo "$log_contents" | while IFS= read -r logline; do
-                echo -e "    ${DIM}$logline${NC}" >&2
+        # The requested signal already had a bounded grace period. KILL the
+        # frozen descendants so TERM handlers cannot fork new orphaned work.
+        scan_tree_pids=$(_scan_wrapper_owned_pids)
+        for scan_tree_pid in $scan_tree_pids; do
+            kill -STOP "$scan_tree_pid" 2>/dev/null || true
+            kill -KILL "$scan_tree_pid" 2>/dev/null || true
+        done
+        kill -TERM "$scan_tree_root" 2>/dev/null || true
+    }
+    _scan_wrapper_forward() {
+        local scan_signal="$1" scan_exit="$2" scan_attempts scan_child_state
+        # Cleanup is bounded below; ignore repeated parent signals so shared
+        # trap state cannot be re-entered and the first signal owns the status.
+        trap '' INT TERM
+        # Freeze the lifecycle shell before forwarding so it cannot advance to
+        # another provider, clipboard transfer, or promotion after interrupt.
+        kill -STOP "$scan_runtime_pid" 2>/dev/null || true
+        scan_signal_children=""
+        for scan_direct_child in $(ps -eo pid=,ppid= 2>/dev/null | awk -v parent="$scan_runtime_pid" '$2 == parent {print $1}'); do
+            if kill -s "$scan_signal" "$scan_direct_child" 2>/dev/null; then
+                scan_signal_children="$scan_signal_children $scan_direct_child"
+            fi
+        done
+        scan_attempts=40
+        while [ -n "$scan_signal_children" ] && [ "$scan_attempts" -gt 0 ]; do
+            scan_signal_children=""
+            for scan_direct_child in $(ps -eo pid=,ppid= 2>/dev/null | awk -v parent="$scan_runtime_pid" '$2 == parent {print $1}'); do
+                scan_child_state=$(ps -o stat= -p "$scan_direct_child" 2>/dev/null | tr -d '[:space:]' || true)
+                case "$scan_child_state" in
+                    ""|Z*) : ;;
+                    *) scan_signal_children="$scan_signal_children $scan_direct_child" ;;
+                esac
             done
-        fi
-        exit 1
-    fi
-    
-    _SCAN_T_AI_END=$(_ts_ms)
-    local resp_bytes=$(echo "$response" | wc -c | tr -d ' ')
-    echo -e "  ${GREEN}✅${NC} Response received from ${BOLD}$provider${NC} (${resp_bytes} bytes in ${total_elapsed}s)"
-    _scan_log "AI_CALL" "response received: ${resp_bytes} bytes in ${total_elapsed}s"
-    echo ""
-    
-    # ── Step 6: Determine output directory ──
-    # If no explicit --output was given, create a clean subfolder inside source_dir
-    if [ "$explicit_output" = false ]; then
-        # Extract name from AI response to build the subfolder name
-        local card_name
-        card_name=$(python3 - "$response" <<'PARSE_NAME' 2>/dev/null || echo ""
-import json, re, sys
-raw = sys.argv[1].strip()
-def find_json(text):
-    fence_matches = re.findall(r'```(?:json)?\s*(\{[\s\S]*?\})\s*```', text)
-    for fm in fence_matches:
-        try:
-            d = json.loads(fm)
-            if 'profile' in d: return d
-        except Exception: pass
-    for i in range(len(text)-1, -1, -1):
-        if text[i] == '{':
-            stack = 0
-            for j in range(i, len(text)):
-                if text[j] == '{': stack += 1
-                elif text[j] == '}':
-                    stack -= 1
-                    if stack == 0:
-                        try:
-                            d = json.loads(text[i:j+1])
-                            if isinstance(d, dict) and 'profile' in d: return d
-                        except Exception: pass
-                        break
-    return None
-d = find_json(raw)
-if d and 'profile' in d:
-    print(d['profile'].get('name', ''))
-else:
-    print('')
-PARSE_NAME
-)
-        
-        if [ -n "$card_name" ]; then
-            local slug=$(_slugify_name "$card_name")
-            local card_subdir="$source_dir/${slug}-card"
-            
-            # Create the subfolder
-            mkdir -p "$card_subdir/rules"
-            output_dir="$card_subdir"
-            echo -e "  ${BLUE}→${NC} Creating card directory: ${BOLD}${slug}-card/${NC}"
-        else
-            # Fallback: use a generic name
-            local card_subdir="$source_dir/scoutica-card"
-            mkdir -p "$card_subdir/rules"
-            output_dir="$card_subdir"
-            echo -e "  ${BLUE}→${NC} Creating card directory: ${BOLD}scoutica-card/${NC}"
-        fi
-    fi
-    
-    # ── Step 7: Parse response and write files ──
-    echo -e "  ${BLUE}→${NC} Writing card files to ${BOLD}$output_dir${NC}..."
-    
-    mkdir -p "$output_dir/rules"
-    
-    # Save raw response for debugging
-    scan_raw_file="$output_dir/.scan_response_raw.txt"
-    echo "$response" > "$scan_raw_file"
-    
-    # Use Python to extract JSON, parse it, and write files
-    if ! python3 << 'PARSE_SCRIPT' - "$output_dir" "$response"
-import json, sys, os, re
-
-output_dir = sys.argv[1]
-raw = sys.argv[2].strip()
-
-def find_scoutica_json(text):
-    # 1. Look for markdown fences first
-    fence_matches = re.findall(r'```(?:json)?\s*(\{[\s\S]*?\})\s*```', text)
-    for fm in fence_matches:
-        try:
-            d = json.loads(fm)
-            if 'profile' in d or 'rules' in d: return d
-        except Exception: pass
-        
-    # 2. Bracket counting from the end (to skip early stderr logs / crash traces)
-    start_indices = [i for i, c in enumerate(text) if c == '{']
-    start_indices.reverse()
-    
-    for start in start_indices:
-        stack = 0
-        for i in range(start, len(text)):
-            if text[i] == '{':
-                stack += 1
-            elif text[i] == '}':
-                stack -= 1
-                if stack == 0:
-                    try:
-                        parsed = json.loads(text[start:i+1])
-                        if isinstance(parsed, dict) and ('profile' in parsed or 'rules' in parsed or 'evidence' in parsed):
-                            return parsed
-                    except Exception: pass
-    return None
-
-data = find_scoutica_json(raw)
-
-if data is None:
-    print("  ❌ Could not parse JSON from AI response.", file=sys.stderr)
-    print(f"  Raw response saved to {output_dir}/.scan_response_raw.txt", file=sys.stderr)
-    sys.exit(1)
-
-# Write profile.json
-if "profile" in data:
-    with open(os.path.join(output_dir, "profile.json"), "w") as f:
-        json.dump(data["profile"], f, indent=2, ensure_ascii=False)
-    print("  ✅ Created profile.json")
-
-# Write rules.yaml
-if "rules" in data:
-    try:
-        import yaml
-        with open(os.path.join(output_dir, "rules.yaml"), "w") as f:
-            yaml.dump(data["rules"], f, default_flow_style=False, allow_unicode=True, sort_keys=False)
-        print("  ✅ Created rules.yaml")
-    except ImportError:
-        with open(os.path.join(output_dir, "rules.yaml"), "w") as f:
-            json.dump(data["rules"], f, indent=2, ensure_ascii=False)
-        print("  ✅ Created rules.yaml (as JSON — install pyyaml for proper YAML)")
-
-# Write evidence.json
-if "evidence" in data:
-    with open(os.path.join(output_dir, "evidence.json"), "w") as f:
-        json.dump(data["evidence"], f, indent=2, ensure_ascii=False)
-    print("  ✅ Created evidence.json")
-
-# Write SKILL.md
-sm = data.get("skill_md", {})
-profile = data.get("profile", {})
-name = sm.get("name", profile.get("name", "Unknown"))
-title = sm.get("title", profile.get("title", "Professional"))
-tags = sm.get("tags", "")
-
-skill_content = f"""---
-name: scoutica
-description: {name} — AI-readable professional profile with automated opportunity filtering
-metadata:
-  tags: {tags}
-  author: {name}
-  version: 0.1.0
----
-
-# Scoutica
-
-This skill provides an AI-readable professional profile for **{name}** — {title}.
-
-It allows any AI agent to:
-- Understand this candidate's capabilities and experience
-- Evaluate fit against a role or opportunity
-- Check whether an opportunity meets the candidate's policies
-- Access public evidence of work
-- Request an interview handoff if the opportunity passes all checks
-
-## Data Files
-
-- [profile.json](./profile.json) — Structured capabilities, tools, certifications, and experience
-- [rules.yaml](./rules.yaml) — Rules of Engagement: salary floors, remote policy, auto-reject rules
-- [evidence.json](./evidence.json) — Public evidence registry with verification links
-
-## Evaluation Rules
-
-- [evaluate-fit.md](./rules/evaluate-fit.md) — How to score capability match
-- [negotiate-terms.md](./rules/negotiate-terms.md) — How to check policy compliance
-- [verify-evidence.md](./rules/verify-evidence.md) — How to verify public work
-- [request-interview.md](./rules/request-interview.md) — When to initiate human handoff
-
-## Important Rules
-1. Never fabricate capabilities. Only report what is in `profile.json`.
-2. Respect the Rules of Engagement. If `rules.yaml` says REJECT, do not override.
-3. Candidate sovereignty. This profile serves the candidate, not the employer.
-"""
-with open(os.path.join(output_dir, "SKILL.md"), "w") as f:
-    f.write(skill_content)
-print("  ✅ Created SKILL.md")
-
-# Write README.md (For GitHub human discoverability)
-summary = profile.get("summary", "")
-skills = profile.get("skills", [])
-skills_str = ", ".join(skills) if skills else "Not specified"
-
-readme_content = f"""# {name}
-
-## {title}
-
-{summary}
-
-### Core Skills
-{skills_str}
-
----
-
-*This is an AI-readable professional Skill Card generated by the [Scoutica Protocol](https://scoutica.com).*
-
-- 📄 **\`profile.json\`**: Capabilities and experience
-- 🛡️ **\`rules.yaml\`**: Rules of engagement (min salary, remote policy)
-- 🔗 **\`evidence.json\`**: Verified public work
-- 🤖 **\`SKILL.md\`**: Protocol instructions for AI Agents
-"""
-with open(os.path.join(output_dir, "README.md"), "w") as f:
-    f.write(readme_content)
-print("  ✅ Created README.md (Human presentation)")
-
-PARSE_SCRIPT
-    then
-        error "Failed to parse the AI response into a valid card."
-        echo -e "  ${DIM}The response did not contain parseable JSON — re-run scan or edit manually.${NC}" >&2
-        echo -e "  ${YELLOW}⚠️  The raw AI response (which may contain personal data) was discarded for privacy.${NC}" >&2
-        exit 1
-    fi
-    
-    # Clean up raw response (contains PII)
-    rm -f "$output_dir/.scan_response_raw.txt"
-    
-    # Copy rule templates
-    if [ -d "$TEMPLATES_DIR/rules" ]; then
-        cp "$TEMPLATES_DIR/rules/"*.md "$output_dir/rules/" 2>/dev/null || true
-        success "Copied evaluation rule templates"
-    fi
-    
-    # Copy card .gitignore if not present
-    if [ ! -f "$output_dir/.gitignore" ]; then
-        local gi_src=""
-        if [ -f "$TEMPLATES_DIR/card.gitignore" ]; then
-            gi_src="$TEMPLATES_DIR/card.gitignore"
-        elif [ -f "$script_dir/../protocol/templates/card.gitignore" ]; then
-            gi_src="$script_dir/../protocol/templates/card.gitignore"
-        fi
-        if [ -n "$gi_src" ]; then
-            cp "$gi_src" "$output_dir/.gitignore"
-            success "Created .gitignore (protects secrets from accidental commits)"
-        fi
-    fi
-    
-    _scan_log "WRITE" "all card files written to $output_dir"
-    
-    echo ""
-    echo -e "${GREEN}╔═══════════════════════════════════════════════════════╗${NC}"
-    echo -e "${GREEN}║                                                       ║${NC}"
-    echo -e "${GREEN}║   🎉 Your Scoutica Protocol Skill Card is ready!     ║${NC}"
-    echo -e "${GREEN}║                                                       ║${NC}"
-    echo -e "${GREEN}╚═══════════════════════════════════════════════════════╝${NC}"
-    
-    # Show timing breakdown
-    _scan_log_timing
-    echo ""
-    
-    local disp_dir=""
-    [ "$output_dir" != "." ] && disp_dir=" $output_dir"
-
-    # Never auto-publish: scan produces LOCAL files only. Deploying a public preview is an
-    # explicit, separate step the user chooses to run (F-HIGH-PUBLISH-001).
-    echo -e "  ${BOLD}What to do next:${NC}"
-    echo ""
-    echo -e "  ${CYAN}1.${NC} ${CYAN}scoutica preview$disp_dir${NC}    ${DIM}Deploy a live web preview (publishes a public URL)${NC}"
-    echo -e "  ${CYAN}2.${NC} ${CYAN}scoutica validate$disp_dir${NC}   ${DIM}Check for schema errors${NC}"
-    echo -e "  ${CYAN}3.${NC} ${CYAN}scoutica publish$disp_dir${NC}    ${DIM}Push to GitHub and share${NC}"
-    echo ""
-    echo -e "  ${DIM}Not happy? Edit the JSON files directly or re-run scan.${NC}"
-    echo ""
-    
-    # ── Register card in global registry ──
-    local abs_output_dir
-    abs_output_dir=$(cd "$output_dir" && pwd)
-    local src_abs
-    src_abs=$(cd "$source_dir" && pwd)
-    _register_card "$abs_output_dir" "scan" '{"provider": "'"$provider"'", "source_dir": "'"$src_abs"'"}'
+            [ -z "$scan_signal_children" ] || sleep 0.05
+            scan_attempts=$((scan_attempts - 1))
+        done
+        _scan_wrapper_stop_tree "$scan_runtime_pid"
+        kill -CONT "$scan_runtime_pid" 2>/dev/null || true
+        wait "$scan_runtime_pid" 2>/dev/null || true
+        scan_signal_rc="$scan_exit"
+    }
+    # While the runtime is waiting, its direct child is the Python lifecycle
+    # helper. Signal that helper first so it can forward to and reap the actual
+    # provider; the runtime then observes failure and removes its private dir.
+    # With no child (for example, while reading consent), terminate the runtime
+    # itself. The runtime stays stopped while a requested signal drains; its
+    # live tree and owned process-group orphans are frozen/killed before
+    # TERM/CONT runs EXIT cleanup.
+    trap '_scan_wrapper_forward INT 130' INT
+    trap '_scan_wrapper_forward TERM 143' TERM
+    wait "$scan_runtime_pid" || scan_runtime_rc=$?
+    trap - INT TERM
+    [ "$scan_signal_rc" -eq 0 ] || return "$scan_signal_rc"
+    return "$scan_runtime_rc"
 }
 
-# ─── RESOLVE Command ──────────────────────────────────────────────────────────
-
-cmd_resolve() {
+cmd_resolve() (
     local url="${1:-}"
     local save_dir="${2:-}"
     
@@ -2683,13 +2551,6 @@ cmd_resolve() {
         echo -e "    scoutica resolve https://github.com/user/my-card" >&2
         echo -e "    scoutica resolve https://github.com/user/my-card ./local-copy/" >&2
         return 0
-    fi
-    
-    # URL validation + IP pinning happens on the FINAL normalized base_url below, so the check
-    # covers the exact host we fetch and pins curl to that IP (defeats DNS rebinding).
-    if ! printf '%s' "$url" | grep -qE '^https://'; then
-        error "Only HTTPS URLs are supported (got: $url)"
-        exit 1
     fi
     
     # ── Normalize URL to raw base ──
@@ -2716,50 +2577,54 @@ cmd_resolve() {
         base_url=$(echo "$url" | sed 's|/$||')
     fi
     
-    # ── SSRF: validate the FINAL fetch target, then pin curl to the validated host:port:ip so the
-    # connection cannot be rebound between check and fetch — covers IPv4+IPv6 and non-443 ports
-    # (M6/F-HIGH-SSRF-001). ---
-    local pin_spec fetch_host fetch_port pin_ip resolve_args=""
-    pin_spec=$(_validate_url "$base_url") || exit 1
-    read -r fetch_host fetch_port pin_ip <<<"$pin_spec"
-    case "$pin_ip" in
-        "")  ;;
-        *:*) resolve_args="--resolve $fetch_host:$fetch_port:[$pin_ip]" ;;  # IPv6 must be bracketed
-        *)   resolve_args="--resolve $fetch_host:$fetch_port:$pin_ip" ;;
-    esac
+    local run_dir discovery_file profile_file rules_file evidence_file skill_file
+    local discovery="" profile="" rules="" evidence="" skill_md="" fetch_rc=0
+    run_dir=$(mktemp -d "${TMPDIR:-/tmp}/scoutica-resolve.XXXXXX") || {
+        printf '%s\n' "Could not create private resolve runtime directory." >&2
+        return 1
+    }
+    chmod 700 "$run_dir" || return 1
+    trap 'rm -rf "$run_dir" 2>/dev/null' EXIT INT TERM
+    discovery_file="$run_dir/scoutica.json"
+    profile_file="$run_dir/profile.json"
+    rules_file="$run_dir/rules.yaml"
+    evidence_file="$run_dir/evidence.json"
+    skill_file="$run_dir/SKILL.md"
 
     header "Resolving Skill Card"
     echo -e "  ${BLUE}→${NC} Fetching from ${DIM}$base_url${NC}"
     echo ""
     
-    # ── Try scoutica.json first ──
-    local discovery
-    discovery=$(curl -sf --connect-timeout 10 --max-time 30 --max-filesize 2097152 $resolve_args "$base_url/scoutica.json" 2>/dev/null)
+    # ── Try scoutica.json first. 404 is optional; every other failure aborts. ──
+    _safe_fetch --url "$base_url/scoutica.json" --output "$discovery_file" \
+        --expect json --allow-not-found || fetch_rc=$?
+    case "$fetch_rc" in
+        0) discovery=$(cat "$discovery_file") ;;
+        4) discovery="" ;;
+        *) return "$fetch_rc" ;;
+    esac
     if [ -n "$discovery" ]; then
         echo -e "  ${GREEN}✅${NC} Found scoutica.json (discovery file)"
         local card_url
-        card_url=$(echo "$discovery" | python3 -c "import sys,json; print(json.load(sys.stdin).get('card_url',''))" 2>/dev/null)
+        card_url=$("$VALIDATION_PYTHON" - "$discovery_file" <<'PY'
+import json, sys
+value = json.load(open(sys.argv[1], encoding="utf-8")).get("card_url", "")
+print(value if isinstance(value, str) else "")
+PY
+)
         if [ -n "$card_url" ] && [ "$card_url" != "$base_url" ]; then
-            # A discovery file is attacker-influenced — re-run the SAME guard so it cannot
-            # redirect the fetch to an internal host (F-HIGH-SSRF-001).
             base_url=$(echo "$card_url" | sed 's|/$||')
-            pin_spec=$(_validate_url "$base_url") || { error "Discovered card_url failed validation; refusing redirect"; exit 1; }
-            read -r fetch_host fetch_port pin_ip <<<"$pin_spec"
-            resolve_args=""
-            case "$pin_ip" in
-                "")  ;;
-                *:*) resolve_args="--resolve $fetch_host:$fetch_port:[$pin_ip]" ;;  # IPv6 bracketed
-                *)   resolve_args="--resolve $fetch_host:$fetch_port:$pin_ip" ;;
-            esac
             echo -e "  ${DIM}→ Card URL: $base_url${NC}"
         fi
     fi
     
     # ── Fetch card files ──
-    local profile="" rules="" evidence="" skill_md=""
     local found=0
-    
-    profile=$(curl -sf --connect-timeout 10 --max-time 30 --max-filesize 2097152 $resolve_args "$base_url/profile.json" 2>/dev/null)
+
+    fetch_rc=0
+    _safe_fetch --url "$base_url/profile.json" --output "$profile_file" \
+        --expect json --allow-not-found || fetch_rc=$?
+    case "$fetch_rc" in 0) profile=$(cat "$profile_file") ;; 4) profile="" ;; *) return "$fetch_rc" ;; esac
     if [ -n "$profile" ]; then
         echo -e "  ${GREEN}📄${NC} profile.json"
         found=$((found + 1))
@@ -2767,7 +2632,10 @@ cmd_resolve() {
         echo -e "  ${RED}✗${NC} profile.json ${DIM}(not found)${NC}"
     fi
     
-    rules=$(curl -sf --connect-timeout 10 --max-time 30 --max-filesize 2097152 $resolve_args "$base_url/rules.yaml" 2>/dev/null)
+    fetch_rc=0
+    _safe_fetch --url "$base_url/rules.yaml" --output "$rules_file" \
+        --expect text --allow-not-found || fetch_rc=$?
+    case "$fetch_rc" in 0) rules=$(cat "$rules_file") ;; 4) rules="" ;; *) return "$fetch_rc" ;; esac
     if [ -n "$rules" ]; then
         echo -e "  ${GREEN}📄${NC} rules.yaml"
         found=$((found + 1))
@@ -2775,7 +2643,10 @@ cmd_resolve() {
         echo -e "  ${RED}✗${NC} rules.yaml ${DIM}(not found)${NC}"
     fi
     
-    evidence=$(curl -sf --connect-timeout 10 --max-time 30 --max-filesize 2097152 $resolve_args "$base_url/evidence.json" 2>/dev/null)
+    fetch_rc=0
+    _safe_fetch --url "$base_url/evidence.json" --output "$evidence_file" \
+        --expect json --allow-not-found || fetch_rc=$?
+    case "$fetch_rc" in 0) evidence=$(cat "$evidence_file") ;; 4) evidence="" ;; *) return "$fetch_rc" ;; esac
     if [ -n "$evidence" ]; then
         echo -e "  ${GREEN}📄${NC} evidence.json"
         found=$((found + 1))
@@ -2783,7 +2654,10 @@ cmd_resolve() {
         echo -e "  ${RED}✗${NC} evidence.json ${DIM}(not found)${NC}"
     fi
     
-    skill_md=$(curl -sf --connect-timeout 10 --max-time 30 --max-filesize 2097152 $resolve_args "$base_url/SKILL.md" 2>/dev/null)
+    fetch_rc=0
+    _safe_fetch --url "$base_url/SKILL.md" --output "$skill_file" \
+        --expect text --allow-not-found || fetch_rc=$?
+    case "$fetch_rc" in 0) skill_md=$(cat "$skill_file") ;; 4) skill_md="" ;; *) return "$fetch_rc" ;; esac
     if [ -n "$skill_md" ]; then
         echo -e "  ${GREEN}📄${NC} SKILL.md"
         found=$((found + 1))
@@ -2901,27 +2775,10 @@ except Exception:
         echo ""
         success "Card saved to $save_dir/"
         
-        # Write state tracking
-        local source_file_list=""
-        for file in "$save_dir"/*; do
-            [ -f "$file" ] || continue
-            local bn=$(basename "$file")
-            case "$bn" in
-                profile.json|rules.yaml|evidence.json|SKILL.md|scoutica_prompt.txt|scoutica.json) continue ;;
-            esac
-            local ext="${bn##*.}"
-            ext=$(echo "$ext" | tr '[:upper:]' '[:lower:]')
-            case "$ext" in
-                md|txt|json|yaml|yml|csv|html|htm|pdf|docx)
-                    [ -n "$source_file_list" ] && source_file_list+=","
-                    source_file_list+="$bn"
-                    ;;
-            esac
-        done
-        local final_hash=$(_compute_source_hash "$save_dir")
-        _write_state "$final_hash" "${provider:-auto}" "$source_file_list"
+        # Resolve metadata belongs to the saved card, never the caller cwd.
+        _write_resolve_state "$save_dir" "$base_url" || return 1
     fi
-}
+)
 
 # ─── PREVIEW Command ──────────────────────────────────────────────────────────
 
@@ -2939,9 +2796,9 @@ cmd_preview() {
     # ── Smart caching: skip if card unchanged and URL still valid ──
     if [ "$force" = false ]; then
         local current_card_hash=$(_compute_card_hash "$target_dir")
-        local stored_card_hash=$(_read_state "preview.card_hash")
-        local stored_url=$(_read_state "preview.url")
-        local stored_expires=$(_read_state "preview.expires_at")
+        local stored_card_hash=$(_read_state "$target_dir" "preview.card_hash" 2>/dev/null || true)
+        local stored_url=$(_read_state "$target_dir" "preview.url" 2>/dev/null || true)
+        local stored_expires=$(_read_state "$target_dir" "preview.expires_at" 2>/dev/null || true)
         
         if [ -n "$stored_card_hash" ] && [ "$current_card_hash" = "$stored_card_hash" ] && [ -n "$stored_url" ] && [ -n "$stored_expires" ]; then
             # Check if URL is still valid (not expired)
@@ -3201,7 +3058,7 @@ EOF
     
     # Save preview state
     local publish_card_hash=$(_compute_card_hash "$target_dir")
-    _write_preview_state "$site_url" "$publish_card_hash"
+    _write_preview_state "$target_dir" "$site_url" "$publish_card_hash" || return 1
     
     echo -e ""
     local disp_dir=""
@@ -3461,9 +3318,25 @@ cmd_org_init() {
     echo -e "  ${BOLD}Which engagement types do you offer?${NC}"
     for etype in "${eng_items[@]}"; do
         if confirm "  Offer $etype?"; then
-            if [ -n "$engagement_types" ]; then engagement_types+=",$etype"; else engagement_types="$etype"; fi
+            local canonical_etype="$etype"
+            [ "$canonical_etype" = "freelance" ] && canonical_etype="contract"
+            case ",$engagement_types," in
+                *",$canonical_etype,"*) : ;;
+                *)
+                    if [ -n "$engagement_types" ]; then
+                        engagement_types+=",$canonical_etype"
+                    else
+                        engagement_types="$canonical_etype"
+                    fi
+                    ;;
+            esac
         fi
     done
+
+    if [ -z "$engagement_types" ]; then
+        error "Select at least one supported engagement type."
+        return 1
+    fi
     
     echo ""
     
@@ -3500,12 +3373,23 @@ cmd_org_init() {
     
     # ── Generate Files ──
     header "Generating Employer Identity Card"
+
+    _require_validation_runtime || return 1
+    local recruiter_schema hiring_rules_schema
+    recruiter_schema=$(_find_schema_file "recruiter/recruiter_profile.schema.json") || {
+        error "Recruiter profile schema not found. Re-run the installer."
+        return 1
+    }
+    hiring_rules_schema=$(_find_schema_file "recruiter/hiring_rules.schema.json") || {
+        error "Hiring rules schema not found. Re-run the installer."
+        return 1
+    }
     
     mkdir -p "$target_dir/roles"
     
     _refuse_if_symlink "$target_dir/recruiter_profile.json" "$target_dir/hiring_rules.yaml" || exit 1
     # Generate recruiter_profile.json and hiring_rules.yaml via Python
-    python3 << 'ORG_GENERATE_SCRIPT' - \
+    "$VALIDATION_PYTHON" << 'ORG_GENERATE_SCRIPT' - \
         "$target_dir" \
         "$org_name" "$org_domain" "$org_description" "$org_team_size" "$org_hq" "$org_founded" \
         "$entity_type" "$team_model" \
@@ -3513,8 +3397,9 @@ cmd_org_init() {
         "$agent_endpoint" "$human_email" "$careers_page" \
         "$max_response_days" "$salary_transparent" "$feedback_on_reject" "$gdpr_compliance" \
         "$max_interview_rounds" "$response_sla_hours" "$max_pings_week" "$max_active_roles" \
-        "$pref_seniority" "$pref_regions"
-import json, sys, os
+        "$pref_seniority" "$pref_regions" \
+        "$recruiter_schema" "$hiring_rules_schema"
+import json, sys, os, yaml, jsonschema
 from datetime import datetime, timezone
 
 args = sys.argv[1:]
@@ -3526,6 +3411,7 @@ agent_endpoint, human_email, careers_page = args[12:15]
 max_resp_days, salary_trans, feedback_rej, gdpr = args[15:19]
 max_rounds, resp_sla, max_pings, max_roles = args[19:23]
 pref_seniority_csv, pref_regions_csv = args[23:25]
+recruiter_schema_path, hiring_rules_schema_path = args[25:27]
 
 def csv_to_list(s):
     return [x.strip() for x in s.split(',') if x.strip()] if s else []
@@ -3533,6 +3419,17 @@ def csv_to_list(s):
 def safe_int(s, default=0):
     try: return int(s)
     except: return default
+
+def canonical_engagements(csv):
+    valid = {"permanent", "contract", "fractional", "advisory", "internship"}
+    result = []
+    for item in csv_to_list(csv):
+        canonical = "contract" if item == "freelance" else item
+        if canonical in valid and canonical not in result:
+            result.append(canonical)
+    if not result:
+        raise ValueError("at least one supported engagement type is required")
+    return result
 
 now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
@@ -3547,9 +3444,7 @@ profile = {
         "description": org_desc,
         "team_size": org_team_size,
     },
-    "industries": csv_to_list(industries_csv),
-    "engagement_types": csv_to_list(engagement_csv),
-    "tech_stack": csv_to_list(tech_csv),
+    "engagement_types": canonical_engagements(engagement_csv),
     "team": {
         "model": team_model,
         "members_can_post_roles": True,
@@ -3560,6 +3455,10 @@ profile = {
     "updated_at": now,
 }
 
+if csv_to_list(industries_csv):
+    profile["industries"] = csv_to_list(industries_csv)
+if csv_to_list(tech_csv):
+    profile["tech_stack"] = csv_to_list(tech_csv)
 if org_hq:
     profile["organization"]["headquarters"] = org_hq
 if org_founded:
@@ -3570,11 +3469,6 @@ if human_email:
     profile["contact"]["human_fallback"] = human_email
 if careers_page:
     profile["contact"]["careers_page"] = careers_page
-
-with open(os.path.join(target_dir, "recruiter_profile.json"), "w") as f:
-    json.dump(profile, f, indent=2, ensure_ascii=False)
-    f.write("\n")
-print("  ✅ Created recruiter_profile.json")
 
 # ── hiring_rules.yaml ──
 rules = {
@@ -3592,21 +3486,29 @@ rules = {
     },
     "preferences": {
         "preferred_seniority": csv_to_list(pref_seniority_csv),
-        "preferred_engagement": csv_to_list(engagement_csv),
+        "preferred_engagement": canonical_engagements(engagement_csv),
         "preferred_regions": csv_to_list(pref_regions_csv),
     },
 }
 
-try:
-    import yaml
-    with open(os.path.join(target_dir, "hiring_rules.yaml"), "w") as f:
-        yaml.dump(rules, f, default_flow_style=False, allow_unicode=True, sort_keys=False)
-    print("  ✅ Created hiring_rules.yaml")
-except ImportError:
-    with open(os.path.join(target_dir, "hiring_rules.yaml"), "w") as f:
-        json.dump(rules, f, indent=2, ensure_ascii=False)
-        f.write("\n")
-    print("  ✅ Created hiring_rules.yaml (as JSON — install pyyaml for proper YAML)")
+# Validate both complete artifacts in memory before persistence or success output.
+with open(recruiter_schema_path, encoding="utf-8") as f:
+    recruiter_schema = json.load(f)
+with open(hiring_rules_schema_path, encoding="utf-8") as f:
+    hiring_rules_schema = json.load(f)
+jsonschema.Draft7Validator.check_schema(recruiter_schema)
+jsonschema.Draft7Validator.check_schema(hiring_rules_schema)
+format_checker = jsonschema.FormatChecker()
+jsonschema.validate(profile, recruiter_schema, format_checker=format_checker)
+jsonschema.validate(rules, hiring_rules_schema, format_checker=format_checker)
+
+with open(os.path.join(target_dir, "recruiter_profile.json"), "w") as f:
+    json.dump(profile, f, indent=2, ensure_ascii=False)
+    f.write("\n")
+with open(os.path.join(target_dir, "hiring_rules.yaml"), "w") as f:
+    yaml.safe_dump(rules, f, default_flow_style=False, allow_unicode=True, sort_keys=False)
+print("  ✅ Created recruiter_profile.json")
+print("  ✅ Created hiring_rules.yaml")
 
 # ── Empty roles/ directory message ──
 print("  ✅ Created roles/ directory")
@@ -3727,23 +3629,41 @@ cmd_org_publish() {
     
     if [ -d "$card_dir/.git" ]; then
         (
-            cd "$card_dir"
-            # Stage known employer card files
-            local card_files=(recruiter_profile.json hiring_rules.yaml)
-            for cf in "${card_files[@]}"; do
-                [ -f "$cf" ] && git add "$cf" 2>/dev/null
-            done
-            [ -d "roles" ] && git add roles/ 2>/dev/null
+            cd "$card_dir" || return 1
+            if ! git remote get-url origin >/dev/null 2>&1; then
+                error "No remote 'origin' configured."
+                echo -e "  ${DIM}Run: git remote add origin https://github.com/ORG/.scoutica.git${NC}" >&2
+                return 1
+            fi
+            _git_require_canonical_index employer "pre-existing" || return 1
+            if ! _git_stage_canonical_paths employer; then
+                error "Failed to stage canonical Employer Card files."
+                return 1
+            fi
+            _git_require_canonical_index employer "final" || return 1
+
+            local publish_branch
+            publish_branch=$(git branch --show-current 2>/dev/null || true)
+            if [ -z "$publish_branch" ]; then
+                error "Cannot publish from a detached HEAD or unnamed branch."
+                return 1
+            fi
             
             local changes
-            changes=$(git status -s 2>/dev/null | grep -E 'recruiter_profile|hiring_rules|roles/') || true
+            changes=$(git diff --cached --name-status -- 2>/dev/null) || {
+                error "Could not inspect staged Employer Card changes."
+                return 1
+            }
             
             if [ -z "$changes" ]; then
-                echo -e "  ${GREEN}✅${NC} Employer Card is already up to date!"
-                local origin_url=$(git remote get-url origin 2>/dev/null || echo "")
-                if [ -n "$origin_url" ]; then
-                    echo -e "  ${DIM}Live at:${NC} $(echo "$origin_url" | sed 's/\.git$//')"
+                if ! git push origin "$publish_branch" >/dev/null 2>&1; then
+                    error "Push failed. The remote may not contain the local Employer Card commit."
+                    return 1
                 fi
+                echo -e "  ${GREEN}✅${NC} Employer Card is up to date and synchronized!"
+                local origin_url
+                origin_url=$(git remote get-url origin) || return 1
+                echo -e "  ${DIM}Live at:${NC} $(echo "$origin_url" | sed 's/\.git$//')"
                 return 0
             fi
             
@@ -3754,28 +3674,32 @@ cmd_org_publish() {
             echo ""
             
             local msg="Update Scoutica Employer Card — $(date +%Y-%m-%d)"
-            git commit -m "$msg" >/dev/null 2>&1
-            
-            if git remote -v | grep -q "origin"; then
-                echo -e "  ${DIM}Pushing to GitHub...${NC}"
-                if git push origin "$(git branch --show-current)" >/dev/null 2>&1; then
-                    success "Successfully published to GitHub!"
-                    local origin_url=$(git remote get-url origin)
-                    local clean_url=$(echo "$origin_url" | sed 's/\.git$//')
-                    echo -e "  ${BOLD}View:${NC} $clean_url"
-                else
-                    error "Push failed. Check your remote or permissions."
-                fi
-            else
-                warn "No remote 'origin' configured."
-                echo -e "  ${DIM}Run: git remote add origin https://github.com/ORG/.scoutica.git${NC}"
+            if ! git commit -m "$msg" >/dev/null 2>&1; then
+                error "Commit failed. No publish was recorded."
+                return 1
             fi
+            
+            echo -e "  ${DIM}Pushing to GitHub...${NC}"
+            if ! git push origin "$publish_branch" >/dev/null 2>&1; then
+                error "Push failed. Check your remote or permissions."
+                return 1
+            fi
+            success "Successfully published to GitHub!"
+            local origin_url
+            origin_url=$(git remote get-url origin) || return 1
+            local clean_url
+            clean_url=$(echo "$origin_url" | sed 's/\.git$//')
+            echo -e "  ${BOLD}View:${NC} $clean_url"
         )
+        local publish_rc=$?
+        echo ""
+        return "$publish_rc"
     else
-        warn "Not a git repository."
+        error "Not a git repository."
         echo -e "  ${DIM}Initialize with: git init && git remote add origin ...${NC}"
+        echo ""
+        return 1
     fi
-    echo ""
 }
 
 # ─── ROLE Command (Job Postings) ──────────────────────────────────────────────
@@ -3800,6 +3724,18 @@ cmd_role() {
 
 cmd_role_create() {
     local target_dir="${1:-.}"
+    while [ "$target_dir" != "/" ] && [ "${target_dir%/}" != "$target_dir" ]; do
+        target_dir="${target_dir%/}"
+    done
+
+    if [ -L "$target_dir" ]; then
+        error "Refusing symlinked role target directory: $target_dir"
+        return 1
+    fi
+    if [ -e "$target_dir" ] && [ ! -d "$target_dir" ]; then
+        error "Role target is not a directory: $target_dir"
+        return 1
+    fi
     
     header "Create Structured Job Posting"
     
@@ -3855,6 +3791,14 @@ cmd_role_create() {
     echo -e "  ${MAGENTA}━━━ 📅 Engagement ━━━${NC}"
     echo ""
     local engagement_type=$(ask_choice "Engagement type" "permanent" "contract" "fractional" "freelance")
+    [ "$engagement_type" = "freelance" ] && engagement_type="contract"
+    case "$engagement_type" in
+        permanent|contract|fractional|advisory|internship) : ;;
+        *)
+            error "Select a supported engagement type."
+            return 1
+            ;;
+    esac
     local start_date=$(ask "Start date (YYYY-MM-DD)" "")
     local duration_months=""
     if [ "$engagement_type" != "permanent" ]; then
@@ -3874,18 +3818,38 @@ cmd_role_create() {
     
     # ── Generate ──
     header "Generating Role Posting"
+
+    _require_validation_runtime || return 1
+    local role_schema
+    role_schema=$(_find_schema_file "recruiter/role.schema.json") || {
+        error "Role schema not found. Re-run the installer."
+        return 1
+    }
     
-    mkdir -p "$target_dir/roles"
+    mkdir -p "$target_dir" || {
+        error "Could not create role target directory: $target_dir"
+        return 1
+    }
+    _refuse_if_symlink "$target_dir" "$target_dir/roles" || return 1
+    if [ -e "$target_dir/roles" ] && [ ! -d "$target_dir/roles" ]; then
+        error "Role output parent is not a directory: $target_dir/roles"
+        return 1
+    fi
+    mkdir -p "$target_dir/roles" || {
+        error "Could not create role output directory: $target_dir/roles"
+        return 1
+    }
+    _refuse_if_symlink "$target_dir" "$target_dir/roles" || return 1
     
-    python3 << 'ROLE_GENERATE_SCRIPT' - \
+    "$VALIDATION_PYTHON" << 'ROLE_GENERATE_SCRIPT' - \
         "$target_dir" \
         "$role_title" "$role_description" "$role_seniority" "$min_years" \
         "$hard_skills" "$preferred_skills" "$soft_skills" "$languages_required" \
         "$currency" "$base_min" "$base_max" "$equity" \
         "$location_type" "$regions" "$tz_overlap" "$office_location" \
         "$engagement_type" "$start_date" "$duration_months" \
-        "$recruiter_card_url"
-import json, sys, os, re, hashlib
+        "$recruiter_card_url" "$role_schema"
+import json, sys, os, re, hashlib, jsonschema, secrets, stat
 from datetime import datetime, timezone, timedelta
 
 args = sys.argv[1:]
@@ -3896,6 +3860,7 @@ currency, base_min_str, base_max_str, equity_str = args[9:13]
 location_type, regions_csv, tz_overlap, office_loc = args[13:17]
 engagement_type, start_date, duration_str = args[17:20]
 recruiter_card_url = args[20] if len(args) > 20 else ""
+role_schema_path = args[21]
 
 def csv_to_list(s):
     return [x.strip() for x in s.split(',') if x.strip()] if s else []
@@ -3934,7 +3899,7 @@ role = {
         "type": location_type,
     },
     "engagement": {
-        "type": engagement_type,
+        "type": "contract" if engagement_type == "freelance" else engagement_type,
     },
     "description": role_desc,
 }
@@ -3963,9 +3928,98 @@ if recruiter_card_url:
 filename = re.sub(r'[^a-z0-9]+', '-', role_title.lower()).strip('-') + '.json'
 filepath = os.path.join(target_dir, 'roles', filename)
 
-with open(filepath, 'w') as f:
-    json.dump(role, f, indent=2, ensure_ascii=False)
-    f.write('\n')
+# Validate the complete role against the canonical schema before persistence or success output.
+with open(role_schema_path, encoding="utf-8") as f:
+    role_schema = json.load(f)
+jsonschema.Draft7Validator.check_schema(role_schema)
+jsonschema.validate(role, role_schema, format_checker=jsonschema.FormatChecker())
+
+def write_role_atomic():
+    required_flags = ("O_DIRECTORY", "O_NOFOLLOW")
+    if any(not hasattr(os, flag) for flag in required_flags):
+        raise RuntimeError("platform lacks required no-follow directory operations")
+
+    directory_flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
+    target_fd = None
+    roles_fd = None
+    temp_name = None
+    try:
+        target_fd = os.open(target_dir, directory_flags)
+        roles_fd = os.open("roles", directory_flags, dir_fd=target_fd)
+        target_identity = os.fstat(target_fd)
+        roles_identity = os.fstat(roles_fd)
+        if not stat.S_ISDIR(target_identity.st_mode) or not stat.S_ISDIR(roles_identity.st_mode):
+            raise RuntimeError("role target or roles parent is not a directory")
+
+        try:
+            final_state = os.stat(filename, dir_fd=roles_fd, follow_symlinks=False)
+        except FileNotFoundError:
+            final_state = None
+        if final_state is not None and stat.S_ISLNK(final_state.st_mode):
+            raise RuntimeError(f"refusing symlinked role output: {filepath}")
+        if final_state is not None and not stat.S_ISREG(final_state.st_mode):
+            raise RuntimeError(f"role output is not a regular file: {filepath}")
+
+        for _ in range(100):
+            candidate = f".scoutica-role-{os.getpid()}-{secrets.token_hex(8)}.tmp"
+            try:
+                temp_fd = os.open(
+                    candidate,
+                    os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,
+                    0o600,
+                    dir_fd=roles_fd,
+                )
+                temp_name = candidate
+                break
+            except FileExistsError:
+                continue
+        else:
+            raise RuntimeError("could not allocate a unique role temporary")
+
+        os.fchmod(temp_fd, 0o600)
+        with os.fdopen(temp_fd, "w", encoding="utf-8") as handle:
+            json.dump(role, handle, indent=2, ensure_ascii=False)
+            handle.write("\n")
+            handle.flush()
+            os.fsync(handle.fileno())
+
+        current_target = os.stat(target_dir, follow_symlinks=False)
+        current_roles = os.stat(os.path.join(target_dir, "roles"), follow_symlinks=False)
+        if stat.S_ISLNK(current_target.st_mode) or stat.S_ISLNK(current_roles.st_mode):
+            raise RuntimeError("role target or roles parent became a symlink")
+        if (current_target.st_dev, current_target.st_ino) != (target_identity.st_dev, target_identity.st_ino):
+            raise RuntimeError("role target directory changed during write")
+        if (current_roles.st_dev, current_roles.st_ino) != (roles_identity.st_dev, roles_identity.st_ino):
+            raise RuntimeError("roles parent changed during write")
+
+        try:
+            final_state = os.stat(filename, dir_fd=roles_fd, follow_symlinks=False)
+        except FileNotFoundError:
+            final_state = None
+        if final_state is not None and stat.S_ISLNK(final_state.st_mode):
+            raise RuntimeError(f"refusing symlinked role output: {filepath}")
+        if final_state is not None and not stat.S_ISREG(final_state.st_mode):
+            raise RuntimeError(f"role output is not a regular file: {filepath}")
+
+        os.replace(temp_name, filename, src_dir_fd=roles_fd, dst_dir_fd=roles_fd)
+        temp_name = None
+        os.fsync(roles_fd)
+    finally:
+        if temp_name is not None and roles_fd is not None:
+            try:
+                os.unlink(temp_name, dir_fd=roles_fd)
+            except FileNotFoundError:
+                pass
+        if roles_fd is not None:
+            os.close(roles_fd)
+        if target_fd is not None:
+            os.close(target_fd)
+
+try:
+    write_role_atomic()
+except (OSError, RuntimeError) as exc:
+    print(f"  ❌ Refusing unsafe role write: {exc}", file=sys.stderr)
+    sys.exit(1)
 print(f"  ✅ Created roles/{filename}")
 print(f"     Job ID: {job_id}")
 print(f"     Expires: {expiry.strftime('%Y-%m-%d')} (30 days — refresh to prevent ghost-job decay)")
@@ -3983,25 +4037,18 @@ cmd_role_validate() {
     
     header "Validate Role Postings"
     
-    # Find Python
-    local python_cmd=""
-    if command -v python3 &>/dev/null; then
-        python_cmd="python3"
-    elif command -v python &>/dev/null; then
-        python_cmd="python"
-    else
-        error "Python is required for schema validation"
-        exit 1
-    fi
+    # Validate prerequisites without mutating the user's global Python environment.
+    _require_validation_runtime || return 1
+    local python_cmd="$VALIDATION_PYTHON"
     
     # Find validator script
     local validator=""
     local script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
     
-    if [ -f "$SCOUTICA_HOME/bin/validate_card.py" ]; then
-        validator="$SCOUTICA_HOME/bin/validate_card.py"
-    elif [ -f "$script_dir/validate_card.py" ]; then
+    if [ -f "$script_dir/validate_card.py" ]; then
         validator="$script_dir/validate_card.py"
+    elif [ -f "$SCOUTICA_HOME/bin/validate_card.py" ]; then
+        validator="$SCOUTICA_HOME/bin/validate_card.py"
     elif [ -f "$SCOUTICA_HOME/tools/validate_card.py" ]; then
         validator="$SCOUTICA_HOME/tools/validate_card.py"
     fi
@@ -4011,16 +4058,7 @@ cmd_role_validate() {
         exit 1
     fi
     
-    # Check for dependencies
-    if ! $python_cmd -c "import jsonschema, yaml" 2>/dev/null; then
-        warn "Missing Python dependencies. Installing..."
-        $python_cmd -m pip install jsonschema pyyaml --quiet 2>/dev/null || {
-            error "Failed to install dependencies"
-            exit 1
-        }
-    fi
-    
-    $python_cmd "$validator" "$card_dir" --type employer
+    "$python_cmd" "$validator" "$card_dir" --type employer
 }
 
 # ─── EVALUATE Command (Fit Scoring) ───────────────────────────────────────────
@@ -4101,7 +4139,16 @@ cmd_evaluate() {
         echo -e "  ${DIM}Example: scoutica evaluate ./my-card roles/senior-engineer.json${NC}"
         exit 1
     fi
-    
+
+    if [ -z "$rules_path" ] || [ ! -f "$rules_path" ]; then
+        if $output_json; then
+            printf '%s\n' "scoutica evaluate: Rules file not found next to candidate profile: rules.yaml" >&2
+        else
+            error "Rules file not found next to candidate profile: rules.yaml"
+        fi
+        exit 1
+    fi
+
     if [ ! -f "$role_path" ]; then
         error "Role file not found: $role_path"
         exit 1
@@ -4113,7 +4160,7 @@ cmd_evaluate() {
         args+=("--json")
     fi
     args+=("$profile_path")
-    args+=("${rules_path:-/dev/null}")
+    args+=("$rules_path")
     args+=("$role_path")
     if [ -n "$recruiter_path" ] && [ -f "$recruiter_path" ]; then
         args+=("$recruiter_path")
@@ -4143,7 +4190,7 @@ cmd_jobs() {
     esac
 }
 
-cmd_jobs_search() {
+cmd_jobs_search() (
     local skills_filter=""
     local seniority_filter=""
     local search_type="candidates"
@@ -4163,82 +4210,118 @@ cmd_jobs_search() {
         esac
     done
     
-    header "Scoutica Network Search"
-    
-    echo -e "  ${DIM}Searching ${search_type}...${NC}"
-    
+    case "$search_type" in candidates|roles) ;; *) printf '%s\n' "Invalid registry type: $search_type" >&2; return 1 ;; esac
     local script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-    
-    python3 - "$search_type" "$skills_filter" "$seniority_filter" "$registry_url" "$local_index" "$output_json" "$script_dir" <<'SEARCH_SCRIPT'
-import json, sys, os
-try:
-    from urllib.request import urlopen, Request
-except ImportError:
-    pass
+    local run_dir index_file index_mode fetch_rc=0
+    _require_validation_runtime || return 1
+    run_dir=$(mktemp -d "${TMPDIR:-/tmp}/scoutica-jobs.XXXXXX") || {
+        printf '%s\n' "Could not create private jobs runtime directory." >&2
+        return 1
+    }
+    chmod 700 "$run_dir" || return 1
+    trap 'rm -rf "$run_dir" 2>/dev/null' EXIT INT TERM
+    index_file="$run_dir/index.json"
+
+    if [ -n "$local_index" ]; then
+        if [ ! -f "$local_index" ]; then
+            printf '%s\n' "Local registry index not found: $local_index" >&2
+            return 1
+        fi
+        index_file="$local_index"
+        index_mode=local
+    else
+        _safe_fetch --url "${registry_url%/}/$search_type/index.json" \
+            --output "$index_file" --expect registry --allow-not-found || fetch_rc=$?
+        case "$fetch_rc" in
+            0) index_mode=remote ;;
+            3|4)
+                index_mode=fallback
+                if $output_json; then
+                    printf '%s\n' "Registry unavailable; using bundled examples." >&2
+                else
+                    warn "Registry unavailable; using bundled examples."
+                fi
+                ;;
+            *) return "$fetch_rc" ;;
+        esac
+    fi
+
+    $output_json || {
+        header "Scoutica Network Search"
+        echo -e "  ${DIM}Searching ${search_type}...${NC}"
+    }
+
+    "$VALIDATION_PYTHON" - "$search_type" "$skills_filter" "$seniority_filter" \
+        "$index_file" "$index_mode" "$output_json" "$script_dir" <<'SEARCH_SCRIPT'
+import json, os, sys
 
 search_type = sys.argv[1]
 skills_filter = sys.argv[2]
 seniority_filter = sys.argv[3]
-registry_url = sys.argv[4]
-local_index = sys.argv[5]
+index_file = sys.argv[4]
+index_mode = sys.argv[5]
 output_json = sys.argv[6] == "true"
 script_dir = sys.argv[7] if len(sys.argv) > 7 else "."
 
-# Load index
-index = None
-if local_index and os.path.exists(local_index):
-    with open(local_index) as f:
-        index = json.load(f)
-else:
-    index_url = f"{registry_url}/{search_type}/index.json"
-    try:
-        req = Request(index_url, headers={"User-Agent": "Scoutica-CLI/0.4.0"})
-        resp = urlopen(req, timeout=10)
-        index = json.loads(resp.read().decode())
-    except Exception as e:
-        # Try local examples as fallback
-        fallback = os.path.join(script_dir, '..', 'protocol', 'examples')
-        if os.path.exists(fallback):
-            print(f"  ⚠️  Registry not reachable. Using local examples.")
-            print(f"     ({e})")
-            print()
-            # Build index from local examples
-            entries = []
-            if search_type == "candidates":
-                sample = os.path.join(fallback, 'sample_card')
-                if os.path.exists(os.path.join(sample, 'profile.json')):
-                    with open(os.path.join(sample, 'profile.json')) as f:
-                        p = json.load(f)
-                    entries.append({
-                        "card_url": sample,
-                        "name": p.get("name", ""),
-                        "title": p.get("title", ""),
-                        "seniority": p.get("seniority", ""),
-                        "skills": p.get("skills", []),
-                        "availability": p.get("availability", ""),
-                    })
-            elif search_type == "roles":
-                roles_dir = os.path.join(fallback, 'employer_card', 'roles')
-                if os.path.exists(roles_dir):
-                    for fname in os.listdir(roles_dir):
-                        if fname.endswith('.json'):
-                            with open(os.path.join(roles_dir, fname)) as f:
-                                r = json.load(f)
-                            entries.append({
-                                "role_url": os.path.join(roles_dir, fname),
-                                "title": r.get("title", ""),
-                                "hard_skills": r.get("requirements", {}).get("hard_skills", []),
-                                "seniority": r.get("requirements", {}).get("seniority", ""),
-                                "compensation_range": f"{r.get('compensation', {}).get('base_min', '?')}-{r.get('compensation', {}).get('base_max', '?')} {r.get('compensation', {}).get('currency', '')}",
-                                "location": r.get("location", {}).get("type", ""),
-                                "status": r.get("status", ""),
-                            })
-            index = {"entries": entries, "updated": "local"}
-        else:
-            print(f"  ❌ Could not fetch registry: {e}")
-            sys.exit(1)
+MAX_INDEX_BYTES = 2 * 1024 * 1024
 
-entries = index.get("entries", [])
+def fail(message):
+    print(message, file=sys.stderr)
+    raise SystemExit(1)
+
+if index_mode in {"local", "remote"}:
+    try:
+        with open(index_file, "rb") as handle:
+            raw_index = handle.read(MAX_INDEX_BYTES + 1)
+        if len(raw_index) > MAX_INDEX_BYTES:
+            fail("Registry index exceeds the 2 MiB limit.")
+        index = json.loads(raw_index.decode("utf-8", errors="strict"))
+    except (OSError, UnicodeError, ValueError) as exc:
+        fail(f"Registry index is invalid: {exc}")
+    if not isinstance(index, dict):
+        fail("Registry index root must be an object.")
+    entries = index.get("entries")
+    if not isinstance(entries, list) or not all(isinstance(entry, dict) for entry in entries):
+        fail('Registry index must contain an "entries" list of objects.')
+else:
+    fallback = os.path.join(script_dir, '..', 'protocol', 'examples')
+    if not os.path.isdir(fallback):
+        fail("Registry unavailable and bundled examples are missing.")
+    entries = []
+    if search_type == "candidates":
+        sample = os.path.join(fallback, 'sample_card')
+        profile_path = os.path.join(sample, 'profile.json')
+        if os.path.isfile(profile_path):
+            with open(profile_path, encoding="utf-8") as handle:
+                profile = json.load(handle)
+            entries.append({
+                "card_url": sample,
+                "name": profile.get("name", ""),
+                "title": profile.get("title", ""),
+                "seniority": profile.get("seniority", ""),
+                "skills": profile.get("skills", []),
+                "availability": profile.get("availability", ""),
+            })
+    else:
+        roles_dir = os.path.join(fallback, 'employer_card', 'roles')
+        if os.path.isdir(roles_dir):
+            for filename in os.listdir(roles_dir):
+                if not filename.endswith('.json'):
+                    continue
+                with open(os.path.join(roles_dir, filename), encoding="utf-8") as handle:
+                    role = json.load(handle)
+                requirements = role.get("requirements", {})
+                compensation = role.get("compensation", {})
+                location = role.get("location", {})
+                entries.append({
+                    "role_url": os.path.join(roles_dir, filename),
+                    "title": role.get("title", ""),
+                    "hard_skills": requirements.get("hard_skills", []),
+                    "seniority": requirements.get("seniority", ""),
+                    "compensation_range": f"{compensation.get('base_min', '?')}-{compensation.get('base_max', '?')} {compensation.get('currency', '')}",
+                    "location": location.get("type", ""),
+                    "status": role.get("status", ""),
+                })
 
 # Apply filters
 results = []
@@ -4301,426 +4384,149 @@ else:
             print()
     print()
 SEARCH_SCRIPT
+)
+
+# ─── SEND / INBOX / REPLY (Trusted Message Runtime) ──────────────────────────
+
+_message_runtime_helper() {
+    local script_dir candidate
+    script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+    for candidate in \
+        "$script_dir/message_runtime.py" \
+        "$SCOUTICA_HOME/bin/message_runtime.py"; do
+        if [ -f "$candidate" ]; then
+            printf '%s\n' "$candidate"
+            return 0
+        fi
+    done
+    error "Message runtime helper not found (message_runtime.py)." >&2
+    return 1
 }
 
-# ─── SEND Command (Git-Native Messaging) ─────────────────────────────────────
+_run_message_runtime() {
+    local helper schema
+    _require_validation_runtime 1>&2 || return 1
+    helper=$(_message_runtime_helper) || return 1
+    schema=$(_find_schema_file "recruiter/message.schema.json") || {
+        error "Trusted message schema not found (recruiter/message.schema.json)." >&2
+        return 1
+    }
+    "$VALIDATION_PYTHON" "$helper" "$1" --schema "$schema" --home "$SCOUTICA_HOME" "${@:2}"
+}
 
 cmd_send() {
-    local recipient_url=""
-    local msg_type="opportunity.pitch"
-    local role_path=""
-    local message_text=""
-    local card_dir="."
-    
+    local recipient_url="" msg_type="opportunity.pitch" role_path="" message_text="" card_dir=""
+
     while [[ $# -gt 0 ]]; do
         case "$1" in
-            --type)    msg_type="$2"; shift 2 ;;
-            --role)    role_path="$2"; shift 2 ;;
-            --message) message_text="$2"; shift 2 ;;
-            --card)    card_dir="$2"; shift 2 ;;
-            *)         recipient_url="$1"; shift ;;
+            --type|--role|--message|--card)
+                if [ $# -lt 2 ]; then
+                    error "Missing value for $1"
+                    return 1
+                fi
+                case "$1" in
+                    --type) msg_type="$2" ;;
+                    --role) role_path="$2" ;;
+                    --message) message_text="$2" ;;
+                    --card) card_dir="$2" ;;
+                esac
+                shift 2
+                ;;
+            --*) error "Unknown send option: $1"; return 1 ;;
+            *)
+                if [ -n "$recipient_url" ]; then
+                    error "Multiple recipients specified."
+                    return 1
+                fi
+                recipient_url="$1"
+                shift
+                ;;
         esac
     done
-    
+
     if [ -z "$recipient_url" ]; then
         error "No recipient specified."
         echo -e "  ${DIM}Usage: scoutica send <recipient_card_url> --type opportunity.offer --role role.json${NC}"
-        exit 1
+        return 1
     fi
-    
+
     header "Send Scoutica Message"
-    
-    python3 - "$recipient_url" "$msg_type" "$role_path" "$message_text" "$card_dir" <<'SEND_SCRIPT'
-import json, sys, os, hashlib
-from datetime import datetime, timezone
-
-recipient_url = sys.argv[1]
-msg_type = sys.argv[2]
-role_path = sys.argv[3]
-message_text = sys.argv[4]
-card_dir = sys.argv[5]
-
-now = datetime.now(timezone.utc)
-
-# Generate message ID
-msg_hash = hashlib.sha256(f"{recipient_url}:{now.isoformat()}".encode()).hexdigest()[:8]
-msg_id = f"msg_{msg_hash}"
-
-# Generate conversation ID (or use existing)
-conv_hash = hashlib.sha256(f"{recipient_url}:{card_dir}:{msg_type}".encode()).hexdigest()[:8]
-conv_id = f"conv_{conv_hash}"
-
-# Build sender info
-sender = {"card_url": ""}
-try:
-    scoutica_file = os.path.join(card_dir, "scoutica.json")
-    if os.path.exists(scoutica_file):
-        with open(scoutica_file) as f:
-            disc = json.load(f)
-        sender["card_url"] = disc.get("card_url", "")
-    elif os.path.exists(os.path.join(card_dir, "recruiter_profile.json")):
-        with open(os.path.join(card_dir, "recruiter_profile.json")) as f:
-            rp = json.load(f)
-        sender["card_url"] = rp.get("card_url", "")
-except Exception:
-    pass
-
-# Build payload
-payload = {}
-if message_text:
-    payload["message"] = message_text
-if role_path and os.path.exists(role_path):
-    payload["role_url"] = role_path
-    with open(role_path) as f:
-        role = json.load(f)
-    if "compensation" in role:
-        payload["compensation_summary"] = {
-            "base_min": role["compensation"].get("base_min"),
-            "base_max": role["compensation"].get("base_max"),
-            "currency": role["compensation"].get("currency"),
-        }
-
-# Build message envelope
-message = {
-    "message_id": msg_id,
-    "type": msg_type,
-    "sender": sender,
-    "recipient": recipient_url,
-    "conversation_id": conv_id,
-    "timestamp": now.strftime("%Y-%m-%dT%H:%M:%SZ"),
-    "ttl_hours": 168,
-    "transport_used": "git",
-    "payload": payload,
+    local args=(send --recipient "$recipient_url" --type "$msg_type" --message "$message_text" --cwd "$PWD")
+    [ -z "$role_path" ] || args+=(--role "$role_path")
+    [ -z "$card_dir" ] || args+=(--card "$card_dir")
+    _run_message_runtime "${args[@]}"
+    local rc=$?
+    [ "$rc" -ne 0 ] || echo ""
+    return "$rc"
 }
-
-# Store in local outbox
-outbox_dir = os.path.expanduser("~/.scoutica/outbox")
-os.makedirs(outbox_dir, exist_ok=True)
-
-msg_file = os.path.join(outbox_dir, f"{msg_id}.json")
-with open(msg_file, "w") as f:
-    json.dump(message, f, indent=2, ensure_ascii=False)
-    f.write("\n")
-
-# Also prepare for registry inbox deposit
-inbox_dir = os.path.expanduser("~/.scoutica/pending_delivery")
-os.makedirs(inbox_dir, exist_ok=True)
-
-# Recipient hash for inbox routing
-recipient_hash = hashlib.sha256(recipient_url.encode()).hexdigest()[:12]
-delivery_dir = os.path.join(inbox_dir, recipient_hash)
-os.makedirs(delivery_dir, exist_ok=True)
-
-delivery_file = os.path.join(delivery_dir, f"{msg_id}.json")
-with open(delivery_file, "w") as f:
-    json.dump(message, f, indent=2, ensure_ascii=False)
-    f.write("\n")
-
-# Log to transparency log
-log_dir = os.path.expanduser("~/.scoutica/privacy")
-os.makedirs(log_dir, exist_ok=True)
-log_entry = {
-    "event": "message_sent",
-    "message_id": msg_id,
-    "recipient": recipient_url,
-    "type": msg_type,
-    "timestamp": now.strftime("%Y-%m-%dT%H:%M:%SZ"),
-    "transport": "git",
-}
-log_file = os.path.join(log_dir, "access_log.jsonl")
-with open(log_file, "a") as f:
-    f.write(json.dumps(log_entry) + "\n")
-
-print(f"  ✅ Message created: {msg_id}")
-print(f"     Type: {msg_type}")
-print(f"     Recipient: {recipient_url}")
-print(f"     Conversation: {conv_id}")
-print(f"     Saved to: {msg_file}")
-print()
-print(f"  📬 Pending delivery at: {delivery_file}")
-print(f"     To deliver via Git registry:")
-print(f"     1. Copy to registry inbox: inbox/{recipient_hash}/{msg_id}.json")
-print(f"     2. Open PR on traylinx/scoutica-registry")
-print()
-print(f"  📋 Logged to: {log_file}")
-SEND_SCRIPT
-    
-    echo ""
-}
-
-# ─── INBOX Command (Check Messages) ──────────────────────────────────────────
 
 cmd_inbox() {
     local output_json=false
-    
     while [[ $# -gt 0 ]]; do
         case "$1" in
             --json) output_json=true; shift ;;
-            *)      shift ;;
+            *) printf '%s\n' "Unknown inbox option: $1" >&2; return 1 ;;
         esac
     done
-    
-    header "Scoutica Inbox"
-    
-    python3 - "$output_json" <<'INBOX_SCRIPT'
-import json, sys, os, glob
-from datetime import datetime, timezone
 
-output_json = sys.argv[1] == "true"
-
-inbox_dir = os.path.expanduser("~/.scoutica/inbox")
-outbox_dir = os.path.expanduser("~/.scoutica/outbox")
-
-messages = []
-
-# Check local inbox
-if os.path.exists(inbox_dir):
-    for root, dirs, files in os.walk(inbox_dir):
-        for fname in sorted(files):
-            if fname.endswith('.json'):
-                filepath = os.path.join(root, fname)
-                try:
-                    with open(filepath) as f:
-                        msg = json.load(f)
-                    msg["_source"] = "inbox"
-                    msg["_file"] = filepath
-                    messages.append(msg)
-                except Exception:
-                    pass
-
-# Check for pending delivery (outbox)
-pending_dir = os.path.expanduser("~/.scoutica/pending_delivery")
-pending_count = 0
-if os.path.exists(pending_dir):
-    for root, dirs, files in os.walk(pending_dir):
-        pending_count += sum(1 for f in files if f.endswith('.json'))
-
-if output_json:
-    print(json.dumps({
-        "messages": messages,
-        "count": len(messages),
-        "pending_delivery": pending_count,
-    }, indent=2))
-else:
-    if not messages and pending_count == 0:
-        print("  📭 No messages in your inbox.")
-        print()
-        print(f"  \033[2mMessages arrive when:")
-        print(f"    • Someone sends you an offer via the registry")
-        print(f"    • A Nostr relay delivers an event (Phase 3)")
-        print(f"  \033[0m")
-    else:
-        if messages:
-            print(f"  📬 {len(messages)} message(s) in inbox:")
-            print()
-            for msg in messages:
-                msg_type = msg.get("type", "unknown")
-                sender = msg.get("sender", {}).get("card_url", "unknown")
-                timestamp = msg.get("timestamp", "")[:16]
-                msg_id = msg.get("message_id", "")
-                conv_id = msg.get("conversation_id", "")
-                
-                # Icon by type
-                icons = {
-                    "opportunity.pitch": "💡",
-                    "opportunity.offer": "💰",
-                    "response.accept": "✅",
-                    "response.reject": "❌",
-                    "status.check": "❓",
-                    "rules.check": "📋",
-                    "response.withdraw": "🚪",
-                    "event.ghosting": "👻",
-                }
-                icon = icons.get(msg_type, "📩")
-                
-                print(f"  {icon} {msg_id} — {msg_type}")
-                print(f"     From: {sender}")
-                print(f"     Date: {timestamp}")
-                if conv_id:
-                    print(f"     Thread: {conv_id}")
-                
-                # Show payload summary
-                payload = msg.get("payload", {})
-                if "message" in payload:
-                    print(f"     Message: {payload['message'][:80]}")
-                if "role_url" in payload:
-                    print(f"     Role: {payload['role_url']}")
-                if "compensation_summary" in payload:
-                    comp = payload["compensation_summary"]
-                    print(f"     Compensation: {comp.get('base_min', '?')}-{comp.get('base_max', '?')} {comp.get('currency', '')}")
-                if "reasons" in payload:
-                    print(f"     Reasons: {', '.join(payload['reasons'][:3])}")
-                print()
-        
-        if pending_count > 0:
-            print(f"  📤 {pending_count} message(s) pending delivery (outbox)")
-            print(f"     Run 'scoutica deliver' to push to registry")
-    
-    print()
-INBOX_SCRIPT
+    $output_json || header "Scoutica Inbox"
+    if $output_json; then
+        _run_message_runtime inbox --json
+    else
+        _run_message_runtime inbox
+    fi
 }
-
-# ─── REPLY Command ───────────────────────────────────────────────────────────
 
 cmd_reply() {
-    local message_id=""
-    local action=""  # accept, reject, withdraw
-    local reply_message=""
-    
+    local message_id="" action="" reply_message="" card_dir="" action_count=0
+
     while [[ $# -gt 0 ]]; do
         case "$1" in
-            --accept)   action="accept"; shift ;;
-            --reject)   action="reject"; shift ;;
-            --withdraw) action="withdraw"; shift ;;
-            --message)  reply_message="$2"; shift 2 ;;
-            *)          message_id="$1"; shift ;;
+            --accept|--reject|--withdraw)
+                action_count=$((action_count + 1))
+                action=${1#--}
+                shift
+                ;;
+            --message|--card)
+                if [ $# -lt 2 ]; then
+                    error "Missing value for $1"
+                    return 1
+                fi
+                case "$1" in
+                    --message) reply_message="$2" ;;
+                    --card) card_dir="$2" ;;
+                esac
+                shift 2
+                ;;
+            --*) error "Unknown reply option: $1"; return 1 ;;
+            *)
+                if [ -n "$message_id" ]; then
+                    error "Multiple message IDs specified."
+                    return 1
+                fi
+                message_id="$1"
+                shift
+                ;;
         esac
     done
-    
+
     if [ -z "$message_id" ]; then
         error "No message ID specified."
-        echo -e "  ${DIM}Usage: scoutica reply <message_id> --accept${NC}"
-        echo -e "  ${DIM}       scoutica reply <message_id> --reject${NC}"
-        exit 1
+        echo -e "  ${DIM}Usage: scoutica reply <message_id> --accept --card <dir>${NC}"
+        return 1
     fi
-    
-    if [ -z "$action" ]; then
-        error "No action specified. Use --accept, --reject, or --withdraw"
-        exit 1
+    if [ "$action_count" -ne 1 ]; then
+        error "Specify exactly one of --accept, --reject, or --withdraw."
+        return 1
     fi
-    
-    header "Send Reply"
-    
-    python3 - "$message_id" "$action" "$reply_message" <<'REPLY_SCRIPT'
-import json, sys, os, hashlib
-from datetime import datetime, timezone
 
-message_id = sys.argv[1]
-action = sys.argv[2]
-reply_message = sys.argv[3] if len(sys.argv) > 3 else ""
-
-now = datetime.now(timezone.utc)
-
-# Find original message in inbox
-inbox_dir = os.path.expanduser("~/.scoutica/inbox")
-original = None
-original_file = None
-
-if os.path.exists(inbox_dir):
-    for root, dirs, files in os.walk(inbox_dir):
-        for fname in files:
-            if fname.endswith('.json'):
-                filepath = os.path.join(root, fname)
-                try:
-                    with open(filepath) as f:
-                        msg = json.load(f)
-                    if msg.get("message_id") == message_id:
-                        original = msg
-                        original_file = filepath
-                        break
-                except Exception:
-                    pass
-        if original:
-            break
-
-if not original:
-    print(f"  ❌ Message not found: {message_id}")
-    print(f"     Check your inbox with: scoutica inbox")
-    sys.exit(1)
-
-# Map action to response type
-type_map = {
-    "accept": "response.accept",
-    "reject": "response.reject",
-    "withdraw": "response.withdraw",
-}
-response_type = type_map.get(action, f"response.{action}")
-
-# Generate reply message ID
-reply_hash = hashlib.sha256(f"{message_id}:{action}:{now.isoformat()}".encode()).hexdigest()[:8]
-reply_id = f"msg_{reply_hash}"
-
-# Build response payload
-payload = {}
-if action == "reject":
-    payload["reasons"] = [reply_message] if reply_message else ["auto_rejected_by_rules"]
-    payload["auto_rejected"] = not bool(reply_message)
-elif action == "accept":
-    if reply_message:
-        payload["message"] = reply_message
-elif action == "withdraw":
-    if reply_message:
-        payload["reason"] = reply_message
-
-# Build response envelope
-response = {
-    "message_id": reply_id,
-    "type": response_type,
-    "sender": original.get("sender", {}),  # Will be overridden by actual sender
-    "recipient": original.get("sender", {}).get("card_url", ""),
-    "conversation_id": original.get("conversation_id", ""),
-    "in_reply_to": message_id,
-    "timestamp": now.strftime("%Y-%m-%dT%H:%M:%SZ"),
-    "ttl_hours": 168,
-    "transport_used": "git",
-    "payload": payload,
-}
-
-# Save to outbox
-outbox_dir = os.path.expanduser("~/.scoutica/outbox")
-os.makedirs(outbox_dir, exist_ok=True)
-reply_file = os.path.join(outbox_dir, f"{reply_id}.json")
-with open(reply_file, "w") as f:
-    json.dump(response, f, indent=2, ensure_ascii=False)
-    f.write("\n")
-
-# Prepare for delivery
-pending_dir = os.path.expanduser("~/.scoutica/pending_delivery")
-sender_url = original.get("sender", {}).get("card_url", "unknown")
-sender_hash = hashlib.sha256(sender_url.encode()).hexdigest()[:12]
-delivery_dir = os.path.join(pending_dir, sender_hash)
-os.makedirs(delivery_dir, exist_ok=True)
-delivery_file = os.path.join(delivery_dir, f"{reply_id}.json")
-with open(delivery_file, "w") as f:
-    json.dump(response, f, indent=2, ensure_ascii=False)
-    f.write("\n")
-
-# Log
-log_dir = os.path.expanduser("~/.scoutica/privacy")
-os.makedirs(log_dir, exist_ok=True)
-log_entry = {
-    "event": "reply_sent",
-    "message_id": reply_id,
-    "in_reply_to": message_id,
-    "type": response_type,
-    "recipient": sender_url,
-    "timestamp": now.strftime("%Y-%m-%dT%H:%M:%SZ"),
-    "transport": "git",
-}
-log_file = os.path.join(log_dir, "access_log.jsonl")
-with open(log_file, "a") as f:
-    f.write(json.dumps(log_entry) + "\n")
-
-# Move original to processed
-processed_dir = os.path.expanduser("~/.scoutica/inbox/processed")
-os.makedirs(processed_dir, exist_ok=True)
-processed_file = os.path.join(processed_dir, os.path.basename(original_file))
-os.rename(original_file, processed_file)
-
-icons = {"accept": "✅", "reject": "❌", "withdraw": "🚪"}
-icon = icons.get(action, "📩")
-
-print(f"  {icon} Reply sent: {reply_id}")
-print(f"     Action: {action}")
-print(f"     In reply to: {message_id}")
-print(f"     To: {sender_url}")
-print(f"     Conversation: {original.get('conversation_id', '')}")
-print()
-print(f"  📬 Pending delivery at: {delivery_file}")
-print(f"  📋 Original moved to: {processed_file}")
-REPLY_SCRIPT
-    
-    echo ""
+    header "Stage Reply"
+    local args=(reply --message-id "$message_id" --action "$action" --message "$reply_message" --cwd "$PWD")
+    [ -z "$card_dir" ] || args+=(--card "$card_dir")
+    _run_message_runtime "${args[@]}"
+    local rc=$?
+    [ "$rc" -ne 0 ] || echo ""
+    return "$rc"
 }
 
 # ─── IDENTITY Command (Nostr Keypair) ────────────────────────────────────────
@@ -5178,6 +4984,3 @@ main() {
 }
 
 main "$@"
-
-
-

@@ -12,14 +12,14 @@ The Scoutica Protocol is organized into four layers. Three are live today; the T
 
 | Layer | Status | Components |
 |-------|--------|------------|
-| **Candidate Layer** | ✅ Live | Documents, Scoutica CLI, Skill Card, Local AI CLI |
+| **Candidate Layer** | ✅ Live | Documents, Scoutica CLI, Skill Card, configured AI provider |
 | **Distribution Layer** | ✅ Live | GitHub, Registry, `scoutica.json` |
 | **Consumption Layer** | ✅ Live | AI Agents, Job Boards, ATS Systems, Widgets |
 | **Trust Layer** | 🔜 Roadmap | Blockchain, Soulbound Tokens, Zero-Knowledge Proofs |
 
 ### Candidate Layer
 
-The Candidate Layer is where Skill Cards are created. Candidates use the Scoutica CLI or any AI assistant to generate a structured set of files (`profile.json`, `rules.yaml`, `evidence.json`, `scoutica.json`) from their documents. All AI processing runs locally — no data leaves your machine.
+The Candidate Layer is where Skill Cards are created. Candidates use the Scoutica CLI or any AI assistant to generate a structured set of files (`profile.json`, `rules.yaml`, `evidence.json`, `scoutica.json`) from their documents. Extraction runs locally; a remote-capable provider may receive the full generated prompt and document text.
 
 ### Distribution Layer
 
@@ -61,7 +61,7 @@ You do not get anyone's private data. Each card lives in its owner's private dir
 Cards flow from source documents through the CLI to GitHub:
 
 ```text
-Documents → scoutica scan → Local AI → Skill Card files → GitHub repo → Registry / Discovery
+Documents → scoutica scan → configured AI provider → Skill Card files → GitHub repo → Registry / Discovery
 ```
 
 From GitHub, any consumer can resolve a card by fetching the four canonical files:
