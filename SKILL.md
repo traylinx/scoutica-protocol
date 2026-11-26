@@ -114,5 +114,5 @@ scoutica register <dir> --type … ; scoutica identity init|show
 
 ## Learn more
 
-- Repo: [github.com/traylinx/scoutica-protocol](https://github.com/traylinx/scoutica-protocol) · Docs: [docs.scoutica.com](https://docs.scoutica.com) · License: Apache 2.0
+- Repo: [github.com/traylinx/scoutica-protocol](https://github.com/traylinx/scoutica-protocol) · Docs: [docs.protocol.scoutica.com](https://docs.protocol.scoutica.com) · License: Apache 2.0
 - Conversational (no-CLI) card generation: `GENERATE_MY_CARD.md`

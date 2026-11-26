@@ -213,7 +213,7 @@ echo -e "  ${CYAN}scoutica role validate${NC}           Validate role(s) against
 echo ""
 echo -e "  ${BOLD}📚 Learn more:${NC}"
 echo ""
-echo -e "  ${CYAN}Docs:${NC}       https://docs.scoutica.com"
+echo -e "  ${CYAN}Docs:${NC}       https://docs.protocol.scoutica.com"
 echo -e "  ${CYAN}GitHub:${NC}     https://github.com/traylinx/scoutica-protocol"
 echo -e "  ${CYAN}AI Guide:${NC}   ${SCOUTICA_HOME:-~/.scoutica}/GENERATE_MY_CARD.md"
 echo ""

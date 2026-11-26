@@ -14,7 +14,7 @@ Eleven complete walkthroughs showing how both sides of the Scoutica network oper
 
 ### Steps
 
-1. **Install CLI:** `curl -fsSL https://scoutica.com/install.sh | bash`
+1. **Install CLI:** `curl -fsSL https://raw.githubusercontent.com/traylinx/scoutica-protocol/main/install.sh | bash`
 2. **Initialize Org Card:** `scoutica org init`
    - Prompts for: org name, domain, industries, team size, engagement types, **team model** (solo/organization/agency)
    - Generates: `recruiter_profile.json`, `hiring_rules.yaml`

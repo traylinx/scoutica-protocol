@@ -1,7 +1,7 @@
 name: Deploy docs
 
 # Continuous deployment for the self-hosted Astro Starlight docs site
-# (docs.scoutica.com on Netlify). Builds and deploys whenever docs/ changes.
+# (docs.protocol.scoutica.com on Netlify). Builds and deploys whenever docs/ changes.
 
 on:
   push:

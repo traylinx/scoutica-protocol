@@ -3,7 +3,9 @@
 <p align="center">
   <img src="assets/logo.png" alt="Scoutica Protocol Logo" width="250" />
 </p>
-> **LinkedIn charges employers $10,000/year for YOUR data. You get $0. We're building the alternative: you own your skill card, AI agents do the matching — transparently, verifiably, without bias.**
+Scoutica Protocol (SP) is an open protocol for describing capabilities, evidence, and engagement rules. It supports human recruitment today; support for AI agents and robots as subjects is planned. In the current protocol, AI agents can assist people and employers; they are not themselves candidates.
+
+[Project site](https://protocol.scoutica.com/) · [Documentation](https://docs.protocol.scoutica.com/)
 
 > [!NOTE]
 > **Current status:** The protocol, CLI, schemas, and AI-powered card generation are **live and ready to use today**. The monetization layer (micropayments, blockchain identity, $SKILL token) is on the **roadmap** and under active development.
@@ -16,7 +18,7 @@ This project has a strict separation between two concerns:
 
 | Part | What | Where | Visibility |
 |------|------|--------|------------|
-| **The Protocol** | Open standard, schemas, agent rules, registry API, smart contracts, templates | This repo (`scoutica/`) | 🌍 Public — anyone can clone, fork, build on it |
+| **The Protocol** | Open standard, schemas, agent rules, registry API, smart contracts, templates | This repo (`scoutica-protocol/`) | 🌍 Public — anyone can clone, fork, build on it |
 | **Your Skill Card** | Your personal profile, Rules of Engagement, evidence, salary floor | Your private store (e.g. `~/my-card/`) | 🔒 Private — never committed to this repo |
 
 **The protocol is the network. Your skill card is your node on it.**
@@ -40,7 +42,7 @@ scoutica-protocol/
 ├── README.md                       ← You are here
 ├── SKILL.md                        ← Agent instructions (candidate side)
 ├── RECRUITER_SKILL.md              ← Agent instructions (employer side)
-├── docs/                           ← 📚 DOCUMENTATION (Astro/Starlight → docs.scoutica.com)
+├── docs/                           ← 📚 DOCUMENTATION (Astro/Starlight → docs.protocol.scoutica.com)
 │   ├── astro.config.mjs            ← Starlight navigation and site configuration
 │   ├── package.json                ← Docs build and validation commands
 │   └── src/content/docs/           ← CLI reference, guides, and architecture
@@ -266,7 +268,7 @@ stdin or prompt-file interface; Scoutica will not place source documents in proc
 
 ---
 
-📗 **Learn More:** Check out the [Complete Documentation](https://docs.scoutica.com) for full commands, guides, and architecture.
+📗 **Learn More:** Check out the [Complete Documentation](https://docs.protocol.scoutica.com) for full commands, guides, and architecture.
 
 ### Option 3: Employers / Recruiters (Hire passively or actively)
 
