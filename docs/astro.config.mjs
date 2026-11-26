@@ -4,18 +4,18 @@ import starlight from '@astrojs/starlight';
 import { fileURLToPath } from 'node:url';
 
 export default defineConfig({
-  site: 'https://docs.scoutica.com',
+  site: 'https://docs.protocol.scoutica.com',
   integrations: [
     starlight({
       title: 'Scoutica Protocol',
-      description: 'Your skills. Your rules. Your data. The open protocol for candidate-owned, AI-readable professional profiles.',
+      description: 'The open protocol for capability profiles, evidence, and engagement rules, starting with human recruitment.',
       favicon: '/images/favicon.ico',
       customCss: ['./src/styles/custom.css'],
       social: [
         { icon: 'github', label: 'GitHub', href: 'https://github.com/traylinx/scoutica-protocol' },
       ],
       sidebar: [
-    { label: "← Back to scoutica.com", link: "https://scoutica.com" },
+    { label: "← Back to Scoutica Protocol", link: "https://protocol.scoutica.com" },
     {
       label: "Get Started",
       items: [

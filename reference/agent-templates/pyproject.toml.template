@@ -2,7 +2,7 @@
 name = "scoutica-<agent>-agent"
 version = "1.0.0"
 description = "Scoutica <Agent> Agent - <Brief Description>"
-authors = ["Scoutica Team <team@scoutica.com>"]
+authors = ["Scoutica Protocol Contributors"]
 readme = "README.md"
 packages = [{include = "app"}]
 

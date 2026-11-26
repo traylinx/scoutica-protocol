@@ -1,0 +1,2 @@
+# Activate only after docs.protocol.scoutica.com has working DNS and TLS.
+https://docs.scoutica.com/* https://docs.protocol.scoutica.com/:splat 301!

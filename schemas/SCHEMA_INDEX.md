@@ -13,7 +13,7 @@ map so the two homes do not drift.
 | `schemas/registry/` | **Registry indexes** — `candidates_index`, `roles_index` | v0.4.0 |
 | `schemas/scoutica_discovery.schema.json` | discovery file (`scoutica.json`) | v0.4.0 |
 
-Every schema now carries a stable `$id` of the form `https://scoutica.com/schemas/<file>`.
+Every schema carries a stable `$id` of the form `https://scoutica.com/schemas/<file>`. These are identifiers, not download URLs. The move to `protocol.scoutica.com` does not change existing schema IDs. Use the schema files in this repository for offline validation.
 
 ## Canonical shared enums (single source of truth)
 
